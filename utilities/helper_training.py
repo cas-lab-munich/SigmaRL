@@ -24,7 +24,12 @@ import re
 
 def get_model_name(parameters):
     # model_name = f"nags{parameters.n_agents}_it{parameters.n_iters}_fpb{parameters.frames_per_batch}_tfrms{parameters.total_frames}_neps{parameters.num_epochs}_mnbsz{parameters.minibatch_size}_lr{parameters.lr}_mgn{parameters.max_grad_norm}_clp{parameters.clip_epsilon}_gm{parameters.gamma}_lmbda{parameters.lmbda}_etp{parameters.entropy_eps}_mstp{parameters.max_steps}_nenvs{parameters.num_vmas_envs}"
-    model_name = f"reward{parameters.episode_reward_mean_current:.2f}"
+    if "road" in parameters.scenario_name:
+        model_name = f"reward{parameters.episode_reward_mean_current:.2f}"
+    elif "path" in parameters.scenario_name:
+        model_name = f"{parameters.path_tracking_type}_reward{parameters.episode_reward_mean_current:.2f}"
+    else:
+        raise ValueError(f"Required scenario ('{parameters.scenario_name}') is not found.")
 
     return model_name
 
@@ -275,8 +280,10 @@ class Parameters():
                 is_local_observation: bool = None,
                 is_global_coordinate_sys: bool = None,
                 n_short_term_points: int = None,
-                is_testing: bool = None,
+                is_testing_mode: bool = None,
                 is_visualize_short_term_path: bool = None,
+                
+                path_tracking_type: str = None, # For path-tracking scenarios
                 ):
         
         self.n_agents = n_agents
@@ -312,16 +319,19 @@ class Parameters():
         self.episode_reward_intermidiate = episode_reward_intermidiate
         self.where_to_save = where_to_save
         self.is_continue_train = is_continue_train
-
-        if mode_name == None:
-            self.mode_name = get_model_name(self)
         
         # Scenario parameters    
         self.is_local_observation = is_local_observation
         self.is_global_coordinate_sys = is_global_coordinate_sys
         self.n_short_term_points = n_short_term_points
-        self.is_testing = is_testing
+        self.is_testing_mode = is_testing_mode
         self.is_visualize_short_term_path = is_visualize_short_term_path
+        
+        self.path_tracking_type = path_tracking_type
+            
+        if mode_name == None:
+            self.mode_name = get_model_name(self)
+            
             
     def to_dict(self):
         # Create a dictionary representation of the instance

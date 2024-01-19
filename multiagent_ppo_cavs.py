@@ -36,17 +36,23 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
 
 # Import custom classes
 from utilities.helper_training import Parameters, SaveData, VmasEnvCustom, SyncDataCollectorCustom, TransformedEnvCustom, get_path_to_save_model, save
-from scenarios.car_like_robots_road_traffic import Scenario
+from scenarios.car_like_robots_road_traffic import ScenarioRoadTraffic
+from scenarios.car_like_robots_path_tracking import ScenarioPathTracking
 
 # Reproducibility
 torch.manual_seed(0)
 
 
 def multiagent_ppo_cavs(parameters: Parameters):
-    # Devices
-    scenario = Scenario()
+    if "road_traffic" in parameters.scenario_name:
+        scenario = ScenarioRoadTraffic()
+    elif "path_tracking" in parameters.scenario_name:
+        scenario = ScenarioPathTracking()
+    else:
+        raise ValueError(f"The given scenario '{parameters.scenario_name}' is not found. Current implementation includes 'car_like_robots_road_traffic' and 'car_like_robots_path_tracking'.")
     
     scenario.parameters = parameters
+    
     env = VmasEnvCustom(
         scenario=scenario,
         num_envs=parameters.num_vmas_envs,
@@ -332,39 +338,43 @@ def multiagent_ppo_cavs(parameters: Parameters):
 
 
 if __name__ == "__main__":
+    scenario_name = "car_like_robots_path_tracking" # car_like_robots_road_traffic, car_like_robots_go_to_formation, car_like_robots_path_tracking
+    
     parameters = Parameters(
         n_agents=4,
         device="cpu" if not torch.backends.cuda.is_built() else "cuda:0",  # The divice where learning is run
-        scenario_name="car_like_robots_road_traffic", # car_like_robots_road_traffic, car_like_robots_go_to_formation, kinematic_bicycle
+        scenario_name=scenario_name,
         
         # Training parameters
         n_iters=100, # Number of sampling and training iterations (on-policy: rollouts are collected during sampling phase, which will be immediately used in the training phase of the same iteration),
-        frames_per_batch=10240, # Number of team frames collected per training iteration (minibatch_size*10)
+        frames_per_batch=1024, # Number of team frames collected per training iteration (minibatch_size*10)
         num_epochs=30, # Number of optimization steps per training iteration,
         minibatch_size=1024, # Size of the mini-batches in each optimization step (2**9 - 2**12?),
-        lr=4e-4, # Learning rate,
+        lr=1e-4, # Learning rate,
         max_grad_norm=1.0, # Maximum norm for the gradients,
         clip_epsilon=0.2, # clip value for PPO loss,
         gamma=0.95, # discount factor,
         lmbda=0.9, # lambda for generalised advantage estimation,
         entropy_eps=1e-4, # coefficient of the entropy term in the PPO loss,
-        max_steps=512, # Episode steps before done (512)
+        max_steps=128, # Episode steps before done (512)
         
         is_save_intermidiate_model=True, # Is this is true, the model with the hightest mean episode reward will be saved,
-        is_load_model=True, # Load offline model if available. The offline model in `where_to_save` whose name contains `episode_reward_mean_current` will be loaded
         n_nearing_agents_observed=4,
         episode_reward_mean_current=0.00,
+        is_load_model=True, # Load offline model if available. The offline model in `where_to_save` whose name contains `episode_reward_mean_current` will be loaded
+        is_continue_train=False, # If offline models are loaded, whether to continue to train the model
         mode_name=None, 
         episode_reward_intermidiate=-1e3, # The initial value should be samll enough
-        where_to_save="outputs/car_like_robots_road_traffic_ppo/test1/", # folder where to save the trained models, fig, data, etc.
-        is_continue_train=False, # If offline models are loaded, whether to continue to train the model
+        where_to_save=f"outputs/{scenario_name}_ppo/test2/", # folder where to save the trained models, fig, data, etc.
         
         # Scenario parameters
         is_local_observation=True,
         is_global_coordinate_sys=True,
         n_short_term_points=6,
-        is_testing=False,
+        is_testing_mode=False,
         is_visualize_short_term_path=True,
+        
+        path_tracking_type='line', # For path-tracking scenarios, should be one of 'line', 'turning', 'circle', 'sine', and 'horizontal_8'
     )
     
     env, policy = multiagent_ppo_cavs(parameters=parameters)
@@ -372,7 +382,7 @@ if __name__ == "__main__":
     # Evaluate the model
     with torch.no_grad():
         env.rollout(
-            max_steps=4000,
+            max_steps=1000,
             policy=policy,
             callback=lambda env, _: env.render(),
             auto_cast_to_device=True,

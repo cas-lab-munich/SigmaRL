@@ -16,7 +16,7 @@ def parse_bound(element, device):
     line_marking = element.find("lineMarking").text if element.find("lineMarking") is not None else None
     return points, line_marking
 
-def get_center_length_yaw_polyline(polyline):
+def get_center_length_yaw_polyline(polyline: torch.Tensor):
     """
     This function calculates the center points, lengths, and yaws of all line segments of the given polyline.
     """
@@ -27,7 +27,7 @@ def get_center_length_yaw_polyline(polyline):
     lengths = polyline_vecs.norm(dim=1)
     yaws = torch.atan2(polyline_vecs[:,1], polyline_vecs[:,0])
 
-    return center_points, lengths, yaws
+    return center_points, lengths, yaws, polyline_vecs
 
 def parse_lanelet(element, device):
     """ Parses a lanelet element to extract detailed information. """
@@ -83,9 +83,9 @@ def parse_lanelet(element, device):
 
     lanelet_data["center_line"] = (lanelet_data["left_boundary"] + lanelet_data["right_boundary"]) / 2
     
-    lanelet_data["center_line_center_points"], lanelet_data["center_line_lengths"], lanelet_data["center_line_yaws"] = get_center_length_yaw_polyline(polyline=lanelet_data["center_line"])
-    lanelet_data["left_boundary_center_points"], lanelet_data["left_boundary_lengths"], lanelet_data["left_boundary_yaws"] = get_center_length_yaw_polyline(polyline=lanelet_data["left_boundary"])
-    lanelet_data["right_boundary_center_points"], lanelet_data["right_boundary_lengths"], lanelet_data["right_boundary_yaws"] = get_center_length_yaw_polyline(polyline=lanelet_data["right_boundary"])
+    lanelet_data["center_line_center_points"], lanelet_data["center_line_lengths"], lanelet_data["center_line_yaws"], _ = get_center_length_yaw_polyline(polyline=lanelet_data["center_line"])
+    lanelet_data["left_boundary_center_points"], lanelet_data["left_boundary_lengths"], lanelet_data["left_boundary_yaws"], _ = get_center_length_yaw_polyline(polyline=lanelet_data["left_boundary"])
+    lanelet_data["right_boundary_center_points"], lanelet_data["right_boundary_lengths"], lanelet_data["right_boundary_yaws"], _ = get_center_length_yaw_polyline(polyline=lanelet_data["right_boundary"])
     
     return lanelet_data
 

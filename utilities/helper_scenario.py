@@ -11,54 +11,62 @@ class Normalizers:
         self.rot = rot
 
 class Rewards:
-    def __init__(self, progress, weighting_ref_directions, higth_v):
+    def __init__(self, progress = None, weighting_ref_directions = None, higth_v = None, reaching_goal = None):
         self.progress = progress
         self.weighting_ref_directions = weighting_ref_directions
         self.higth_v = higth_v
+        self.reaching_goal = reaching_goal
 
 class Penalties:
-    def __init__(self, deviate_from_ref_path, weighting_deviate_from_ref_path, near_boundary, near_other_agents, collide_with_agents, collide_with_boundaries, time):
-        self.deviate_from_ref_path = deviate_from_ref_path
+    def __init__(self, deviate_from_ref_path = None, deviate_from_goal = None, weighting_deviate_from_ref_path = None, near_boundary = None, near_other_agents = None, collide_with_agents = None, collide_with_boundaries = None, time = None):
+        self.deviate_from_ref_path = deviate_from_ref_path  # Penalty for deviating from reference path
+        self.deviate_from_goal = deviate_from_goal          # Penalty for deviating from goal position 
         self.weighting_deviate_from_ref_path = weighting_deviate_from_ref_path
-        self.near_boundary = near_boundary
-        self.near_other_agents = near_other_agents
-        self.collide_with_agents = collide_with_agents
-        self.collide_with_boundaries = collide_with_boundaries
-        self.time = time
+        self.near_boundary = near_boundary                  # Penalty for being too close to lanelet boundaries
+        self.near_other_agents = near_other_agents          # Penalty for being too close to other agents
+        self.collide_with_agents = collide_with_agents      # Penalty for colliding with other agents
+        self.collide_with_boundaries = collide_with_boundaries  # Penalty for colliding with lanelet boundaries
+        self.time = time                                    # Penalty for losing time
         
 class Thresholds:
-    def __init__(self, deviate_from_ref_path, near_boundary_low, near_boundary_high, near_other_agents_low, near_other_agents_high):
+    def __init__(self, deviate_from_ref_path = None, near_boundary_low = None, near_boundary_high = None, near_other_agents_low = None, near_other_agents_high = None, reaching_goal = None):
         self.deviate_from_ref_path = deviate_from_ref_path
         self.near_boundary_low = near_boundary_low
         self.near_boundary_high = near_boundary_high
         self.near_other_agents_low = near_other_agents_low
         self.near_other_agents_high = near_other_agents_high
+        self.reaching_goal = reaching_goal                      # Threshold less than which agents are considered at their goal positions
 
 class ReferencePaths:
-    def __init__(self, long_term, n_short_term_points, short_term, short_term_indices, left_boundary_repeated, right_boundary_repeated):
-        self.long_term = long_term
-        self.n_short_term_points = n_short_term_points
-        self.short_term = short_term
-        self.short_term_indices = short_term_indices
-        self.left_boundary_repeated = left_boundary_repeated
-        self.right_boundary_repeated = right_boundary_repeated
+    def __init__(self, long_term = None, long_term_yaws = None, long_term_center_points = None, long_term_lengths = None, long_term_vecs_normalized = None, n_short_term_points = None, short_term = None, short_term_indices = None, left_boundary_repeated = None, right_boundary_repeated = None):
+        self.long_term = long_term                              # Long-term reference path
+        self.long_term_yaws = long_term_yaws                    # Yaws of the line segments on the long-term reference path
+        self.long_term_center_points = long_term_center_points  # Center points of the line segments on the long-term reference path
+        self.long_term_lengths = long_term_lengths              # Lengths of the line segments on the long-term reference path
+        self.long_term_vecs_normalized = long_term_vecs_normalized  # Normalized vectors of the line segments on the long-term reference path
+        self.n_short_term_points = n_short_term_points          # Number of points used to build a short-term reference path
+        self.short_term = short_term                            # Short-term reference path
+        self.short_term_indices = short_term_indices            # Indices that indicate which part of the long-term reference path is used to build the short-term reference path
+        self.left_boundary_repeated = left_boundary_repeated    # Just to allocate memory for a specific purpose 
+        self.right_boundary_repeated = right_boundary_repeated  # Just to allocate memory for a specific purpose 
         
 class Observations:
-    def __init__(self, is_local, is_global_coordinate_sys, n_nearing_agents):
+    def __init__(self, is_local = None, is_global_coordinate_sys = None, n_nearing_agents = None):
         self.is_local = is_local # Local observation
         self.is_global_coordinate_sys = is_global_coordinate_sys
         self.n_nearing_agents = n_nearing_agents
         
 class Distances:
-    def __init__(self, type, agents, left_boundaries, right_boundaries, ref_paths, closest_point_on_ref_path):
-        if type not in ['c2c', 'MTV']:
+    def __init__(self, type = None, agents = None, left_boundaries = None, right_boundaries = None, ref_paths = None, closest_point_on_ref_path = None, goal = None):
+        if (type is not None) & (type not in ['c2c', 'MTV']):
             raise ValueError("Invalid distance type. Must be 'c2c' or 'MTV'.")
-        self.type = type            # Distances between agents
-        self.agents = agents            # Distances between agents
-        self.left_boundaries = left_boundaries    # Distances between agents and the left boundaries of their current lanelets
-        self.right_boundaries = right_boundaries  # # Distances between agents and the right boundaries of their current lanelets
-        self.ref_paths = ref_paths  # Distances between agents and the center line of their current lanelets
+        self.type = type                            # Distances between agents
+        self.agents = agents                        # Distances between agents
+        self.left_boundaries = left_boundaries      # Distances between agents and the left boundaries of their current lanelets
+        self.right_boundaries = right_boundaries    # Distances between agents and the right boundaries of their current lanelets
+        self.ref_paths = ref_paths                  # Distances between agents and the center line of their current lanelets
         self.closest_point_on_ref_path = closest_point_on_ref_path
+        self.goal = goal                            # Distances to goal positions
 
 
 ##################################################
@@ -164,18 +172,23 @@ def get_perpendicular_distances(point, boundary):
     
     return perpendicular_distances, indices_closest_points
 
-def get_short_term_reference_path(reference_path, closest_point_on_ref_path, n_short_term_points, device):
+def get_short_term_reference_path(reference_path, closest_point_on_ref_path, n_short_term_points, device = torch.device("cpu")):
     # Create a tensor that represents the indices for n_short_term_points for each agent
-    future_points_idx = torch.arange(n_short_term_points, device=device).unsqueeze(0) + closest_point_on_ref_path.unsqueeze(1)
+    future_points_idx_tmp = torch.arange(n_short_term_points, device=device).unsqueeze(0) + closest_point_on_ref_path.unsqueeze(1)
     
-    # Apply modulo to handle the fact that each agent's reference path is a loop
     len_reference_path = len(reference_path)
-    future_points_idx_mod = torch.where(future_points_idx >= len_reference_path - 1, (future_points_idx + 1) % len_reference_path, future_points_idx)
-            
-    # Extract the short-term reference path from the reference path
-    short_term_path = reference_path[future_points_idx_mod] # Note that the agent's current position is between the first and second points (may overlap with the second point)
     
-    return short_term_path, future_points_idx_mod
+    # Check if the reference path is a loop
+    if torch.allclose(reference_path[0, :], reference_path[-1, :], rtol=1e-4):
+        # Apply modulo to handle the fact that each agent's reference path is a loop
+        future_points_idx = torch.where(future_points_idx_tmp >= len_reference_path - 1, (future_points_idx_tmp + 1) % len_reference_path, future_points_idx_tmp) # Use "+ 1" to skip the last point since it overlaps with the first point
+    else:
+        future_points_idx = torch.where(future_points_idx_tmp >= len_reference_path - 1, len_reference_path - 1, future_points_idx_tmp) # Set all the remaining points to the last point 
+
+    # Extract the short-term reference path from the reference path
+    short_term_path = reference_path[future_points_idx] # Note that the agent's current position is between the first and second points (may overlap with the second point)
+    
+    return short_term_path, future_points_idx
 
 def calculate_projected_movement(agent_pos_cur, agent_pos_next, line_segments):
     """
