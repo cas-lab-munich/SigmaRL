@@ -12,8 +12,8 @@ import os
 import sys
 
 # !Important: Add project root to system path if you want to run this file directly
-script_dir = os.path.dirname(__file__)  # Directory of scriptA.py
-project_root = os.path.dirname(script_dir)  # Project root directory
+script_dir = os.path.dirname(__file__) # Directory of the current script
+project_root = os.path.dirname(script_dir) # Project root directory
 if project_root not in sys.path:
     sys.path.append(project_root)
 
@@ -84,14 +84,14 @@ viewer_zoom = 1
 n_short_term_points = 6 # The number of points on the short-term reference path
 
 # Observation
-is_local_observation = False # Set to True if each agent can only observe a subset of other agents, i.e., limitations on sensor range are considered. Note that this also reduces the observation size, which may facilitate training
-n_nearing_agents_observed = 3 # The number of most nearing agents to be observed by each agent. This parameter will be used if `is_local_observation = True`.
-is_global_coordinate_sys = True # Set to True if you want to use global coordinate system
+is_local_observation_default = False # Set to True if each agent can only observe a subset of other agents, i.e., limitations on sensor range are considered. Note that this also reduces the observation size, which may facilitate training
+n_nearing_agents_observed_default = 3 # The number of most nearing agents to be observed by each agent. This parameter will be used if `is_local_observation = True`.
+is_global_coordinate_sys_default = True # Set to True if you want to use global coordinate system
 
-is_testing = True # In testing mode, collisions do not lead to the termination of the simulation 
-is_visualize_short_term_path = True
+is_testing_mode_default = False # In testing mode, collisions do not lead to the termination of the simulation 
+is_visualize_short_term_path_default = True
         
-class Scenario(BaseScenario):
+class ScenarioRoadTraffic(BaseScenario):
     def make_world(self, batch_dim: int, device: torch.device, **kwargs):
         print("[DEBUG] make_world() car_like_robots_road_traffic")
         # device = torch.device("mps") # For mac with m chip to use GPU acceleration (however, seems not fully supported by VMAS)
@@ -112,11 +112,14 @@ class Scenario(BaseScenario):
             is_local_observation = self.parameters.is_local_observation
             n_nearing_agents_observed = self.parameters.n_nearing_agents_observed
             is_global_coordinate_sys = self.parameters.is_global_coordinate_sys
-            self.is_testing = self.parameters.is_testing
+            self.is_testing_mode = self.parameters.is_testing_mode
             self.is_visualize_short_term_path = self.parameters.is_visualize_short_term_path
         else:
-            self.is_testing = is_testing
-            self.is_visualize_short_term_path = is_visualize_short_term_path
+            is_local_observation = is_local_observation_default
+            n_nearing_agents_observed = n_nearing_agents_observed_default
+            is_global_coordinate_sys = is_global_coordinate_sys_default
+            self.is_testing_mode = is_testing_mode_default
+            self.is_visualize_short_term_path = is_visualize_short_term_path_default
 
         # Make world
         world = World(batch_dim, device, x_semidim=world_x_dim, y_semidim=world_y_dim, dt=dt)
@@ -141,7 +144,7 @@ class Scenario(BaseScenario):
         
         self.normalizers = Normalizers(
             pos=torch.tensor([world_x_dim, world_y_dim], device=device, dtype=torch.float32),
-            v=2 * max_speed,
+            v=max_speed,
             rot=torch.tensor(2 * torch.pi, device=device, dtype=torch.float32)
         )
         
@@ -237,7 +240,7 @@ class Scenario(BaseScenario):
         return world
 
     def reset_world_at(self, env_index: int = None):
-        # print(f"[DEBUG] reset_world_at(): env_index = {env_index}")
+        print(f"[DEBUG] reset_world_at(): env_index = {env_index}")
         """
         This function resets the world at the specified env_index.
 
@@ -262,8 +265,23 @@ class Scenario(BaseScenario):
             agents[i].set_pos(position_start, batch_index=env_index)
             agents[i].set_rot(rot_start, batch_index=env_index)
             
-            if env_index is None:
-                # Reset all envs
+            if env_index is None: # Reset all envs
+                # Reset distances to lanelet boundaries and reference path          
+                self.distances.ref_paths[:,i], self.distances.closest_point_on_ref_path[:,i] = get_perpendicular_distances(
+                    point=agents[i].state.pos, 
+                    boundary=self.ref_paths.long_term[i]["center_line"]
+                )
+                # Calculate the distance from each corner of the agent to lanelet boundaries
+                for c_i in range(4):
+                    self.distances.left_boundaries[:,i,c_i], _ = get_perpendicular_distances(
+                        point=self.corners_gloabl[:,i,c_i,:], 
+                        boundary=self.ref_paths.long_term[i]["left_boundary_shared"],
+                    )
+                    self.distances.right_boundaries[:,i,c_i], _ = get_perpendicular_distances(
+                        point=self.corners_gloabl[:,i,c_i,:], 
+                        boundary=self.ref_paths.long_term[i]["right_boundary_shared"],
+                    )
+                    
                 # Reset the short-term reference path of agents in all envs
                 self.ref_paths.short_term[:,i], self.ref_paths.short_term_indices[:,i] = get_short_term_reference_path( 
                     self.ref_paths.long_term[i]["center_line"], 
@@ -281,21 +299,7 @@ class Scenario(BaseScenario):
                     is_close_shape=True
                 )
                 
-                # Reset distances to lanelet boundaries and reference path          
-                self.distances.ref_paths[:,i], self.distances.closest_point_on_ref_path[:,i] = get_perpendicular_distances(
-                    point=agents[i].state.pos, 
-                    boundary=self.ref_paths.long_term[i]["center_line"]
-                )
-                # Calculate the distance from each corner of the agent to lanelet boundaries
-                for c_i in range(4):
-                    self.distances.left_boundaries[:,i,c_i], _ = get_perpendicular_distances(
-                        point=self.corners_gloabl[:,i,c_i,:], 
-                        boundary=self.ref_paths.long_term[i]["left_boundary_shared"],
-                    )
-                    self.distances.right_boundaries[:,i,c_i], _ = get_perpendicular_distances(
-                        point=self.corners_gloabl[:,i,c_i,:], 
-                        boundary=self.ref_paths.long_term[i]["right_boundary_shared"],
-                    )
+
                     
                 # Reset the previous position
                 agents[i].state.pos_previous = agents[i].state.pos.clone()
@@ -305,24 +309,7 @@ class Scenario(BaseScenario):
                 self.progress_previous[:,i] = self.progress[:,i].clone() # Store the values of previous time step 
                 self.progress[:,i] = self.ref_paths.short_term_indices[:,i,0]        
 
-            else:
-                # Reset the env specified by `env_index`
-                # Reset the short-term reference path of agents in env `env_index`
-                self.ref_paths.short_term[env_index,i], self.ref_paths.short_term_indices[env_index,i] = get_short_term_reference_path( 
-                    self.ref_paths.long_term[i]["center_line"], 
-                    self.distances.closest_point_on_ref_path[env_index,i].unsqueeze(0),
-                    self.ref_paths.n_short_term_points, 
-                    self.world.device
-                )
-                # Reset the corners of agents in env `env_index`
-                self.corners_gloabl[env_index,i] = get_rectangle_corners(
-                    center=agents[i].state.pos[env_index,:].unsqueeze(0), 
-                    yaw=agents[i].state.rot[env_index,:].unsqueeze(0), 
-                    width=agents[i].shape.width, 
-                    length=agents[i].shape.length,
-                    is_close_shape=True
-                )
-                    
+            else: # Reset the env specified by `env_index`
                 # Reset distances to lanelet boundaries and reference path          
                 self.distances.ref_paths[env_index,i], self.distances.closest_point_on_ref_path[env_index,i] = get_perpendicular_distances(
                     point=agents[i].state.pos[env_index,:].unsqueeze(0), 
@@ -338,6 +325,22 @@ class Scenario(BaseScenario):
                         point=self.corners_gloabl[env_index,i,c_i,:].unsqueeze(0), 
                         boundary=self.ref_paths.long_term[i]["right_boundary_shared"],
                     )
+                    
+                # Reset the short-term reference path of agents in env `env_index`
+                self.ref_paths.short_term[env_index,i], self.ref_paths.short_term_indices[env_index,i] = get_short_term_reference_path( 
+                    self.ref_paths.long_term[i]["center_line"], 
+                    self.distances.closest_point_on_ref_path[env_index,i].unsqueeze(0),
+                    self.ref_paths.n_short_term_points, 
+                    self.world.device
+                )
+                # Reset the corners of agents in env `env_index`
+                self.corners_gloabl[env_index,i] = get_rectangle_corners(
+                    center=agents[i].state.pos[env_index,:].unsqueeze(0), 
+                    yaw=agents[i].state.rot[env_index,:].unsqueeze(0), 
+                    width=agents[i].shape.width, 
+                    length=agents[i].shape.length,
+                    is_close_shape=True
+                )
 
                 # Reset the previous position
                 agents[i].state.pos_previous[env_index,:] = agents[i].state.pos[env_index,:].clone()
@@ -419,7 +422,7 @@ class Scenario(BaseScenario):
                 boundary=self.ref_paths.long_term[agent_index]["right_boundary_shared"],
             )
         ##################################################
-        ## Penalized if too close to lanelet boundaries
+        ## Penalty for being too close to lanelet boundaries
         ##################################################
         min_distances_to_bound, _ = torch.min(
             torch.hstack(
@@ -437,7 +440,7 @@ class Scenario(BaseScenario):
         ) * self.penalties.near_boundary
 
         ##################################################
-        ## Penalized if too close to other agents
+        ## Penalty for being too close to other agents
         ##################################################
         mutual_distance_exp_fcn = exponential_decreasing_fcn(
             x=self.distances.agents[:,agent_index,:], 
@@ -449,7 +452,7 @@ class Scenario(BaseScenario):
         # print(f"Get Reward: {torch.sum(mutual_distance_exp_fcn, dim=1) * self.penalties.near_other_agents}. Distances = {self.distances.agents[:,agent_index,:]}. Distance_exp = {mutual_distance_exp_fcn}")
 
         ##################################################
-        ## Penalized if deviating from reference path
+        ## Penalty for deviating from reference path
         ##################################################
         self.rew += self.distances.ref_paths[:,agent_index] / self.penalties.weighting_deviate_from_ref_path * self.penalties.deviate_from_ref_path
 
@@ -671,7 +674,7 @@ class Scenario(BaseScenario):
         is_collision_with_lanelets_occur = torch.any(self.collision_with_lanelets.view(self.world.batch_dim,-1), dim=-1) # [batch_dim]
         is_done = is_collision_with_agents_occur | is_collision_with_lanelets_occur
         
-        if self.is_testing:
+        if self.is_testing_mode:
             # print(f"Step: {self.step_count}")
             is_done = torch.zeros(is_done.shape, dtype=torch.bool)
             if self.step_count % 20 == 0:
@@ -725,7 +728,7 @@ class Scenario(BaseScenario):
 
         if self.is_visualize_short_term_path:
             for agent_i in range(self.n_agents):
-                center_points, lengths, yaws = get_center_length_yaw_polyline(polyline=self.ref_paths.short_term[env_index,agent_i])
+                center_points, lengths, yaws, _ = get_center_length_yaw_polyline(polyline=self.ref_paths.short_term[env_index,agent_i])
                 for j in range(len(lengths)):
                     geom = Line(
                         length=lengths[j]
@@ -752,7 +755,7 @@ class Scenario(BaseScenario):
 
 
 if __name__ == "__main__":
-    scenario = Scenario()
+    scenario = ScenarioRoadTraffic()
     render_interactively(
         scenario=scenario, control_two_agents=False, shared_reward=False,
     )

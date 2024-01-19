@@ -2,6 +2,7 @@
 
 ## Todos
 - [ ] Search "TODO" in the codes to find more TODOs
+- [ ] Use fixed camera view (see how the variable `cam_range` is calculated in `/VectorizedMultiAgentSimulator/vmas/simulator/environment/environment.py`)
 - [x] Only observe nearing agents (inside a fixed radius or parameterized radius) to reduce observation dimension
 
 ## Notes
