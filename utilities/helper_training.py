@@ -251,49 +251,63 @@ class SyncDataCollectorCustom(SyncDataCollector):
         return self._tensordict_out
 
 class Parameters():
-    def __init__(self, 
-                n_agents: int = None, 
-                device: str = None,
+    def __init__(self,
+                # General parameters
+                n_agents: int = None,       # Number of agents
+                dt: float = None,           # [s] sample time
+                device: str = None,         # Tensor device
                 scenario_name: str = None,
-                n_iters: int = None,
-                frames_per_batch: int = None,
+                
+                # Training parameters
+                n_iters: int = None,            # Number of iterations
+                frames_per_batch: int = None, 
                 num_epochs: int = None,
                 minibatch_size: int = None,
-                lr: float = None,
+                lr: float = None,               # Learning rate
                 max_grad_norm: float = None,
                 clip_epsilon: float = None,
                 gamma: float = None,
                 lmbda: float = None,
                 entropy_eps: float = None,
                 max_steps: int = None,
-                is_save_intermidiate_model: bool = None,
-                is_load_model: bool = None,
-                n_nearing_agents_observed: int = None,
-                episode_reward_mean_current: float = None,
-                mode_name: str = None,
-                episode_reward_intermidiate: float = None,
-                where_to_save: str = None,
-                is_continue_train: bool = None,
                 total_frames: int = None,
-                num_vmas_envs: int = None,
+                num_vmas_envs: int = None,      # Number of vectorized environments
+
+                n_nearing_agents_observed: int = None,      # Number of nearing agents to be observed (consider limited sensor range)
+                episode_reward_mean_current: float = None,  # Achieved mean episode reward (total/n_agents)
+                episode_reward_intermidiate: float = None,  
                 
                 is_local_observation: bool = None,
-                is_global_coordinate_sys: bool = None,
-                n_short_term_points: int = None,
-                is_testing_mode: bool = None,
+                is_global_coordinate_sys: bool = None,      # Global or local coordinate system
+                n_short_term_points: int = None,            # Number of points that build a short-term reference path
+                is_testing_mode: bool = None,               # In testing mode, collisions do not terminate the current simulation
                 is_visualize_short_term_path: bool = None,
                 
-                path_tracking_type: str = None, # For path-tracking scenarios
+                
+                # Save/Load
+                is_save_intermidiate_model: bool = None,
+                is_load_model: bool = None,
+                mode_name: str = None,
+                where_to_save: str = None,
+                is_continue_train: bool = None,             # Whether to continue training after loading an offline model
+                is_save_eval_results: bool = None,
+
+                path_tracking_type: str = None,             # For path-tracking scenarios
+                is_dynamic_goal_reward: bool = None,        # TODO Adjust the goal reward based on how well agents achieve their goals
                 ):
         
         self.n_agents = n_agents
+        self.dt = dt
+        
         self.device = device
         self.scenario_name = scenario_name
         
         # Sampling
         self.n_iters = n_iters
         self.frames_per_batch = frames_per_batch
-        self.total_frames = frames_per_batch * n_iters
+        
+        if (frames_per_batch is not None) and (n_iters is not None):
+            self.total_frames = frames_per_batch * n_iters
 
         # Training
         self.num_epochs = num_epochs
@@ -309,7 +323,9 @@ class Parameters():
         
         
         self.max_steps = max_steps
-        self.num_vmas_envs = frames_per_batch // max_steps # Number of vectorized envs. frames_per_batch should be divisible by this number,
+        
+        if (frames_per_batch is not None) and (max_steps is not None):
+            self.num_vmas_envs = frames_per_batch // max_steps # Number of vectorized envs. frames_per_batch should be divisible by this number,
 
         self.is_save_intermidiate_model = is_save_intermidiate_model
         self.is_load_model = is_load_model
@@ -328,8 +344,12 @@ class Parameters():
         self.is_visualize_short_term_path = is_visualize_short_term_path
         
         self.path_tracking_type = path_tracking_type
+        
+        self.is_dynamic_goal_reward = is_dynamic_goal_reward
+
+        self.is_save_eval_results = is_save_eval_results
             
-        if mode_name == None:
+        if (mode_name is None) and (scenario_name is not None):
             self.mode_name = get_model_name(self)
             
             
@@ -362,30 +382,49 @@ class SaveData():
 ## Helper Functions
 ##################################################
 def get_path_to_save_model(parameters: Parameters):
-    PATH_POLICY = parameters.where_to_save + get_model_name(parameters=parameters) + "_policy.pth"
-    PATH_CRITIC = parameters.where_to_save + get_model_name(parameters=parameters) + "_critic.pth"
-    PATH_FIG = parameters.where_to_save + get_model_name(parameters=parameters) + "_training_process.pdf"
-    PATH_JSON = parameters.where_to_save + get_model_name(parameters=parameters) + "_data.json"
+    parameters.mode_name = get_model_name(parameters=parameters)
+    
+    PATH_POLICY = parameters.where_to_save + parameters.mode_name + "_policy.pth"
+    PATH_CRITIC = parameters.where_to_save + parameters.mode_name + "_critic.pth"
+    PATH_FIG = parameters.where_to_save + parameters.mode_name + "_training_process.pdf"
+    PATH_JSON = parameters.where_to_save + parameters.mode_name + "_data.json"
     
     return PATH_POLICY, PATH_CRITIC, PATH_FIG, PATH_JSON
 
 def delete_model_with_lower_mean_reward(parameters:Parameters):
-    # Directory path
-    dir_path = parameters.where_to_save
-
     # Regular expression pattern to match and capture the float number
     pattern = r'reward(-?[0-9]*\.?[0-9]+)_'
 
     # Iterate over files in the directory
-    for file_name in os.listdir(dir_path):
+    for file_name in os.listdir(parameters.where_to_save):
         match = re.search(pattern, file_name)
         if match:
             # Get the achieved mean episode reward of the saved model
             episode_reward_mean = float(match.group(1))
             if episode_reward_mean < parameters.episode_reward_intermidiate:
                 # Delete the saved model if its performance is worse
-                os.remove(os.path.join(dir_path, file_name))
+                os.remove(os.path.join(parameters.where_to_save, file_name))
+
+def find_the_hightest_reward_among_all_models(parameters:Parameters):
+    """This function returns the hightest reward of the models stored in folder `parameters.where_to_save`"""
+    # Initialize variables to track the highest reward and corresponding model
+    highest_reward = float('-inf')
+        
+    pattern = r'reward(-?[0-9]*\.?[0-9]+)_'
+
+    # Iterate through the files in the directory
+    for filename in os.listdir(parameters.where_to_save):
+        match = re.search(pattern, filename)
+        if match:
+            # Extract the reward and convert it to float
+            episode_reward_mean = float(match.group(1))
             
+            # Check if this reward is higher than the current highest
+            if episode_reward_mean > highest_reward:
+                highest_reward = episode_reward_mean # Update
+                
+    return highest_reward
+
 
 def save(parameters: Parameters, save_data: SaveData, policy=None, critic=None):
     # Get paths

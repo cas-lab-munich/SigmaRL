@@ -6,6 +6,9 @@ from vmas.simulator.core import Agent, Box, Landmark, Sphere, World, Line
 from vmas.simulator.scenario import BaseScenario
 from vmas.simulator.utils import Color
 
+from torch import Tensor
+from typing import Dict
+
 import numpy as np
 import matplotlib.pyplot as plt
 import os
@@ -18,7 +21,9 @@ if project_root not in sys.path:
     sys.path.append(project_root)
 
 
-from utilities.helper_scenario import Distances, Normalizers, Observations, Penalties, ReferencePaths, Rewards, Thresholds, exponential_decreasing_fcn, get_distances_between_agents, get_perpendicular_distances, get_rectangle_corners, get_short_term_reference_path, interX
+from utilities.helper_scenario import Distances, Evaluation, Normalizers, Observations, Penalties, ReferencePaths, Rewards, Thresholds, exponential_decreasing_fcn, get_distances_between_agents, get_perpendicular_distances, get_rectangle_corners, get_short_term_reference_path, interX
+
+from utilities.helper_training import Parameters
 
 from utilities.kinematic_bicycle import KinematicBicycle
 
@@ -39,7 +44,7 @@ agent_wheelbase_front = 0.10    # Front wheelbase in [m]
 agent_wheelbase_rear = agent_length - agent_wheelbase_front # Rear wheelbase in [m]
 
 # Maximum control commands
-agent_max_speed = 1.0           # Maximum speed in [m/s]
+agent_max_speed = 0.5          # Maximum speed in [m/s]
 agent_max_steering_angle = 45   # Maximum steering angle in degree
 
 n_agents = 1        # The number of agents
@@ -52,11 +57,11 @@ assert reward_speed < reward_progress, "Speed reward should be smaller than prog
 reward_reaching_goal = 100 # Reward for reaching goal
 
 # Penalty for deviating from reference path
-penalty_deviate_from_ref_path = -1
+penalty_deviate_from_ref_path = -0.2
 penalty_deviate_from_goal = -1
 
 # Penalty for losing time
-penalty_time = -0
+penalty_time = -0.2
 
 # Visualization
 viewer_size = (1000, 1000) # TODO Check if we can use a fix camera view in vmas
@@ -72,7 +77,10 @@ is_local_observation = False # TODO Set to True if sensor range is limited
 is_testing_mode = False # In testing mode, collisions do not lead to the termination of the simulation 
 is_visualize_short_term_path = True
 
-threshold_reaching_goal = agent_width # Agents are considered at their goal positions if their distances to the goal positions are less than this threshold
+threshold_reaching_goal = agent_width / 8 # Agents are considered at their goal positions if their distances to the goal positions are less than this threshold
+
+max_steps = 2000
+is_dynamic_goal_reward = True
 
 # Current implementation includes four path-tracking types
 path_tracking_types = [
@@ -85,13 +93,12 @@ path_tracking_types = [
 path_tracking_type_default = path_tracking_types[0]
 is_observe_full_path = False # TODO Compare the performances of observing the full reference path and observing a short-term reference path
 
-def get_ref_path_for_tracking_scenarios(path_tracking_type, device = torch.device("cpu"), is_visualize: bool = False):
-
+def get_ref_path_for_tracking_scenarios(path_tracking_type, max_speed = agent_max_speed, device = torch.device("cpu"), is_visualize: bool = False):
     if path_tracking_type == "line":
         start_pos = torch.tensor([-1, 0], device=device, dtype=torch.float32)
         start_rot = torch.deg2rad(torch.tensor(45, device=device, dtype=torch.float32))
 
-        path_length = 2 # [m]
+        path_length = 3 # [m]
         
         goal_pos = start_pos.clone()
         goal_pos[0] += path_length
@@ -101,7 +108,7 @@ def get_ref_path_for_tracking_scenarios(path_tracking_type, device = torch.devic
         tracking_path = torch.stack([torch.linspace(start_pos[i], goal_pos[i], num_points, device=device, dtype=torch.float32) for i in range(2)], dim=1)
 
     elif path_tracking_type == "turning":
-        start_pos = torch.tensor([-2, 0], device=device, dtype=torch.float32)
+        start_pos = torch.tensor([-1, 0], device=device, dtype=torch.float32)
         start_rot = torch.deg2rad(torch.tensor(0, device=device, dtype=torch.float32))
 
         horizontal_length = 3  # [m] Length of the horizontal part
@@ -129,7 +136,7 @@ def get_ref_path_for_tracking_scenarios(path_tracking_type, device = torch.devic
         tracking_path = torch.stack((x_coords, y_coords), dim=1)
         
     elif path_tracking_type == "circle":
-        start_pos = torch.tensor([-2, 0], device=device, dtype=torch.float32)
+        start_pos = torch.tensor([-1, 0], device=device, dtype=torch.float32)
         start_rot = torch.deg2rad(torch.tensor(90, device=device, dtype=torch.float32))
     
         circle_radius = 1.5 # [m]                
@@ -152,7 +159,7 @@ def get_ref_path_for_tracking_scenarios(path_tracking_type, device = torch.devic
         tracking_path = torch.stack((x_coords, y_coords), dim=1)
 
     elif path_tracking_type == "sine":
-        start_pos = torch.tensor([-2, 0], device=device, dtype=torch.float32)
+        start_pos = torch.tensor([-1, 0], device=device, dtype=torch.float32)
         start_rot = torch.deg2rad(torch.tensor(90, device=device, dtype=torch.float32))
 
         path_length = 3  # [m] Length along x-axis
@@ -172,7 +179,7 @@ def get_ref_path_for_tracking_scenarios(path_tracking_type, device = torch.devic
 
     elif path_tracking_type == "horizontal_8":
         # Use lemniscate of Bernoulli to generate a horizontal "8" path (inspired by https://mathworld.wolfram.com/Lemniscate.html)
-        start_pos = torch.tensor([-2, 0], device=device, dtype=torch.float32)
+        start_pos = torch.tensor([-1, 0], device=device, dtype=torch.float32)
         start_rot = torch.deg2rad(torch.tensor(90, device=device, dtype=torch.float32))
 
         center_point = start_pos.clone() # Center point of the lemniscate
@@ -196,8 +203,7 @@ def get_ref_path_for_tracking_scenarios(path_tracking_type, device = torch.devic
     else:
         raise ValueError("Invalid path tracking type provided. Must be one of 'line', 'turning', 'circle', 'sine', and 'turning'.")
     
-    vel_abs = 1 # [m/s] Start velocity value 
-    start_vel = torch.tensor([vel_abs*torch.cos(start_rot), vel_abs*torch.sin(start_rot)], device=device, dtype=torch.float32) 
+    start_vel = torch.tensor([max_speed*torch.cos(start_rot), max_speed*torch.sin(start_rot)], device=device, dtype=torch.float32) 
 
     # Visualization
     if is_visualize:
@@ -208,7 +214,7 @@ def get_ref_path_for_tracking_scenarios(path_tracking_type, device = torch.devic
     
     # Mean length of the line segments on the path
     mean_length_line_segments = tracking_path.diff(dim=0).norm(dim=1).mean()
-    print(f"The mean length of the line segments of the tracking path is {mean_length_line_segments}.")
+    # print(f"The mean length of the line segments of the tracking path is {mean_length_line_segments}.")
     
     return tracking_path, start_pos, start_rot, start_vel, goal_pos, goal_rot
 
@@ -229,27 +235,24 @@ class ScenarioPathTracking(BaseScenario):
         max_steering_angle = kwargs.get("max_steering_angle", torch.deg2rad(torch.tensor(agent_max_steering_angle)))
         max_speed = kwargs.get("max_speed", torch.tensor(agent_max_speed))
         
-        path_tracking_type_received = kwargs.get("path_tracking_type")
-        if path_tracking_type_received not in path_tracking_types:
-            print(f"Currently implemented path-tracking scenarios are 'line', 'turning', 'circle', 'sine', and 'horizontal_8' (but received '{path_tracking_type_received}'). Default scenario ('line') will be used.")
-            path_tracking_type = path_tracking_type_default
-        
         self.viewer_size = viewer_size
         self.viewer_zoom = viewer_zoom
         
-        # Read potential parameter
-        if hasattr(self, "parameters"):
-            self.is_testing_mode = self.parameters.is_testing_mode
-            self.is_visualize_short_term_path = self.parameters.is_visualize_short_term_path
-        else:
-            self.is_testing_mode = is_testing_mode
-            self.is_visualize_short_term_path = is_visualize_short_term_path
+        # Specify parameters if not given
+        if not hasattr(self, "parameters"):
+            self.parameters = Parameters(
+                is_testing_mode=is_testing_mode,
+                is_visualize_short_term_path=is_visualize_short_term_path,
+                max_steps=max_steps,
+                is_dynamic_goal_reward=is_dynamic_goal_reward,
+                path_tracking_type='line',
+            )
 
         # Make world
         world = World(batch_dim, device, x_semidim=world_x_dim, y_semidim=world_y_dim, dt=dt)
         # world._drag = 0 # !No drag/friction
 
-        tracking_path, self.start_pos, self.start_rot, self.start_vel, self.goal_pos, self.goal_rot = get_ref_path_for_tracking_scenarios(path_tracking_type=path_tracking_type)
+        tracking_path, self.start_pos, self.start_rot, self.start_vel, self.goal_pos, self.goal_rot = get_ref_path_for_tracking_scenarios(path_tracking_type=self.parameters.path_tracking_type)
         
         self.is_currently_at_goal = torch.zeros(batch_dim, device=device, dtype=torch.bool)        # If agents currently are at their goal positions
         self.has_reached_goal  = torch.zeros(batch_dim, device=device, dtype=torch.bool) # Record if agents have reached their goal at least once 
@@ -270,8 +273,22 @@ class ScenarioPathTracking(BaseScenario):
             short_term_indices = torch.zeros((batch_dim, self.n_agents, n_short_term_points), device=device, dtype=torch.int),
         )
 
+        # Determine position range
+        x_min = self.ref_paths.long_term[:,:,0].min()
+        x_max = self.ref_paths.long_term[:,:,0].max()
+        y_min = self.ref_paths.long_term[:,:,1].min()
+        y_max = self.ref_paths.long_term[:,:,1].max()
+        x_pos_normalzer = x_max - x_min
+        y_pos_normalzer = y_max - y_min
+        
+        # Handle the case where the reference path is a horizontal or vertical line
+        if x_pos_normalzer == 0:
+            x_pos_normalzer.fill_(1)
+        if y_pos_normalzer == 0:
+            y_pos_normalzer.fill_(1)
+        
         self.normalizers = Normalizers(
-            pos=torch.tensor([world_x_dim, world_y_dim], device=device, dtype=torch.float32),
+            pos=torch.tensor([x_pos_normalzer, y_pos_normalzer], device=device, dtype=torch.float32),
             v=max_speed,
             rot=torch.tensor(2 * torch.pi, device=device, dtype=torch.float32)
         )
@@ -307,6 +324,16 @@ class ScenarioPathTracking(BaseScenario):
         self.thresholds = Thresholds(
             reaching_goal=torch.tensor(threshold_reaching_goal, device=device, dtype=torch.float32)
         )
+        
+        if self.parameters.is_dynamic_goal_reward:
+            self.evaluation = Evaluation(
+                pos_traj=torch.zeros((batch_dim, self.n_agents, self.parameters.max_steps, 2), device=device, dtype=torch.float32),
+                v_traj=torch.zeros((batch_dim, self.n_agents, self.parameters.max_steps, 2), device=device, dtype=torch.float32),
+                rot_traj=torch.zeros((batch_dim, self.n_agents, self.parameters.max_steps), device=device, dtype=torch.float32),
+                deviation_from_ref_path=torch.zeros((batch_dim, self.n_agents, self.parameters.max_steps), device=device, dtype=torch.float32),
+                path_tracking_error_mean=torch.zeros((batch_dim, self.n_agents), device=device, dtype=torch.float32),
+            )
+        
         # Store the index of the nearest point on the reference path, which indicates the moving progress of the agent
         self.progress = torch.zeros((batch_dim, self.n_agents), device=device)
         self.progress_previous = torch.zeros((batch_dim, self.n_agents), device=device)
@@ -333,7 +360,7 @@ class ScenarioPathTracking(BaseScenario):
         agent.state.pos_previous = torch.zeros((batch_dim, 2), device=device, dtype=torch.float32)
         world.add_agent(agent)
 
-        self.step_count = torch.tensor(0, device=device, dtype=torch.int)
+        self.step_count = torch.zeros(batch_dim, device=device, dtype=torch.int)
 
         return world
 
@@ -379,14 +406,23 @@ class ScenarioPathTracking(BaseScenario):
                 self.ref_paths.n_short_term_points, 
                 self.world.device
             )
-                
+            
+            if self.parameters.is_dynamic_goal_reward:
+                # Reset the data for evaluation for all envs
+                self.evaluation.pos_traj[:] = 0
+                self.evaluation.v_traj[:] = 0
+                self.evaluation.rot_traj[:] = 0
+                self.evaluation.path_tracking_error_mean[:] = 0
+
             # Reset the previous position
             agent.state.pos_previous = agent.state.pos.clone()
 
             # Store the index of the nearest point on the reference path, which indicates the moving progress of the agent
             # TODO Necessary?
             self.progress_previous[:,i] = self.progress[:,i].clone() # Store the values of previous time step 
-            self.progress[:,i] = self.ref_paths.short_term_indices[:,i,0]        
+            self.progress[:,i] = self.ref_paths.short_term_indices[:,i,0]
+            
+            self.step_count[:] = 0 
 
         else: # Reset the env specified by `env_index`
             self.is_currently_at_goal[env_index] = False
@@ -408,6 +444,13 @@ class ScenarioPathTracking(BaseScenario):
                 self.world.device
             )
             
+            if self.parameters.is_dynamic_goal_reward:
+                # Reset the data for evaluation for env `env_index`
+                self.evaluation.pos_traj[env_index] = 0
+                self.evaluation.v_traj[env_index] = 0
+                self.evaluation.rot_traj[env_index] = 0
+                self.evaluation.path_tracking_error_mean[env_index] = 0
+            
             # Reset the previous position
             agent.state.pos_previous[env_index,:] = agent.state.pos[env_index,:].clone()
         
@@ -416,11 +459,13 @@ class ScenarioPathTracking(BaseScenario):
             self.progress_previous[env_index,i] = self.progress[env_index,i].clone() # Store the values of previous time step 
             self.progress[env_index,i] = self.ref_paths.short_term_indices[env_index,i,0]
         
-        # Reset step count
-        self.step_count.fill_(0)
+            self.step_count[env_index] = 0 
+
 
     def process_action(self, agent: Agent):
+        """This function will be executed before the step function, i.e., states are not updated yet."""
         # print("[DEBUG] process_action()")
+        
         if hasattr(agent, 'dynamics') and hasattr(agent.dynamics, 'process_force'):
             agent.dynamics.process_force()
         else:
@@ -438,6 +483,14 @@ class ScenarioPathTracking(BaseScenario):
             point=agent.state.pos, 
             boundary=self.ref_paths.long_term[agent_index]
         )
+
+        if self.parameters.is_dynamic_goal_reward:
+            # Update data for evaluation
+            self.evaluation.pos_traj[:,agent_index,self.step_count[agent_index]] = agent.state.pos
+            self.evaluation.v_traj[:,agent_index,self.step_count[agent_index]] = agent.state.vel
+            self.evaluation.rot_traj[:,agent_index,self.step_count[agent_index]] = agent.state.rot.squeeze(1)
+            self.evaluation.deviation_from_ref_path[:,agent_index,self.step_count[agent_index]] = self.distances.ref_paths[:,agent_index]
+            self.evaluation.path_tracking_error_mean[:,agent_index] = self.evaluation.deviation_from_ref_path[:,agent_index].sum(dim=1) / (self.step_count + 1) # Step starts from 0
 
         ##################################################
         ## Penalty for deviating from reference path
@@ -472,16 +525,16 @@ class ScenarioPathTracking(BaseScenario):
         ## Reward for moving in a high velocity and the right direction
         ##################################################
         # TODO: optional?
-        v_proj = torch.sum(agent.state.vel.unsqueeze(1) * short_term_path_vec_normalized, dim=2)
-        v_proj_weighted_sum = torch.matmul(v_proj, self.rewards.weighting_ref_directions)
-        self.rew += v_proj_weighted_sum / agent.max_speed * self.rewards.higth_v
+        # v_proj = torch.sum(agent.state.vel.unsqueeze(1) * short_term_path_vec_normalized, dim=2)
+        # v_proj_weighted_sum = torch.matmul(v_proj, self.rewards.weighting_ref_directions)
+        # self.rew += v_proj_weighted_sum / agent.max_speed * self.rewards.higth_v
 
         # Save previous positions
         agent.state.pos_previous = agent.state.pos.clone() 
         
-        if agent_index == 0:            
+        if agent_index == 0:
             # Increment step by 1
-            self.step_count += 1 
+            self.step_count += 1
 
         ##################################################
         ## Reward for reaching goal
@@ -489,9 +542,13 @@ class ScenarioPathTracking(BaseScenario):
         # Update distances to goal positions
         self.distances.goal[:,agent_index] = (agent.state.pos - self.goal_pos).norm(dim=1)
         is_currently_at_goal = self.distances.goal[:,agent_index] <= self.thresholds.reaching_goal # If the agent is at its goal position
-        self.rew += is_currently_at_goal * self.rewards.reaching_goal * ~self.has_reached_goal # Agents can only receive the goal reward once per iteration
+        # print(self.distances.goal[:,agent_index])
         
-
+        goal_reward_factor = torch.ones(self.world.batch_dim, device=self.world.device, dtype=torch.float32)
+        if self.parameters.is_dynamic_goal_reward:
+            goal_reward_factor[:] = agent.shape.width / self.evaluation.path_tracking_error_mean[:,agent_index] # The smaller the mean tracking error, the higher the goal reward
+        
+        self.rew += is_currently_at_goal * self.rewards.reaching_goal * ~self.has_reached_goal * goal_reward_factor # Agents can only receive the goal reward once per iteration
         self.has_reached_goal[is_currently_at_goal] = True # Record if agents have reached their goal positions
 
         ##################################################
@@ -505,6 +562,7 @@ class ScenarioPathTracking(BaseScenario):
         ##################################################
         # TODO: check if this is necessary
         self.rew += self.penalties.time
+        
 
         return self.rew
 
@@ -579,11 +637,10 @@ class ScenarioPathTracking(BaseScenario):
     def done(self):
         # print("[DEBUG] done()")
         is_done = self.has_reached_goal # [batch_dim]
-        
         if is_done.any():
-            print(f"is_done={is_done}")
+            print("done!")
         
-        if self.is_testing_mode:
+        if self.parameters.is_testing_mode:
             # print(f"Step: {self.step_count}")
             is_done = torch.zeros(is_done.shape, device=self.world.device, dtype=torch.bool)
             if self.step_count % 20 == 0:
@@ -591,7 +648,31 @@ class ScenarioPathTracking(BaseScenario):
         
         return is_done
 
+    def info(self, agent: Agent) -> Dict[str, Tensor]:
+        """
+        This function computes the info dict for 'agent' in a vectorized way
+        The returned dict should have a key for each info of interest and the corresponding value should
+        be a tensor of shape (n_envs, info_size)
 
+        Implementors can access the world at 'self.world'
+
+        To increase performance, tensors created should have the device set, like:
+        torch.tensor(..., device=self.world.device)
+
+        :param agent: Agent batch to compute info of
+        :return: info: A dict with a key for each info of interest, and a tensor value  of shape (n_envs, info_size)
+        """
+        agent_index = self.world.agents.index(agent) # Index of the current agent
+        
+        info = {
+            "pos": agent.state.pos,
+            "vel": agent.state.vel,
+            "rot": agent.state.rot,
+            "deviation_from_ref_path": self.distances.ref_paths[:,agent_index],
+        }
+        
+        return info
+    
     def extra_render(self, env_index: int = 0):
         from vmas.simulator import rendering
 
@@ -622,8 +703,19 @@ class ScenarioPathTracking(BaseScenario):
                     color = color[env_index]
                 geom.set_color(*color)
                 geoms.append(geom)
+                
+        # Visualize goal
+        color = Color.RED.value
+        circle = rendering.make_circle(radius=self.thresholds.reaching_goal, filled=True)
+        xform = rendering.Transform()
+        circle.add_attr(xform)
+        xform.set_translation(self.goal_pos[0], self.goal_pos[1])
+        circle.set_color(*color)
+        geoms.append(circle)
+
+        
             
-        if self.is_visualize_short_term_path:
+        if self.parameters.is_visualize_short_term_path:
             for agent_i in range(self.n_agents):
                 center_points, lengths, yaws, _ = get_center_length_yaw_polyline(polyline=self.ref_paths.short_term[env_index,agent_i])
                 for j in range(len(lengths)):
@@ -655,7 +747,50 @@ class ScenarioPathTracking(BaseScenario):
 
 
 if __name__ == "__main__":
+    scenario_name = "car_like_robots_path_tracking" # car_like_robots_road_traffic, car_like_robots_go_to_formation, car_like_robots_path_tracking
+    parameters = Parameters(
+        n_agents=4,
+        dt=0.1, # [s] sample time 
+        device="cpu" if not torch.backends.cuda.is_built() else "cuda:0",  # The divice where learning is run
+        scenario_name=scenario_name,
+        
+        # Training parameters
+        n_iters=100, # Number of sampling and training iterations (on-policy: rollouts are collected during sampling phase, which will be immediately used in the training phase of the same iteration),
+        frames_per_batch=2**10, # Number of team frames collected per training iteration (minibatch_size*10)
+        num_epochs=30, # Number of optimization steps per training iteration,
+        minibatch_size=2*8, # Size of the mini-batches in each optimization step (2**9 - 2**12?),
+        lr=4e-4, # Learning rate,
+        max_grad_norm=1.0, # Maximum norm for the gradients,
+        clip_epsilon=0.2, # clip value for PPO loss,
+        gamma=0.98, # discount factor (empirical formula: 0.1 = gamma^t, where t is the number of future steps that you want your agents to predict {0.96 -> 56 steps, 0.98 - 114 steps, 0.99 -> 229 steps, 0.995 -> 459 steps})
+        lmbda=0.9, # lambda for generalised advantage estimation,
+        entropy_eps=4e-4, # coefficient of the entropy term in the PPO loss,
+        max_steps=2**8, # Episode steps before done (512)
+        
+        is_save_intermidiate_model=True, # Is this is true, the model with the hightest mean episode reward will be saved,
+        n_nearing_agents_observed=4,
+        episode_reward_mean_current=0.00,
+        
+        is_load_model=False, # Load offline model if available. The offline model in `where_to_save` whose name contains `episode_reward_mean_current` will be loaded
+        is_continue_train=False, # If offline models are loaded, whether to continue to train the model
+        mode_name=None, 
+        episode_reward_intermidiate=-1e3, # The initial value should be samll enough
+        where_to_save=f"outputs/{scenario_name}_ppo/test_nondynamic_goal_reward_no_v_rew_small_goal_threshold/", # folder where to save the trained models, fig, data, etc.
+        
+        # Scenario parameters
+        is_local_observation=False, 
+        is_global_coordinate_sys=True,
+        n_short_term_points=6,
+        is_testing_mode=False,
+        is_visualize_short_term_path=True,
+        
+        path_tracking_type='sine', # [relevant to path-tracking scenarios] should be one of 'line', 'turning', 'circle', 'sine', and 'horizontal_8'
+        is_dynamic_goal_reward=False, # [relevant to path-tracking scenarios] set to True if the goal reward is dynamically adjusted based on the performance of agents' history trajectories 
+    )
+    
     scenario = ScenarioPathTracking()
+    scenario.parameters = parameters
+    
     render_interactively(
         scenario=scenario, control_two_agents=False, shared_reward=False,
     )

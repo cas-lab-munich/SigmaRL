@@ -68,6 +68,14 @@ class Distances:
         self.closest_point_on_ref_path = closest_point_on_ref_path
         self.goal = goal                            # Distances to goal positions
 
+class Evaluation:
+    # This class stores the data relevant to evaluation of the system-wide performance, which necessitates the information being in the gloabl coordinate system.
+    def __init__(self, pos_traj = None, v_traj = None, rot_traj = None, deviation_from_ref_path = None, path_tracking_error_mean = None):
+        self.pos_traj = pos_traj    # Position trajectory
+        self.v_traj = v_traj        # Velocity trajectory
+        self.rot_traj = rot_traj    # Rotation trajectory
+        self.deviation_from_ref_path = deviation_from_ref_path
+        self.path_tracking_error_mean = path_tracking_error_mean # [relevant to path-tracking scenarios] Calculated when an agent reached its goal. The goal reward could be adjusted according to this variable
 
 ##################################################
 ## Helper Functions

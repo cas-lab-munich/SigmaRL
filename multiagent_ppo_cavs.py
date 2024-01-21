@@ -6,20 +6,16 @@ import torch
 # Tensordict modules
 from tensordict.nn import TensorDictModule
 from tensordict.nn.distributions import NormalParamExtractor
-from tensordict.tensordict import TensorDictBase, TensorDict
 
 # Data collection
-from torchrl.collectors import SyncDataCollector
 from torchrl.data.replay_buffers import ReplayBuffer
 from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
 from torchrl.data.replay_buffers.storages import LazyTensorStorage
 
 # Env
-from torchrl.envs import RewardSum, TransformedEnv
-from torchrl.envs.libs.vmas import VmasEnv
+from torchrl.envs import RewardSum
 from torchrl.envs.utils import (
     check_env_specs,
-    set_exploration_type,
 )
 # Multi-agent network
 from torchrl.modules import MultiAgentMLP, ProbabilisticActor, TanhNormal
@@ -31,11 +27,17 @@ from torchrl.objectives import ClipPPOLoss, ValueEstimators
 from tqdm import tqdm
 
 import os, sys
+import matplotlib.pyplot as plt
+import scienceplots # Do not remove (https://github.com/garrettj403/SciencePlots)
+
+plt.rcParams.update({'figure.dpi': '100'}) # Avoid DPI problem (https://github.com/garrettj403/SciencePlots/issues/60)
+plt.style.use(['science','ieee']) # The science + ieee styles for IEEE papers (can also be one of 'ieee' and 'science' )
+# print(plt.style.available) # List all available style
 
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
 
 # Import custom classes
-from utilities.helper_training import Parameters, SaveData, VmasEnvCustom, SyncDataCollectorCustom, TransformedEnvCustom, get_path_to_save_model, save
+from utilities.helper_training import Parameters, SaveData, VmasEnvCustom, SyncDataCollectorCustom, TransformedEnvCustom, get_path_to_save_model, find_the_hightest_reward_among_all_models, save
 from scenarios.car_like_robots_road_traffic import ScenarioRoadTraffic
 from scenarios.car_like_robots_path_tracking import ScenarioPathTracking
 
@@ -164,21 +166,27 @@ def multiagent_ppo_cavs(parameters: Parameters):
         print(f"A new directory ({parameters.where_to_save}) to save the trained models has been created.")
         
     # Specify a path
-    PATH_POLICY, PATH_CRITIC, PATH_FIG, PATH_JSON = get_path_to_save_model(parameters=parameters) 
+     
     
     # Load an existing model or train a new model?
-    if parameters.is_load_model & os.path.exists(PATH_POLICY):
-        print("Offline model exists and will be loaded.")
-        # Load the saved model state dictionaries
-        policy.load_state_dict(torch.load(PATH_POLICY))
+    if parameters.is_load_model:
+        # Load the model with the hightest reward in the folder `parameters.where_to_save`
+        highest_reward = find_the_hightest_reward_among_all_models(parameters=parameters)
+        parameters.episode_reward_mean_current = highest_reward # Update the parameter so that the right filename will be returned later on 
+        if highest_reward is not float('-inf'):
+            print("Offline model exists and will be loaded.")
+            PATH_POLICY, PATH_CRITIC, PATH_FIG, PATH_JSON = get_path_to_save_model(parameters=parameters)
+            # Load the saved model state dictionaries
+            policy.load_state_dict(torch.load(PATH_POLICY))
+        else:
+            raise ValueError("There is no model stored in '{parameters.where_to_save}', or the model names stored here are not following the right pattern.")
 
         if not parameters.is_continue_train:
             print("Training will not continue.")
-            return env, policy
+            return env, policy, parameters
         else:
             print("Training will continue with the loaded model.")
             critic.load_state_dict(torch.load(PATH_CRITIC))
-
 
     # collector = SyncDataCollector(
     #     env,
@@ -334,7 +342,7 @@ def multiagent_ppo_cavs(parameters: Parameters):
     print(f"All files have been saved under {parameters.where_to_save + parameters.mode_name}.")
     # plt.show()
     
-    return env, policy
+    return env, policy, parameters
 
 
 if __name__ == "__main__":
@@ -342,49 +350,55 @@ if __name__ == "__main__":
     
     parameters = Parameters(
         n_agents=4,
+        dt=0.1, # [s] sample time 
         device="cpu" if not torch.backends.cuda.is_built() else "cuda:0",  # The divice where learning is run
         scenario_name=scenario_name,
         
         # Training parameters
         n_iters=100, # Number of sampling and training iterations (on-policy: rollouts are collected during sampling phase, which will be immediately used in the training phase of the same iteration),
-        frames_per_batch=1024, # Number of team frames collected per training iteration (minibatch_size*10)
+        frames_per_batch=2**10, # Number of team frames collected per training iteration (minibatch_size*10)
         num_epochs=30, # Number of optimization steps per training iteration,
-        minibatch_size=1024, # Size of the mini-batches in each optimization step (2**9 - 2**12?),
-        lr=1e-4, # Learning rate,
+        minibatch_size=2*8, # Size of the mini-batches in each optimization step (2**9 - 2**12?),
+        lr=4e-4, # Learning rate,
         max_grad_norm=1.0, # Maximum norm for the gradients,
         clip_epsilon=0.2, # clip value for PPO loss,
-        gamma=0.95, # discount factor,
+        gamma=0.98, # discount factor (empirical formula: 0.1 = gamma^t, where t is the number of future steps that you want your agents to predict {0.96 -> 56 steps, 0.98 - 114 steps, 0.99 -> 229 steps, 0.995 -> 459 steps})
         lmbda=0.9, # lambda for generalised advantage estimation,
-        entropy_eps=1e-4, # coefficient of the entropy term in the PPO loss,
-        max_steps=128, # Episode steps before done (512)
+        entropy_eps=4e-4, # coefficient of the entropy term in the PPO loss,
+        max_steps=2**8, # Episode steps before done (512)
         
         is_save_intermidiate_model=True, # Is this is true, the model with the hightest mean episode reward will be saved,
         n_nearing_agents_observed=4,
         episode_reward_mean_current=0.00,
-        is_load_model=True, # Load offline model if available. The offline model in `where_to_save` whose name contains `episode_reward_mean_current` will be loaded
+        
+        is_load_model=False, # Load offline model if available. The offline model in `where_to_save` whose name contains `episode_reward_mean_current` will be loaded
         is_continue_train=False, # If offline models are loaded, whether to continue to train the model
         mode_name=None, 
         episode_reward_intermidiate=-1e3, # The initial value should be samll enough
-        where_to_save=f"outputs/{scenario_name}_ppo/test2/", # folder where to save the trained models, fig, data, etc.
+        where_to_save=f"outputs/{scenario_name}_ppo/test_nondynamic_goal_reward_no_v_rew_small_goal_threshold/", # folder where to save the trained models, fig, data, etc.
         
         # Scenario parameters
-        is_local_observation=True,
+        is_local_observation=False, 
         is_global_coordinate_sys=True,
         n_short_term_points=6,
         is_testing_mode=False,
         is_visualize_short_term_path=True,
         
-        path_tracking_type='line', # For path-tracking scenarios, should be one of 'line', 'turning', 'circle', 'sine', and 'horizontal_8'
+        path_tracking_type='line', # [relevant to path-tracking scenarios] should be one of 'line', 'turning', 'circle', 'sine', and 'horizontal_8'
+        is_dynamic_goal_reward=False, # [relevant to path-tracking scenarios] set to True if the goal reward is dynamically adjusted based on the performance of agents' history trajectories 
+        is_save_eval_results=False,
     )
     
-    env, policy = multiagent_ppo_cavs(parameters=parameters)
-    
+    env, policy, parameters = multiagent_ppo_cavs(parameters=parameters)
+
     # Evaluate the model
     with torch.no_grad():
-        env.rollout(
-            max_steps=1000,
+        out_td = env.rollout(
+            max_steps=parameters.max_steps*4,
             policy=policy,
             callback=lambda env, _: env.render(),
             auto_cast_to_device=True,
-            break_when_any_done=False,
+            break_when_any_done=True,
         )
+    print(out_td)
+    

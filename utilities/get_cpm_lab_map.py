@@ -115,7 +115,7 @@ def visualize_map(lanelets):
 
     is_use_random_color = True
 
-    save_to_pdf = False
+    is_save_fig = False
     file_name = "cpm_lab_map_visualization.pdf"
 
     line_width = 1.0
@@ -150,8 +150,8 @@ def visualize_map(lanelets):
     plt.ylim((0, y_lim))
     plt.title("Map Visualization")
 
-    # Save figure as pdf
-    if save_to_pdf:
+    # Save fig
+    if is_save_fig:
         plt.tight_layout() # Set the layout to be tight to minimize white space
         plt.savefig(file_name, format="pdf", bbox_inches="tight")
         

@@ -9,7 +9,7 @@
 .idea/**/dictionaries
 .idea/**/shelf
 outputs
-VectorizedMultiAgentSimulator
+# VectorizedMultiAgentSimulator
 test*.py
 
 # Generated files
