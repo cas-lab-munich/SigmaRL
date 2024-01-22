@@ -21,7 +21,7 @@ if project_root not in sys.path:
     sys.path.append(project_root)
 
 
-from utilities.helper_scenario import Distances, Evaluation, Normalizers, Observations, Penalties, ReferencePaths, Rewards, Thresholds, exponential_decreasing_fcn, get_distances_between_agents, get_perpendicular_distances, get_rectangle_corners, get_short_term_reference_path, interX
+from utilities.helper_scenario import Distances, Evaluation, Normalizers, Observations, Penalties, ReferencePaths, Rewards, Thresholds, exponential_decreasing_fcn, get_distances_between_agents, get_perpendicular_distances, get_rectangle_corners, get_short_term_reference_path, interX, get_point_line_distance
 
 from utilities.helper_training import Parameters
 
@@ -45,10 +45,10 @@ agent_wheelbase_rear = agent_length - agent_wheelbase_front # Rear wheelbase in 
 
 # Maximum control commands
 agent_max_speed = 0.5          # Maximum speed in [m/s]
-agent_max_steering_angle = 45   # Maximum steering angle in degree
+agent_max_steering_angle = 35   # Maximum steering angle in degree
 
 n_agents = 1        # The number of agents
-agent_mass = 0.5    # The mass of each agent in [m]
+agent_mass = 1    # The mass of each agent in [m]
 
 # Reward
 reward_progress = 4
@@ -57,11 +57,11 @@ assert reward_speed < reward_progress, "Speed reward should be smaller than prog
 reward_reaching_goal = 100 # Reward for reaching goal
 
 # Penalty for deviating from reference path
-penalty_deviate_from_ref_path = -0.2
+penalty_deviate_from_ref_path = -0.1
 penalty_deviate_from_goal = -1
 
 # Penalty for losing time
-penalty_time = -0.2
+penalty_time = -0
 
 # Visualization
 viewer_size = (1000, 1000) # TODO Check if we can use a fix camera view in vmas
@@ -224,7 +224,7 @@ class ScenarioPathTracking(BaseScenario):
     def make_world(self, batch_dim: int, device: torch.device, **kwargs):
         
         n_agents_received = kwargs.get("n_agents", n_agents)
-        if n_agents_received is not 1:
+        if n_agents_received != 1:
             print(f"In path-tracking scenarios, (only) one agent is needed (but received '{n_agents_received})'.")
         
         self.n_agents = 1 # Only one agent is needed in the path-tracking scenarios
@@ -232,7 +232,7 @@ class ScenarioPathTracking(BaseScenario):
         width = kwargs.get("width", agent_width) # Agent width
         l_f = kwargs.get("l_f", agent_wheelbase_front) # Distance between the front axle and the center of gravity
         l_r = kwargs.get("l_r", agent_wheelbase_rear) # Distance between the rear axle and the center of gravity
-        max_steering_angle = kwargs.get("max_steering_angle", torch.deg2rad(torch.tensor(agent_max_steering_angle)))
+        max_steering_angle = kwargs.get("max_steering_angle", torch.tensor(agent_max_steering_angle, device=device, dtype=torch.float32).deg2rad())
         max_speed = kwargs.get("max_speed", torch.tensor(agent_max_speed))
         
         self.viewer_size = viewer_size
@@ -343,7 +343,7 @@ class ScenarioPathTracking(BaseScenario):
             name=f"agent_0",
             shape=Box(length=l_f+l_r, width=width),
             collide=False,
-            render_action=True,
+            render_action=False,
             u_range=[max_speed, max_steering_angle], # Control command serves as velocity command 
             u_multiplier=[1, 1],
             max_speed=max_speed,
@@ -395,7 +395,7 @@ class ScenarioPathTracking(BaseScenario):
             # Reset distances to the reference path          
             self.distances.ref_paths[:,i], self.distances.closest_point_on_ref_path[:,i] = get_perpendicular_distances(
                 point=agent.state.pos, 
-                boundary=self.ref_paths.long_term[i]
+                polyline=self.ref_paths.long_term[i]
             )
             
             self.distances.goal[:,i] = (agent.state.pos - self.goal_pos).norm(dim=1)
@@ -431,7 +431,7 @@ class ScenarioPathTracking(BaseScenario):
             # Reset distances to the reference path          
             self.distances.ref_paths[env_index,i], self.distances.closest_point_on_ref_path[env_index,i] = get_perpendicular_distances(
                 point=agent.state.pos[env_index,:].unsqueeze(0), 
-                boundary=self.ref_paths.long_term[i]
+                polyline=self.ref_paths.long_term[i]
             )
             
             self.distances.goal[env_index,i] = (agent.state.pos[env_index,:] - self.goal_pos.unsqueeze(0)).norm(dim=1)
@@ -481,7 +481,7 @@ class ScenarioPathTracking(BaseScenario):
         # Calculate the distance from the center of the agent to its reference path
         self.distances.ref_paths[:,agent_index], self.distances.closest_point_on_ref_path[:,agent_index] = get_perpendicular_distances(
             point=agent.state.pos, 
-            boundary=self.ref_paths.long_term[agent_index]
+            polyline=self.ref_paths.long_term[agent_index]
         )
 
         if self.parameters.is_dynamic_goal_reward:
@@ -512,12 +512,12 @@ class ScenarioPathTracking(BaseScenario):
         ##################################################
         ## Reward for the actual movement
         ##################################################
-        movement = (agent.state.pos - agent.state.pos_previous).unsqueeze(1) # Calculate the progress of the agent
+        movement = (agent.state.pos - agent.state.pos_previous) # Calculate the progress of the agent
         # Handle non-loop reference path
         len_long_term_ref_path = len(self.ref_paths.long_term[agent_index])
         short_term_indices = torch.where(self.ref_paths.short_term_indices == len_long_term_ref_path - 1, len_long_term_ref_path - 2, self.ref_paths.short_term_indices)
         short_term_path_vec_normalized = self.ref_paths.long_term_vecs_normalized[short_term_indices[:,agent_index, 0:-1]] # Narmalized vector of the short-term reference path
-        movement_normalized_proj = torch.sum(movement * short_term_path_vec_normalized, dim=2)
+        movement_normalized_proj = torch.sum(movement.unsqueeze(1) * short_term_path_vec_normalized, dim=2)
         movement_weighted_sum_proj = torch.matmul(movement_normalized_proj, self.rewards.weighting_ref_directions)
         self.rew += movement_weighted_sum_proj / (agent.max_speed * self.world.dt) * self.rewards.progress # Relative to the maximum possible movement
         
@@ -539,8 +539,15 @@ class ScenarioPathTracking(BaseScenario):
         ##################################################
         ## Reward for reaching goal
         ##################################################
-        # Update distances to goal positions
-        self.distances.goal[:,agent_index] = (agent.state.pos - self.goal_pos).norm(dim=1)
+        # Update distances to goal positions        
+        for env_i in range(self.world.batch_dim):
+            self.distances.goal[env_i,agent_index] = get_point_line_distance(
+                point=self.goal_pos,
+                line=torch.vstack((agent.state.pos_previous[env_i], agent.state.pos[env_i])),
+            )
+        # print(self.distances.goal[:,agent_index])
+        
+        # self.distances.goal[:,agent_index] = (agent.state.pos - self.goal_pos).norm(dim=1)
         is_currently_at_goal = self.distances.goal[:,agent_index] <= self.thresholds.reaching_goal # If the agent is at its goal position
         # print(self.distances.goal[:,agent_index])
         
@@ -613,10 +620,30 @@ class ScenarioPathTracking(BaseScenario):
         ##################################################
         ## Observations of self
         ##################################################
-        obs_self = torch.hstack((
-            positions.reshape(self.world.batch_dim, -1),    # Position
-            velocities[:, agent_index],                     # Velocity 
-        ))
+        if agent.action.u is None:
+            obs_self = torch.hstack((
+                agent.state.pos_previous,   # Previous position
+                positions[:, agent_index],  # Position
+                velocities[:, agent_index], # Velocity 
+                torch.zeros(                # Previous action
+                    (self.world.batch_dim, agent.action.action_size), device=self.world.device, dtype=torch.float32
+                ),                                             
+            ))
+        else:
+            obs_self = torch.hstack((
+                agent.state.pos_previous, # Previous position
+                positions[:, agent_index],                # Position
+                velocities[:, agent_index],                                 # Velocity 
+                agent.action.u,                                             # Current action
+            ))
+        ##################################################
+        ## Observations of history data
+        ##################################################
+        # if agent.action.u is not None:
+        #     obs_history = torch.hstack((
+        #         agent.state.pos_previous,
+        #         agent.action.u,
+        # ))
         
         ##################################################
         ## Observation of distance to reference path

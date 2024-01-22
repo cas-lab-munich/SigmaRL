@@ -27,9 +27,11 @@ from torchrl.objectives import ClipPPOLoss, ValueEstimators
 from tqdm import tqdm
 
 import os, sys
-import matplotlib.pyplot as plt
-import scienceplots # Do not remove (https://github.com/garrettj403/SciencePlots)
 
+import matplotlib.pyplot as plt
+
+# Scientific plotting
+import scienceplots # Do not remove (https://github.com/garrettj403/SciencePlots)
 plt.rcParams.update({'figure.dpi': '100'}) # Avoid DPI problem (https://github.com/garrettj403/SciencePlots/issues/60)
 plt.style.use(['science','ieee']) # The science + ieee styles for IEEE papers (can also be one of 'ieee' and 'science' )
 # print(plt.style.available) # List all available style
@@ -38,6 +40,8 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
 
 # Import custom classes
 from utilities.helper_training import Parameters, SaveData, VmasEnvCustom, SyncDataCollectorCustom, TransformedEnvCustom, get_path_to_save_model, find_the_hightest_reward_among_all_models, save
+from utilities.evaluation import evaluate_outputs
+
 from scenarios.car_like_robots_road_traffic import ScenarioRoadTraffic
 from scenarios.car_like_robots_path_tracking import ScenarioPathTracking
 
@@ -359,13 +363,13 @@ if __name__ == "__main__":
         frames_per_batch=2**10, # Number of team frames collected per training iteration (minibatch_size*10)
         num_epochs=30, # Number of optimization steps per training iteration,
         minibatch_size=2*8, # Size of the mini-batches in each optimization step (2**9 - 2**12?),
-        lr=4e-4, # Learning rate,
+        lr=2e-4, # Learning rate,
         max_grad_norm=1.0, # Maximum norm for the gradients,
         clip_epsilon=0.2, # clip value for PPO loss,
-        gamma=0.98, # discount factor (empirical formula: 0.1 = gamma^t, where t is the number of future steps that you want your agents to predict {0.96 -> 56 steps, 0.98 - 114 steps, 0.99 -> 229 steps, 0.995 -> 459 steps})
+        gamma=0.96, # discount factor (empirical formula: 0.1 = gamma^t, where t is the number of future steps that you want your agents to predict {0.96 -> 56 steps, 0.98 -> 114 steps, 0.99 -> 229 steps, 0.995 -> 459 steps})
         lmbda=0.9, # lambda for generalised advantage estimation,
-        entropy_eps=4e-4, # coefficient of the entropy term in the PPO loss,
-        max_steps=2**8, # Episode steps before done (512)
+        entropy_eps=1e-4, # coefficient of the entropy term in the PPO loss,
+        max_steps=2**8, # Episode steps before done
         
         is_save_intermidiate_model=True, # Is this is true, the model with the hightest mean episode reward will be saved,
         n_nearing_agents_observed=4,
@@ -375,7 +379,7 @@ if __name__ == "__main__":
         is_continue_train=False, # If offline models are loaded, whether to continue to train the model
         mode_name=None, 
         episode_reward_intermidiate=-1e3, # The initial value should be samll enough
-        where_to_save=f"outputs/{scenario_name}_ppo/test_nondynamic_goal_reward_no_v_rew_small_goal_threshold/", # folder where to save the trained models, fig, data, etc.
+        where_to_save=f"outputs/{scenario_name}_ppo/new_dynamics_1/", # folder where to save the trained models, fig, data, etc.
         
         # Scenario parameters
         is_local_observation=False, 
@@ -400,5 +404,5 @@ if __name__ == "__main__":
             auto_cast_to_device=True,
             break_when_any_done=True,
         )
-    print(out_td)
+    evaluate_outputs(out_td=out_td, parameters=parameters, agent_width=env.scenario.world.agents[0].shape.width)
     

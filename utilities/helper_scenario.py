@@ -145,18 +145,22 @@ def find_short_term_trajectory(pos, reference_path, n_short_term_points=6):
 
     return short_term_path
 
-def get_perpendicular_distances(point, boundary):
+def get_perpendicular_distances(point, polyline, is_return_all_distances: bool = False):
     """
-    Calculate the minimum perpendicular distance from the given point to the given boundary.
+    Calculate the minimum perpendicular distance from the given point(s) to the given polyline.
+    
+    Args:
+        point: position of the point, with shape torch.Size([batch_size,2]), `batch_size` could also be 1.
+        polyline: positions of the points on the polyline, with shape torch.Size([num_points,2]).
     """
     
-    # Expand the boundary points to match the batch size
+    # Expand the polyline points to match the batch size
     batch_size = point.shape[0]
-    boundary_expanded = boundary.unsqueeze(0).expand(batch_size, -1, -1)  # Shape: [batch_size, n_points, 2]
+    polyline_expanded = polyline.unsqueeze(0).expand(batch_size, -1, -1)  # Shape: [batch_size, n_points, 2]
 
-    # Split the boundary into line segments
-    line_starts = boundary_expanded[:, :-1, :]
-    line_ends = boundary_expanded[:, 1:, :]
+    # Split the polyline into line segments
+    line_starts = polyline_expanded[:, :-1, :]
+    line_ends = polyline_expanded[:, 1:, :]
 
     # Create vectors for each line segment and for the point to the start of each segment
     agent_positions_expanded = point.unsqueeze(1)  # Shape: [batch_size, 1, 2]
@@ -176,9 +180,14 @@ def get_perpendicular_distances(point, boundary):
     # Calculate the distances from the given points to these closest points
     distances = torch.norm(closest_points - agent_positions_expanded, dim=2)
     
-    perpendicular_distances, indices_closest_points = torch.min(distances, dim=1)
-    
-    return perpendicular_distances, indices_closest_points
+    if is_return_all_distances:
+        # Return all distances from the given point(s) to the given polyline
+        return distances
+    else:
+        perpendicular_distances, indices_closest_points = torch.min(distances, dim=1)
+        
+        return perpendicular_distances, indices_closest_points
+
 
 def get_short_term_reference_path(reference_path, closest_point_on_ref_path, n_short_term_points, device = torch.device("cpu")):
     # Create a tensor that represents the indices for n_short_term_points for each agent
@@ -403,3 +412,41 @@ def interX(L1, L2, is_return_points=False):
     else:
         # Simply return whether collisions occur or not
         return collision_index
+
+
+def get_point_line_distance(point, line):
+    """
+    Calculate the distance from a point to a line.
+
+    Args:
+    point (torch.Tensor): A tensor of shape [2] representing the point (x, y).
+    line (torch.Tensor): A tensor of shape [2, 2] representing the line (the first column for x-positions)
+
+    Returns:
+    torch.Tensor: A tensor containing distances from the point to the line.
+    """
+
+    # Define the start and end points of the line
+    start, end = line[0], line[1]
+    if (start-end).norm()==0:
+        # Special case
+        return (point-start).norm()
+
+    # Compute the vectors
+    line_vec = end - start
+    point_vec = point - start
+
+    # Calculate the projection of point_vec onto line_vec
+    line_len = torch.dot(line_vec, line_vec)
+    projected = torch.dot(point_vec, line_vec) / line_len
+
+    # Clamp the projection between 0 and 1 to find the nearest point on the line
+    nearest = torch.clamp(projected, 0, 1)
+
+    # Find the nearest point on the line to the point
+    nearest_point = start + nearest * line_vec
+
+    # Calculate the distance from the point to the nearest point on the line
+    distance = torch.norm(point - nearest_point)
+
+    return distance

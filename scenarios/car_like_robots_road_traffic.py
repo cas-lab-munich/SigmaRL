@@ -269,17 +269,17 @@ class ScenarioRoadTraffic(BaseScenario):
                 # Reset distances to lanelet boundaries and reference path          
                 self.distances.ref_paths[:,i], self.distances.closest_point_on_ref_path[:,i] = get_perpendicular_distances(
                     point=agents[i].state.pos, 
-                    boundary=self.ref_paths.long_term[i]["center_line"]
+                    polyline=self.ref_paths.long_term[i]["center_line"]
                 )
                 # Calculate the distance from each corner of the agent to lanelet boundaries
                 for c_i in range(4):
                     self.distances.left_boundaries[:,i,c_i], _ = get_perpendicular_distances(
                         point=self.corners_gloabl[:,i,c_i,:], 
-                        boundary=self.ref_paths.long_term[i]["left_boundary_shared"],
+                        polyline=self.ref_paths.long_term[i]["left_boundary_shared"],
                     )
                     self.distances.right_boundaries[:,i,c_i], _ = get_perpendicular_distances(
                         point=self.corners_gloabl[:,i,c_i,:], 
-                        boundary=self.ref_paths.long_term[i]["right_boundary_shared"],
+                        polyline=self.ref_paths.long_term[i]["right_boundary_shared"],
                     )
                     
                 # Reset the short-term reference path of agents in all envs
@@ -313,17 +313,17 @@ class ScenarioRoadTraffic(BaseScenario):
                 # Reset distances to lanelet boundaries and reference path          
                 self.distances.ref_paths[env_index,i], self.distances.closest_point_on_ref_path[env_index,i] = get_perpendicular_distances(
                     point=agents[i].state.pos[env_index,:].unsqueeze(0), 
-                    boundary=self.ref_paths.long_term[i]["center_line"]
+                    polyline=self.ref_paths.long_term[i]["center_line"]
                 )
                 # Calculate the distance from each corner of the agent to lanelet boundaries
                 for c_i in range(4):
                     self.distances.left_boundaries[env_index,i,c_i], _ = get_perpendicular_distances(
                         point=self.corners_gloabl[env_index,i,c_i,:].unsqueeze(0), 
-                        boundary=self.ref_paths.long_term[i]["left_boundary_shared"],
+                        polyline=self.ref_paths.long_term[i]["left_boundary_shared"],
                     )
                     self.distances.right_boundaries[env_index,i,c_i], _ = get_perpendicular_distances(
                         point=self.corners_gloabl[env_index,i,c_i,:].unsqueeze(0), 
-                        boundary=self.ref_paths.long_term[i]["right_boundary_shared"],
+                        polyline=self.ref_paths.long_term[i]["right_boundary_shared"],
                     )
                     
                 # Reset the short-term reference path of agents in env `env_index`
@@ -408,18 +408,18 @@ class ScenarioRoadTraffic(BaseScenario):
         # Calculate the distance from the center of the agent to its reference path
         self.distances.ref_paths[:,agent_index], self.distances.closest_point_on_ref_path[:,agent_index] = get_perpendicular_distances(
             point=agent.state.pos, 
-            boundary=self.ref_paths.long_term[agent_index]["center_line"]
+            polyline=self.ref_paths.long_term[agent_index]["center_line"]
         )
 
         # Calculate the distances from each corner of the agent to lanelet boundaries
         for c_i in range(4):
             self.distances.left_boundaries[:,agent_index,c_i], _ = get_perpendicular_distances(
                 point=self.corners_gloabl[:,agent_index,c_i,:],
-                boundary=self.ref_paths.long_term[agent_index]["left_boundary_shared"],
+                polyline=self.ref_paths.long_term[agent_index]["left_boundary_shared"],
             )
             self.distances.right_boundaries[:,agent_index,c_i], _ = get_perpendicular_distances(
                 point=self.corners_gloabl[:,agent_index,c_i,:],
-                boundary=self.ref_paths.long_term[agent_index]["right_boundary_shared"],
+                polyline=self.ref_paths.long_term[agent_index]["right_boundary_shared"],
             )
         ##################################################
         ## Penalty for being too close to lanelet boundaries

@@ -30,6 +30,7 @@ if project_root not in sys.path:
     sys.path.append(project_root)
 
 from utilities.kinematic_bicycle import KinematicBicycle
+# from utilities.kinematic_bicycle_backup import KinematicBicycle
 
 
 
@@ -47,7 +48,10 @@ class Scenario(BaseScenario):
             "l_r", 0.1
         )  # Distance between the rear axle and the center of gravity
         max_steering_angle = kwargs.get(
-            "max_steering_angle", torch.deg2rad(torch.tensor(45.0))
+            "max_steering_angle", torch.tensor(35.0, device=device, dtype=torch.float32).deg2rad()
+        )
+        max_speed = kwargs.get(
+            "max_speed", torch.tensor(0.5, device=device, dtype=torch.float32)
         )
 
         # Make world
@@ -61,6 +65,7 @@ class Scenario(BaseScenario):
                     shape=Box(length=l_f + l_r, width=width),
                     collide=True,
                     render_action=True,
+                    max_speed=max_speed,
                     u_range=[1, max_steering_angle],
                     u_multiplier=[1, 1],
                     dynamics=KinematicBicycle(

@@ -8,11 +8,12 @@ from utilities.helper_training import Parameters
 
 
 def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: float = 0.1):
-    """This function evaluates the test results presented as a tensordict."""
+    """This function evaluates the test results presented as a tensordict."""    
+
+    path_eval_out_td = parameters.where_to_save + parameters.mode_name + "_out_td.pth"        
     if parameters.is_save_eval_results:
-        path_save_eval_out_td = parameters.where_to_save + parameters.mode_name + "_out_td.pth"
         # Save the input TensorDict
-        torch.save(out_td, path_save_eval_out_td)
+        torch.save(out_td, path_eval_out_td)
 
     env_index = 0
     
@@ -23,7 +24,7 @@ def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: fl
     
     deviation_mean_relative = deviation_from_ref_path / agent_width
     deviation_from_ref_path_mean = deviation_from_ref_path.mean()
-    print(f"deviation_from_ref_path_mean={deviation_from_ref_path_mean}.")
+    print(f"Mean deviation={deviation_from_ref_path_mean} m.")
 
     # Set up the figure and subplots
     subgraph_width_ratio = [2, 1]
@@ -35,9 +36,12 @@ def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: fl
     # First subplot for position-velocity plot
     segments = torch.stack([pos_traj[:-1], pos_traj[1:]], dim=1)
     velocity_magnitude = vel_traj.norm(dim=1)
+    print(f"Mean velocity={velocity_magnitude.mean()} m/s.")
+    
+    
     norm = Normalize(vmin=0, vmax=velocity_magnitude.max())
-    lc = LineCollection(segments.numpy(), cmap='Greys', norm=norm)
-    lc.set_array(velocity_magnitude.numpy())
+    lc = LineCollection(segments, cmap='Greys', norm=norm)
+    lc.set_array(velocity_magnitude)
     lc.set_linewidth(2)
     ax1.add_collection(lc)
     ax1.autoscale()
@@ -98,5 +102,6 @@ def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: fl
     if parameters.is_save_eval_results:
         path_save_eval_fig = parameters.where_to_save + parameters.mode_name + "_eval.pdf"
         plt.savefig(path_save_eval_fig, format="pdf", bbox_inches="tight")
+        print(f"All files are saved under {parameters.where_to_save}.")
 
     plt.show()

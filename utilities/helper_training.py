@@ -291,6 +291,7 @@ class Parameters():
                 where_to_save: str = None,
                 is_continue_train: bool = None,             # Whether to continue training after loading an offline model
                 is_save_eval_results: bool = None,
+                is_load_out_td: bool = None,
 
                 path_tracking_type: str = None,             # For path-tracking scenarios
                 is_dynamic_goal_reward: bool = None,        # TODO Adjust the goal reward based on how well agents achieve their goals
@@ -348,6 +349,7 @@ class Parameters():
         self.is_dynamic_goal_reward = is_dynamic_goal_reward
 
         self.is_save_eval_results = is_save_eval_results
+        self.is_load_out_td = is_load_out_td
             
         if (mode_name is None) and (scenario_name is not None):
             self.mode_name = get_model_name(self)

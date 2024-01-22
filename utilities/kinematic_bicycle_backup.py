@@ -12,7 +12,7 @@ from vmas.simulator.dynamics.common import Dynamics
 
 
 class KinematicBicycle(Dynamics):
-    # For the implementation of the kinematic bicycle model, see the equation (2) of the paper Polack, Philip, et al. "The kinematic bicycle model: A consistent model for planning feasible trajectories for autonomous vehicles?." 2017 IEEE intelligent vehicles symposium (IV). IEEE, 2017.
+    # For the implementation of the kinematic bicycle model, see Table 2.1 of the book of Rajesh Rajamani "Vehicle Dynamics and Control"
     def __init__(
         self,
         world: vmas.simulator.core.World,
@@ -28,14 +28,14 @@ class KinematicBicycle(Dynamics):
             "rk4",
             "euler",
         ), "Integration method must be 'euler' or 'rk4'."
-        
+        self.world = world
         self.width = width
         self.l_f = l_f  # Distance between the front axle and the center of gravity
         self.l_r = l_r  # Distance between the rear axle and the center of gravity
         self.max_steering_angle = max_steering_angle
         self.dt = world.dt
         self.integration = integration
-        self.world = world
+
 
     def f(self, state, steering_command, v_command):
         theta = state[:, 2]  # Yaw angle
@@ -66,7 +66,7 @@ class KinematicBicycle(Dynamics):
     @property
     def needed_action_size(self) -> int:
         return 2
-
+    
     def process_action(self):
         # Extracts the velocity and steering angle from the agent's actions and convert them to physical force and torque
         v_command = self.agent.action.u[:, 0]
@@ -110,5 +110,5 @@ class KinematicBicycle(Dynamics):
         self.agent.state.force[:, vmas.simulator.utils.X] = force_x
         self.agent.state.force[:, vmas.simulator.utils.Y] = force_y
         self.agent.state.torque = torque.unsqueeze(-1)
-        # print(f"force_x={force_x}")
-        # print(f"force_y={force_y}")
+        print(f"force_x={force_x}")
+        print(f"force_y={force_y}")
