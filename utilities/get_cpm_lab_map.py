@@ -3,6 +3,13 @@ import torch
 import matplotlib.pyplot as plt
 import numpy as np
 
+# Scientific plotting
+import scienceplots # Do not remove (https://github.com/garrettj403/SciencePlots)
+plt.rcParams.update({'figure.dpi': '100'}) # Avoid DPI problem (https://github.com/garrettj403/SciencePlots/issues/60)
+plt.style.use(['science','ieee']) # The science + ieee styles for IEEE papers (can also be one of 'ieee' and 'science' )
+# print(plt.style.available) # List all available style
+
+
 def parse_point(element, device):
     """ Parses a point element to extract x and y coordinates. """
     x = float(element.find("x").text) if element.find("x") is not None else None
@@ -105,7 +112,7 @@ def parse_intersections(element):
     return intersection_info
 
 
-def visualize_map(lanelets):
+def visualize_map(lanelets, is_save_fig = False):
     x_lim = 4.5 # [m] Dimension in x-direction 
     y_lim = 4.0 # [m] Dimension in y-direction 
 
@@ -115,7 +122,6 @@ def visualize_map(lanelets):
 
     is_use_random_color = True
 
-    is_save_fig = False
     file_name = "cpm_lab_map_visualization.pdf"
 
     line_width = 1.0
@@ -144,11 +150,11 @@ def visualize_map(lanelets):
         # Adding lanelet ID as text
         plt.text(center_line[int(len(center_line)/2), 0], center_line[int(len(center_line)/2), 1], str(lanelet["id"]), color=color, fontsize=font_size)
 
-    plt.xlabel("X Coordinate (m)")
-    plt.ylabel("Y Coordinate (m)")
+    plt.xlabel(r"$x$ [m]", fontsize=12)
+    plt.ylabel(r"$y$ [m]", fontsize=12)
     plt.xlim((0, x_lim))
     plt.ylim((0, y_lim))
-    plt.title("Map Visualization")
+    plt.title("CPM Map Visualization", fontsize=14)
 
     # Save fig
     if is_save_fig:
@@ -159,7 +165,7 @@ def visualize_map(lanelets):
 
 
 # Parse the XML file
-def get_map_data(**kwargs):
+def get_map_data(is_save_fig = False, is_visualize = False, **kwargs):
     xml_file_path = kwargs.get("xml_file_path", "assets/cpm_lab_map.xml")
     device = kwargs.get("device", torch.device("cpu"))
     
@@ -186,15 +192,17 @@ def get_map_data(**kwargs):
     
     
     # Visualization
-    IS_VISUALIZE = False
-    if IS_VISUALIZE:
-        visualize_map(lanelets)
+    if is_visualize:
+        visualize_map(lanelets, is_save_fig)
         
     return map_data
 
 
 if __name__ == "__main__":
-    map_data = get_map_data()
+    map_data = get_map_data(
+        is_visualize=True, # Rendering may be slow due to the usage of the package `scienceplots`. You may want to disable it by commenting the related codes out.
+        is_save_fig=False, 
+    )
     print(map_data)
 
 # Example of how to use 

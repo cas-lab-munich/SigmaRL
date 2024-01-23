@@ -52,9 +52,10 @@ agent_mass = 1    # The mass of each agent in [m]
 
 # Reward
 reward_progress = 4
-reward_speed = 0.5 # Should be smaller than reward_progress to discourage moving in a high speed without actually progressing
+reward_speed = 1 # ! Should not be a dominant reward, which may encourage agents to move in a high speed but not the right path or direction
 assert reward_speed < reward_progress, "Speed reward should be smaller than progress reward to discourage moving in a high speed in a wrong direction"
-reward_reaching_goal = 100 # Reward for reaching goal
+reward_reach_goal = 100 # Reward for reaching goal
+reward_reach_intermediate_goals = 2 # Reward for reaching intermediate goals
 
 # Penalty for deviating from reference path
 penalty_deviate_from_ref_path = -0.1
@@ -68,7 +69,7 @@ viewer_size = (1000, 1000) # TODO Check if we can use a fix camera view in vmas
 viewer_zoom = 1
 
 # Reference path
-n_short_term_points = 6 # The number of points on the short-term reference path
+n_short_term_points = 12 # The number of points on the short-term reference path
 
 # Observation
 is_global_coordinate_sys = True # Set to True if you want to use global coordinate system
@@ -77,7 +78,8 @@ is_local_observation = False # TODO Set to True if sensor range is limited
 is_testing_mode = False # In testing mode, collisions do not lead to the termination of the simulation 
 is_visualize_short_term_path = True
 
-threshold_reaching_goal = agent_width / 8 # Agents are considered at their goal positions if their distances to the goal positions are less than this threshold
+threshold_reach_goal = agent_width / 8 # Agents are considered at their goal positions if their distances to the goal positions are less than this threshold
+threshold_reach_intermediate_goal = agent_width / 2 # Agents are considered at their intermediate goal positions if their distances to the goal positions are less than this threshold
 
 max_steps = 2000
 is_dynamic_goal_reward = True
@@ -254,8 +256,8 @@ class ScenarioPathTracking(BaseScenario):
 
         tracking_path, self.start_pos, self.start_rot, self.start_vel, self.goal_pos, self.goal_rot = get_ref_path_for_tracking_scenarios(path_tracking_type=self.parameters.path_tracking_type)
         
-        self.is_currently_at_goal = torch.zeros(batch_dim, device=device, dtype=torch.bool)        # If agents currently are at their goal positions
-        self.has_reached_goal  = torch.zeros(batch_dim, device=device, dtype=torch.bool) # Record if agents have reached their goal at least once 
+        self.is_currently_at_goal = torch.zeros(batch_dim, device=device, dtype=torch.bool) # If agents currently are at their goal positions
+        self.has_reached_goal  = torch.zeros(batch_dim, device=device, dtype=torch.bool) # Record goal-reaching status
         
         center_points_path, lengths_path, yaws_path, vecs_path = get_center_length_yaw_polyline(polyline=tracking_path)
         
@@ -299,7 +301,8 @@ class ScenarioPathTracking(BaseScenario):
             progress=torch.tensor(reward_progress, device=device, dtype=torch.float32),
             weighting_ref_directions=weighting_ref_directions, # Progress in the weighted directions (directions indicating by closer short-term reference points have higher weights)
             higth_v=torch.tensor(reward_speed, device=device, dtype=torch.float32),
-            reaching_goal=torch.tensor(reward_reaching_goal, device=device, dtype=torch.float32),
+            reach_goal=torch.tensor(reward_reach_goal, device=device, dtype=torch.float32),
+            reach_intermediate_goal=torch.tensor(reward_reach_intermediate_goals, device=device, dtype=torch.float32),
         )
 
         self.penalties = Penalties(
@@ -322,7 +325,8 @@ class ScenarioPathTracking(BaseScenario):
         )
         
         self.thresholds = Thresholds(
-            reaching_goal=torch.tensor(threshold_reaching_goal, device=device, dtype=torch.float32)
+            reach_goal=torch.tensor(threshold_reach_goal, device=device, dtype=torch.float32),
+            reach_intermediate_goal=torch.tensor(threshold_reach_intermediate_goal, device=device, dtype=torch.float32),
         )
         
         if self.parameters.is_dynamic_goal_reward:
@@ -337,6 +341,9 @@ class ScenarioPathTracking(BaseScenario):
         # Store the index of the nearest point on the reference path, which indicates the moving progress of the agent
         self.progress = torch.zeros((batch_dim, self.n_agents), device=device)
         self.progress_previous = torch.zeros((batch_dim, self.n_agents), device=device)
+
+        # Store the reaching status of intermediate goals
+        self.are_intermediate_goals_reached = torch.zeros((batch_dim, self.n_agents, self.ref_paths.long_term.shape[1]), device=device, dtype=torch.bool)
         
         # Use the kinematic bicycle model for the agent
         agent = Agent(
@@ -416,6 +423,9 @@ class ScenarioPathTracking(BaseScenario):
 
             # Reset the previous position
             agent.state.pos_previous = agent.state.pos.clone()
+            
+            # Reset the reaching status of intermediate goals for all envs
+            self.are_intermediate_goals_reached[:] = False
 
             # Store the index of the nearest point on the reference path, which indicates the moving progress of the agent
             # TODO Necessary?
@@ -451,9 +461,12 @@ class ScenarioPathTracking(BaseScenario):
                 self.evaluation.rot_traj[env_index] = 0
                 self.evaluation.path_tracking_error_mean[env_index] = 0
             
-            # Reset the previous position
+            # Reset the previous position for env `env_index`
             agent.state.pos_previous[env_index,:] = agent.state.pos[env_index,:].clone()
         
+            # Reset the reaching status of intermediate goals for env `env_index`
+            self.are_intermediate_goals_reached[env_index, :] = False
+            
             # Store the index of the nearest point on the reference path, which indicates the moving progress of the agent
             # TODO Necessary?
             self.progress_previous[env_index,i] = self.progress[env_index,i].clone() # Store the values of previous time step 
@@ -465,7 +478,6 @@ class ScenarioPathTracking(BaseScenario):
     def process_action(self, agent: Agent):
         """This function will be executed before the step function, i.e., states are not updated yet."""
         # print("[DEBUG] process_action()")
-        
         if hasattr(agent, 'dynamics') and hasattr(agent.dynamics, 'process_force'):
             agent.dynamics.process_force()
         else:
@@ -495,7 +507,7 @@ class ScenarioPathTracking(BaseScenario):
         ##################################################
         ## Penalty for deviating from reference path
         ##################################################
-        self.rew += self.distances.ref_paths[:,agent_index] / self.penalties.weighting_deviate_from_ref_path * self.penalties.deviate_from_ref_path
+        # self.rew += self.distances.ref_paths[:,agent_index] / self.penalties.weighting_deviate_from_ref_path * self.penalties.deviate_from_ref_path
 
         # Update the short-term reference path (extract from the long-term reference path)
         self.ref_paths.short_term[:,agent_index], self.ref_paths.short_term_indices[:,agent_index] = get_short_term_reference_path(
@@ -507,27 +519,46 @@ class ScenarioPathTracking(BaseScenario):
         
         # [not used] Store the index of the nearest point on the reference path, which indicates the moving progress of the agent
         self.progress_previous[:,agent_index] = self.progress[:,agent_index].clone() # Store the values of previous time step 
-        self.progress[:,agent_index] = self.ref_paths.short_term_indices[:,agent_index,0]
+        self.progress[:,agent_index] = self.ref_paths.short_term_indices[:,agent_index,0]              
         
         ##################################################
         ## Reward for the actual movement
         ##################################################
-        movement = (agent.state.pos - agent.state.pos_previous) # Calculate the progress of the agent
-        # Handle non-loop reference path
+        # TODO Check if this is necessary when there are rewards for intermediate goals
+        # movement = (agent.state.pos - agent.state.pos_previous) # Calculate the progress of the agent
+        # # Handle non-loop reference path
         len_long_term_ref_path = len(self.ref_paths.long_term[agent_index])
         short_term_indices = torch.where(self.ref_paths.short_term_indices == len_long_term_ref_path - 1, len_long_term_ref_path - 2, self.ref_paths.short_term_indices)
         short_term_path_vec_normalized = self.ref_paths.long_term_vecs_normalized[short_term_indices[:,agent_index, 0:-1]] # Narmalized vector of the short-term reference path
-        movement_normalized_proj = torch.sum(movement.unsqueeze(1) * short_term_path_vec_normalized, dim=2)
-        movement_weighted_sum_proj = torch.matmul(movement_normalized_proj, self.rewards.weighting_ref_directions)
-        self.rew += movement_weighted_sum_proj / (agent.max_speed * self.world.dt) * self.rewards.progress # Relative to the maximum possible movement
+        # movement_normalized_proj = torch.sum(movement.unsqueeze(1) * short_term_path_vec_normalized, dim=2)
+        # movement_weighted_sum_proj = torch.matmul(movement_normalized_proj, self.rewards.weighting_ref_directions)
+        # self.rew += movement_weighted_sum_proj / (agent.max_speed * self.world.dt) * self.rewards.progress # Relative to the maximum possible movement
+        
+        ##################################################
+        ## Reward for intermediate goals
+        ##################################################
+        # All points on the reference path are considered "intermediate goals" 
+        # TODO Use more sparse intermediate goals?
+        distances_to_intermediate_goals = get_point_line_distance(
+            points=self.ref_paths.long_term[agent_index],
+            lines_start_points=agent.state.pos_previous,
+            lines_end_points=agent.state.pos # Use not only the current position but also the previous position to cover the case that the an intermediate goal lies between the previous and the current positions
+        )
+        # Update the reaching status of intermediate goals
+        are_intermediate_goals_reached = distances_to_intermediate_goals <= self.thresholds.reach_intermediate_goal
+        new_intermediate_goals_reached = (~self.are_intermediate_goals_reached[:, agent_index, :]) & are_intermediate_goals_reached
+        # Update intermediate-goal-reaching status
+        self.are_intermediate_goals_reached[:, agent_index, :] |= new_intermediate_goals_reached
+        self.rew += new_intermediate_goals_reached.sum(dim=1) * self.rewards.reach_intermediate_goal
+        # print(new_intermediate_goals_reached.sum(dim=1))
         
         ##################################################
         ## Reward for moving in a high velocity and the right direction
         ##################################################
         # TODO: optional?
-        # v_proj = torch.sum(agent.state.vel.unsqueeze(1) * short_term_path_vec_normalized, dim=2)
-        # v_proj_weighted_sum = torch.matmul(v_proj, self.rewards.weighting_ref_directions)
-        # self.rew += v_proj_weighted_sum / agent.max_speed * self.rewards.higth_v
+        v_proj = torch.sum(agent.state.vel.unsqueeze(1) * short_term_path_vec_normalized, dim=2)
+        v_proj_weighted_sum = torch.matmul(v_proj, self.rewards.weighting_ref_directions)
+        self.rew += v_proj_weighted_sum / agent.max_speed * self.rewards.higth_v
 
         # Save previous positions
         agent.state.pos_previous = agent.state.pos.clone() 
@@ -540,29 +571,21 @@ class ScenarioPathTracking(BaseScenario):
         ## Reward for reaching goal
         ##################################################
         # Update distances to goal positions        
-        for env_i in range(self.world.batch_dim):
-            self.distances.goal[env_i,agent_index] = get_point_line_distance(
-                point=self.goal_pos,
-                line=torch.vstack((agent.state.pos_previous[env_i], agent.state.pos[env_i])),
-            )
-        # print(self.distances.goal[:,agent_index])
-        
-        # self.distances.goal[:,agent_index] = (agent.state.pos - self.goal_pos).norm(dim=1)
-        is_currently_at_goal = self.distances.goal[:,agent_index] <= self.thresholds.reaching_goal # If the agent is at its goal position
-        # print(self.distances.goal[:,agent_index])
-        
+        self.distances.goal[:, agent_index] = distances_to_intermediate_goals[:, -1]        
+        is_currently_at_goal = self.distances.goal[:, agent_index] <= self.thresholds.reach_goal # If the agent is at its goal position
         goal_reward_factor = torch.ones(self.world.batch_dim, device=self.world.device, dtype=torch.float32)
         if self.parameters.is_dynamic_goal_reward:
             goal_reward_factor[:] = agent.shape.width / self.evaluation.path_tracking_error_mean[:,agent_index] # The smaller the mean tracking error, the higher the goal reward
         
-        self.rew += is_currently_at_goal * self.rewards.reaching_goal * ~self.has_reached_goal * goal_reward_factor # Agents can only receive the goal reward once per iteration
-        self.has_reached_goal[is_currently_at_goal] = True # Record if agents have reached their goal positions
+        self.rew += is_currently_at_goal * self.rewards.reach_goal * ~self.has_reached_goal * goal_reward_factor # Agents can only receive the goal reward once per iteration
+        # Update goal-reaching status
+        self.has_reached_goal[is_currently_at_goal] = True
 
         ##################################################
-        ## Penalty for leaving goal position
+        ## Penalty for leaving goal position (not relevant to single-agent scenario)
         ##################################################
-        # This penalty is only applied to agents that have reached their goal position before, with the purpose that these agents will stay at their goal positions
-        self.rew += (self.distances.goal[:,agent_index] - self.thresholds.reaching_goal).clamp(min=0) * self.penalties.deviate_from_goal * self.has_reached_goal
+        # This penalty is only applied to agents that have reached their goal positions before and now leave them, aiming to encourage these agents to stay at their goal positions
+        self.rew += (self.distances.goal[:,agent_index] - self.thresholds.reach_goal).clamp(min=0) * self.penalties.deviate_from_goal * self.has_reached_goal
 
         ##################################################
         ## Penalty for losing time
@@ -570,7 +593,6 @@ class ScenarioPathTracking(BaseScenario):
         # TODO: check if this is necessary
         self.rew += self.penalties.time
         
-
         return self.rew
 
 
@@ -636,14 +658,6 @@ class ScenarioPathTracking(BaseScenario):
                 velocities[:, agent_index],                                 # Velocity 
                 agent.action.u,                                             # Current action
             ))
-        ##################################################
-        ## Observations of history data
-        ##################################################
-        # if agent.action.u is not None:
-        #     obs_history = torch.hstack((
-        #         agent.state.pos_previous,
-        #         agent.action.u,
-        # ))
         
         ##################################################
         ## Observation of distance to reference path
@@ -733,15 +747,13 @@ class ScenarioPathTracking(BaseScenario):
                 
         # Visualize goal
         color = Color.RED.value
-        circle = rendering.make_circle(radius=self.thresholds.reaching_goal, filled=True)
+        circle = rendering.make_circle(radius=self.thresholds.reach_goal, filled=True)
         xform = rendering.Transform()
         circle.add_attr(xform)
         xform.set_translation(self.goal_pos[0], self.goal_pos[1])
         circle.set_color(*color)
         geoms.append(circle)
 
-        
-            
         if self.parameters.is_visualize_short_term_path:
             for agent_i in range(self.n_agents):
                 center_points, lengths, yaws, _ = get_center_length_yaw_polyline(polyline=self.ref_paths.short_term[env_index,agent_i])

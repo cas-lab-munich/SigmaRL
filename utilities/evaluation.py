@@ -7,14 +7,21 @@ import torch
 from utilities.helper_training import Parameters
 
 
-def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: float = 0.1):
+# Scientific plotting
+import scienceplots # Do not remove (https://github.com/garrettj403/SciencePlots)
+plt.rcParams.update({'figure.dpi': '100'}) # Avoid DPI problem (https://github.com/garrettj403/SciencePlots/issues/60)
+plt.style.use(['science','ieee']) # The science + ieee styles for IEEE papers (can also be one of 'ieee' and 'science' )
+# print(plt.style.available) # List all available style
+
+def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: float = 0.1, ref_paths: torch.Tensor = None):
     """This function evaluates the test results presented as a tensordict."""    
 
     path_eval_out_td = parameters.where_to_save + parameters.mode_name + "_out_td.pth"        
+    path_ref_path = parameters.where_to_save + parameters.mode_name + "_ref_path.pth"        
     if parameters.is_save_eval_results:
         # Save the input TensorDict
         torch.save(out_td, path_eval_out_td)
-
+        torch.save(ref_paths, path_ref_path)
     env_index = 0
     
     pos_traj = out_td.get(("agents","info","pos"))[env_index].squeeze(1)
@@ -26,9 +33,32 @@ def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: fl
     deviation_from_ref_path_mean = deviation_from_ref_path.mean()
     print(f"Mean deviation={deviation_from_ref_path_mean} m.")
 
+    # Adjust parameters for plotting for different scenarios 
+    if "path_tracking" in parameters.scenario_name:
+        subgraph_width_ratio = [2, 1]
+        # Color bar
+        cb_left_margin = 0.1
+        cb_bottom_margin = 0.1
+        cb_width = subgraph_width_ratio[0] / sum(subgraph_width_ratio) - 2 * cb_left_margin
+        cb_height = 0.02
+        if "line" in parameters.path_tracking_type:
+            figsize=(12, 4)
+            cb_bottom_margin = 0.3
+            cb_position_shape = [cb_left_margin, cb_bottom_margin, cb_width, cb_height]
+        elif "sine" in parameters.path_tracking_type:
+            figsize=(12, 6)
+            cb_left_margin = 0.27
+            cb_bottom_margin = 0.82
+            cb_width = 0.35
+            cb_position_shape = [cb_left_margin, cb_bottom_margin, cb_width, cb_height]
+        else:
+            figsize=(12, 6) # Default
+    else:
+        subgraph_width_ratio = [2, 1] # Default
+        
     # Set up the figure and subplots
-    subgraph_width_ratio = [2, 1]
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4), gridspec_kw={'width_ratios': subgraph_width_ratio})
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize, gridspec_kw={'width_ratios': subgraph_width_ratio})
+        
 
     # Adjust layout
     fig.tight_layout(rect=[0, 0, 1, 1], w_pad=2) # left, bottom, right, top in normalized (0,1) figure coordinates
@@ -44,16 +74,23 @@ def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: fl
     lc.set_array(velocity_magnitude)
     lc.set_linewidth(2)
     ax1.add_collection(lc)
+    
+
     ax1.autoscale()
     ax1.set_aspect('equal', adjustable='box')
     ax1.set_xlabel(r'$x$ [m]', fontsize=12)
     ax1.set_ylabel(r'$y$ [m]', fontsize=12)
     ax1.set_title("Position with velocity color map", fontsize=14)
+    ax1.grid(True)
+    if ref_paths is not None:
+        ref_path_line, = ax1.plot(ref_paths[0,:,0], ref_paths[0,:,1], "b--", label="Reference path")
 
-    # Color bar for the first subplot
-    left_margin = 0.1
-    width_cb = subgraph_width_ratio[0] / sum(subgraph_width_ratio) - 2 * left_margin
-    cbar_ax = fig.add_axes([left_margin, 0.3, width_cb, 0.02])  # (left, bottom, width, height)
+    # Creating the legend
+    ax1.legend(handles=[lc, ref_path_line], labels=["Actual trajectory", "Reference path"], loc="upper right")
+    # ax1.legend(handles=[lc, rp], labels=["Actual trajectory", "Reference path"], loc="upper right")
+
+    # Color bar for the first subplot    
+    cbar_ax = fig.add_axes(cb_position_shape)  # (left, bottom, width, height)
     cbar = plt.colorbar(lc, cax=cbar_ax, orientation='horizontal')
     cbar.set_label(r'$v$ [m/s]', fontsize=9)
 
@@ -104,4 +141,4 @@ def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: fl
         plt.savefig(path_save_eval_fig, format="pdf", bbox_inches="tight")
         print(f"All files are saved under {parameters.where_to_save}.")
 
-    plt.show()
+    # plt.show()

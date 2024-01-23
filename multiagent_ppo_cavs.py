@@ -363,7 +363,7 @@ if __name__ == "__main__":
         frames_per_batch=2**10, # Number of team frames collected per training iteration (minibatch_size*10)
         num_epochs=30, # Number of optimization steps per training iteration,
         minibatch_size=2*8, # Size of the mini-batches in each optimization step (2**9 - 2**12?),
-        lr=2e-4, # Learning rate,
+        lr=4e-4, # Learning rate,
         max_grad_norm=1.0, # Maximum norm for the gradients,
         clip_epsilon=0.2, # clip value for PPO loss,
         gamma=0.96, # discount factor (empirical formula: 0.1 = gamma^t, where t is the number of future steps that you want your agents to predict {0.96 -> 56 steps, 0.98 -> 114 steps, 0.99 -> 229 steps, 0.995 -> 459 steps})
@@ -379,7 +379,7 @@ if __name__ == "__main__":
         is_continue_train=False, # If offline models are loaded, whether to continue to train the model
         mode_name=None, 
         episode_reward_intermidiate=-1e3, # The initial value should be samll enough
-        where_to_save=f"outputs/{scenario_name}_ppo/new_dynamics_1/", # folder where to save the trained models, fig, data, etc.
+        where_to_save=f"outputs/{scenario_name}_ppo/sin_no_reward_shaping_short_term_paths/", # folder where to save the trained models, fig, data, etc.
         
         # Scenario parameters
         is_local_observation=False, 
@@ -388,7 +388,7 @@ if __name__ == "__main__":
         is_testing_mode=False,
         is_visualize_short_term_path=True,
         
-        path_tracking_type='line', # [relevant to path-tracking scenarios] should be one of 'line', 'turning', 'circle', 'sine', and 'horizontal_8'
+        path_tracking_type='sine', # [relevant to path-tracking scenarios] should be one of 'line', 'turning', 'circle', 'sine', and 'horizontal_8'
         is_dynamic_goal_reward=False, # [relevant to path-tracking scenarios] set to True if the goal reward is dynamically adjusted based on the performance of agents' history trajectories 
         is_save_eval_results=False,
     )
@@ -404,5 +404,5 @@ if __name__ == "__main__":
             auto_cast_to_device=True,
             break_when_any_done=True,
         )
-    evaluate_outputs(out_td=out_td, parameters=parameters, agent_width=env.scenario.world.agents[0].shape.width)
+    # evaluate_outputs(out_td=out_td, parameters=parameters, agent_width=env.scenario.world.agents[0].shape.width)
     

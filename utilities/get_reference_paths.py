@@ -85,8 +85,8 @@ def get_reference_paths(n_agents, map_data, IS_VISUALIZE: bool = False):
         # Set up the plot
         plt.figure(figsize=(x_lim*3, y_lim*3))  # Size in inches, adjusted for 4.0m x 4.5m dimensions
         plt.axis("equal")  # Ensure x and y dimensions are equally scaled
-        plt.xlabel("X Coordinate (m)")
-        plt.ylabel("Y Coordinate (m)")
+        plt.xlabel(r"$x$ [m]")
+        plt.ylabel(r"$y$ [m]")
         plt.xlim((0, x_lim))
         plt.ylim((0, y_lim))
         plt.title("Map Visualization")

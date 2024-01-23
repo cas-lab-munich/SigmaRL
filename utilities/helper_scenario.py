@@ -11,11 +11,12 @@ class Normalizers:
         self.rot = rot
 
 class Rewards:
-    def __init__(self, progress = None, weighting_ref_directions = None, higth_v = None, reaching_goal = None):
+    def __init__(self, progress = None, weighting_ref_directions = None, higth_v = None, reach_goal = None, reach_intermediate_goal = None):
         self.progress = progress
         self.weighting_ref_directions = weighting_ref_directions
         self.higth_v = higth_v
-        self.reaching_goal = reaching_goal
+        self.reach_goal = reach_goal
+        self.reach_intermediate_goal = reach_intermediate_goal
 
 class Penalties:
     def __init__(self, deviate_from_ref_path = None, deviate_from_goal = None, weighting_deviate_from_ref_path = None, near_boundary = None, near_other_agents = None, collide_with_agents = None, collide_with_boundaries = None, time = None):
@@ -29,13 +30,14 @@ class Penalties:
         self.time = time                                    # Penalty for losing time
         
 class Thresholds:
-    def __init__(self, deviate_from_ref_path = None, near_boundary_low = None, near_boundary_high = None, near_other_agents_low = None, near_other_agents_high = None, reaching_goal = None):
+    def __init__(self, deviate_from_ref_path = None, near_boundary_low = None, near_boundary_high = None, near_other_agents_low = None, near_other_agents_high = None, reach_goal = None, reach_intermediate_goal = None):
         self.deviate_from_ref_path = deviate_from_ref_path
         self.near_boundary_low = near_boundary_low
         self.near_boundary_high = near_boundary_high
         self.near_other_agents_low = near_other_agents_low
         self.near_other_agents_high = near_other_agents_high
-        self.reaching_goal = reaching_goal                      # Threshold less than which agents are considered at their goal positions
+        self.reach_goal = reach_goal                              # Threshold less than which agents are considered at their goal positions
+        self.reach_intermediate_goal = reach_intermediate_goal    # Threshold less than which agents are considered at their intermediate goal positions
 
 class ReferencePaths:
     def __init__(self, long_term = None, long_term_yaws = None, long_term_center_points = None, long_term_lengths = None, long_term_vecs_normalized = None, n_short_term_points = None, short_term = None, short_term_indices = None, left_boundary_repeated = None, right_boundary_repeated = None):
@@ -151,7 +153,7 @@ def get_perpendicular_distances(point, polyline, is_return_all_distances: bool =
     
     Args:
         point: position of the point, with shape torch.Size([batch_size,2]), `batch_size` could also be 1.
-        polyline: positions of the points on the polyline, with shape torch.Size([num_points,2]).
+        polyline: x- and y-coordinates of the points on the polyline, with shape torch.Size([num_points,2]).
     """
     
     # Expand the polyline points to match the batch size
@@ -358,6 +360,7 @@ def interX(L1, L2, is_return_points=False):
     Calculate the intersections of batches of curves using PyTorch tensors.
     Each curve in the batches should be a tensor of shape (batch_size, points, 2), 
     where points is the number of points in the curve.
+    Adapted from https://www.mathworks.com/matlabcentral/fileexchange/22441-curve-intersections
     """
     # L1[:,:,0] -= 0.35
     # L1[:,:,1] -= 0.05
@@ -413,40 +416,44 @@ def interX(L1, L2, is_return_points=False):
         # Simply return whether collisions occur or not
         return collision_index
 
-
-def get_point_line_distance(point, line):
+def get_point_line_distance(points: torch.Tensor, lines_start_points: torch.Tensor, lines_end_points: torch.Tensor):
     """
-    Calculate the distance from a point to a line.
+    Calculate the distance from multiple points (or a single point) to a line.
 
     Args:
-    point (torch.Tensor): A tensor of shape [2] representing the point (x, y).
-    line (torch.Tensor): A tensor of shape [2, 2] representing the line (the first column for x-positions)
+    points: A tensor of shape [batch_size, num_points, 2] representing the x- and y-coordinates of the points. Both `num_points` and `batch_size` could potentially be 1.
+    lines_start_points: A tensor of shape [batch_size, 2] representing the start points of the lines
+    lines_end_points: A tensor of shape [batch_size, 2] representing the end points of the lines
 
     Returns:
-    torch.Tensor: A tensor containing distances from the point to the line.
+    torch.Tensor: A tensor of shape [num_points] containing distances from the points to the line.
     """
-
-    # Define the start and end points of the line
-    start, end = line[0], line[1]
-    if (start-end).norm()==0:
-        # Special case
-        return (point-start).norm()
+    batch_size = max(points.shape[0], lines_start_points.shape[0])
+    num_distances = max(points.shape[1], 1)
+    distances = torch.zeros((batch_size, num_distances), device=points.device, dtype=torch.float32)
+    
+    # Match dimension
+    lines_start_points = lines_start_points.unsqueeze(1)
+    lines_end_points = lines_end_points.unsqueeze(1)
 
     # Compute the vectors
-    line_vec = end - start
-    point_vec = point - start
+    line_vec = lines_end_points - lines_start_points
+    points_vec = points - lines_start_points
 
-    # Calculate the projection of point_vec onto line_vec
-    line_len = torch.dot(line_vec, line_vec)
-    projected = torch.dot(point_vec, line_vec) / line_len
+    # Calculate the projection of points_vec onto line_vec
+    line_len = (line_vec * line_vec).sum(dim=2)
+    projected = (points_vec * line_vec).sum(dim=2) / line_len
 
     # Clamp the projection between 0 and 1 to find the nearest point on the line
     nearest = torch.clamp(projected, 0, 1)
 
     # Find the nearest point on the line to the point
-    nearest_point = start + nearest * line_vec
+    nearest_point = lines_start_points + nearest.unsqueeze(2) * line_vec
 
     # Calculate the distance from the point to the nearest point on the line
-    distance = torch.norm(point - nearest_point)
+    distances = (points - nearest_point).norm(dim=2)
+    
+    are_two_points_overlapping = ((lines_start_points - lines_end_points).norm(dim=2) == 0).squeeze(1)
+    distances[are_two_points_overlapping] = (points - lines_start_points)[are_two_points_overlapping].norm(dim=2)
 
-    return distance
+    return distances

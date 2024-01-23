@@ -411,8 +411,11 @@ def find_the_hightest_reward_among_all_models(parameters:Parameters):
     """This function returns the hightest reward of the models stored in folder `parameters.where_to_save`"""
     # Initialize variables to track the highest reward and corresponding model
     highest_reward = float('-inf')
-        
-    pattern = r'reward(-?[0-9]*\.?[0-9]+)_'
+    
+    if "path_tracking" in parameters.scenario_name:
+        pattern = rf'{parameters.path_tracking_type}_reward(-?[0-9]*\.?[0-9]+)_'
+    else:
+        pattern = r'reward(-?[0-9]*\.?[0-9]+)_'
 
     # Iterate through the files in the directory
     for filename in os.listdir(parameters.where_to_save):
@@ -424,7 +427,7 @@ def find_the_hightest_reward_among_all_models(parameters:Parameters):
             # Check if this reward is higher than the current highest
             if episode_reward_mean > highest_reward:
                 highest_reward = episode_reward_mean # Update
-                
+                 
     return highest_reward
 
 
