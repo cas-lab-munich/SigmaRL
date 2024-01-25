@@ -135,7 +135,9 @@ class ScenarioRoadTraffic(BaseScenario):
             short_term_indices = torch.zeros((batch_dim, self.n_agents, n_short_term_points), device=device, dtype=torch.int),
             left_boundary_repeated=None,
             right_boundary_repeated=None,
+            is_ref_path_loop=True
         )
+
         self.ref_paths.left_boundary_repeated = [self.ref_paths.long_term[a_i]["left_boundary_shared"].repeat(batch_dim, 1, 1) for a_i in range(self.n_agents)] # Create a variable to store the repeated data, because the function `interX` cannot handle broadcasting
         self.ref_paths.right_boundary_repeated = [self.ref_paths.long_term[a_i]["right_boundary_shared"].repeat(batch_dim, 1, 1) for a_i in range(self.n_agents)]
         
@@ -287,7 +289,8 @@ class ScenarioRoadTraffic(BaseScenario):
                     self.ref_paths.long_term[i]["center_line"], 
                     self.distances.closest_point_on_ref_path[:,i],
                     self.ref_paths.n_short_term_points, 
-                    self.world.device
+                    self.world.device,
+                    is_ref_path_loop=self.ref_paths.is_ref_path_loop
                 )
 
                 # Reset the corners of agents
@@ -331,7 +334,8 @@ class ScenarioRoadTraffic(BaseScenario):
                     self.ref_paths.long_term[i]["center_line"], 
                     self.distances.closest_point_on_ref_path[env_index,i].unsqueeze(0),
                     self.ref_paths.n_short_term_points, 
-                    self.world.device
+                    self.world.device,
+                    is_ref_path_loop=self.ref_paths.is_ref_path_loop
                 )
                 # Reset the corners of agents in env `env_index`
                 self.corners_gloabl[env_index,i] = get_rectangle_corners(
@@ -461,7 +465,8 @@ class ScenarioRoadTraffic(BaseScenario):
             self.ref_paths.long_term[agent_index]["center_line"], 
             self.distances.closest_point_on_ref_path[:,agent_index],
             self.ref_paths.n_short_term_points, 
-            self.world.device
+            self.world.device,
+            is_ref_path_loop=self.ref_paths.is_ref_path_loop
         )
         
         # [not used] Store the index of the nearest point on the reference path, which indicates the moving progress of the agent

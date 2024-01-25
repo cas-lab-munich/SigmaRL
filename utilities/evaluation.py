@@ -13,7 +13,7 @@ plt.rcParams.update({'figure.dpi': '100'}) # Avoid DPI problem (https://github.c
 plt.style.use(['science','ieee']) # The science + ieee styles for IEEE papers (can also be one of 'ieee' and 'science' )
 # print(plt.style.available) # List all available style
 
-def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: float = 0.1, ref_paths: torch.Tensor = None):
+def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: float = 0.1, ref_paths: torch.Tensor = None, is_sactter_plot: bool = False):
     """This function evaluates the test results presented as a tensordict."""    
 
     path_eval_out_td = parameters.where_to_save + parameters.mode_name + "_out_td.pth"        
@@ -33,6 +33,8 @@ def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: fl
     deviation_from_ref_path_mean = deviation_from_ref_path.mean()
     print(f"Mean deviation={deviation_from_ref_path_mean} m.")
 
+    xlim = None
+    ylim = None
     # Adjust parameters for plotting for different scenarios 
     if "path_tracking" in parameters.scenario_name:
         subgraph_width_ratio = [2, 1]
@@ -51,6 +53,14 @@ def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: fl
             cb_bottom_margin = 0.82
             cb_width = 0.35
             cb_position_shape = [cb_left_margin, cb_bottom_margin, cb_width, cb_height]
+        elif "circle" in parameters.path_tracking_type:
+            figsize=(12, 8)
+            subgraph_width_ratio = [3, 1]
+            cb_width = 0.35
+            cb_left_margin = 0.1
+            cb_bottom_margin = 0.94
+            cb_position_shape = [cb_left_margin, cb_bottom_margin, cb_width, cb_height]
+            ylim = (-1.6, 1.8)
         else:
             figsize=(12, 6) # Default
     else:
@@ -80,13 +90,26 @@ def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: fl
     ax1.set_aspect('equal', adjustable='box')
     ax1.set_xlabel(r'$x$ [m]', fontsize=12)
     ax1.set_ylabel(r'$y$ [m]', fontsize=12)
+    
+    if xlim is not None:
+        ax1.set_xlim(xlim)
+    if ylim is not None:
+        ax1.set_ylim(ylim)
+    
     ax1.set_title("Position with velocity color map", fontsize=14)
     ax1.grid(True)
     if ref_paths is not None:
-        ref_path_line, = ax1.plot(ref_paths[0,:,0], ref_paths[0,:,1], "b--", label="Reference path")
+        if is_sactter_plot:
+            ax1.scatter(ref_paths[0,:,0], ref_paths[0,:,1], s=10, c="blue")
+            ref_path_line, = ax1.plot(ref_paths[0,:,0], ref_paths[0,:,1], "b--")
+            
+            ax1.scatter(pos_traj[:,0], pos_traj[:,1], s=10, c="black")
+            lc.set_linewidth(1)
+        else:
+            ref_path_line, = ax1.plot(ref_paths[0,:,0], ref_paths[0,:,1], "b--")
 
     # Creating the legend
-    ax1.legend(handles=[lc, ref_path_line], labels=["Actual trajectory", "Reference path"], loc="upper right")
+    ax1.legend(handles=[lc, ref_path_line], labels=["Actual trajectory", "Reference path"], loc="upper right", fontsize=9)
     # ax1.legend(handles=[lc, rp], labels=["Actual trajectory", "Reference path"], loc="upper right")
 
     # Color bar for the first subplot    

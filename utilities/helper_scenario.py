@@ -19,7 +19,7 @@ class Rewards:
         self.reach_intermediate_goal = reach_intermediate_goal
 
 class Penalties:
-    def __init__(self, deviate_from_ref_path = None, deviate_from_goal = None, weighting_deviate_from_ref_path = None, near_boundary = None, near_other_agents = None, collide_with_agents = None, collide_with_boundaries = None, time = None):
+    def __init__(self, deviate_from_ref_path = None, deviate_from_goal = None, weighting_deviate_from_ref_path = None, near_boundary = None, near_other_agents = None, collide_with_agents = None, collide_with_boundaries = None, leave_world = None, time = None):
         self.deviate_from_ref_path = deviate_from_ref_path  # Penalty for deviating from reference path
         self.deviate_from_goal = deviate_from_goal          # Penalty for deviating from goal position 
         self.weighting_deviate_from_ref_path = weighting_deviate_from_ref_path
@@ -27,6 +27,7 @@ class Penalties:
         self.near_other_agents = near_other_agents          # Penalty for being too close to other agents
         self.collide_with_agents = collide_with_agents      # Penalty for colliding with other agents
         self.collide_with_boundaries = collide_with_boundaries  # Penalty for colliding with lanelet boundaries
+        self.leave_world = leave_world  # Penalty for leaving the world
         self.time = time                                    # Penalty for losing time
         
 class Thresholds:
@@ -40,12 +41,13 @@ class Thresholds:
         self.reach_intermediate_goal = reach_intermediate_goal    # Threshold less than which agents are considered at their intermediate goal positions
 
 class ReferencePaths:
-    def __init__(self, long_term = None, long_term_yaws = None, long_term_center_points = None, long_term_lengths = None, long_term_vecs_normalized = None, n_short_term_points = None, short_term = None, short_term_indices = None, left_boundary_repeated = None, right_boundary_repeated = None):
+    def __init__(self, long_term = None, long_term_yaws = None, long_term_center_points = None, long_term_lengths = None, long_term_vecs_normalized = None, is_ref_path_loop = None, n_short_term_points = None, short_term = None, short_term_indices = None, left_boundary_repeated = None, right_boundary_repeated = None):
         self.long_term = long_term                              # Long-term reference path
         self.long_term_yaws = long_term_yaws                    # Yaws of the line segments on the long-term reference path
         self.long_term_center_points = long_term_center_points  # Center points of the line segments on the long-term reference path
         self.long_term_lengths = long_term_lengths              # Lengths of the line segments on the long-term reference path
         self.long_term_vecs_normalized = long_term_vecs_normalized  # Normalized vectors of the line segments on the long-term reference path
+        self.is_ref_path_loop = is_ref_path_loop                # Whether the reference path is a loop
         self.n_short_term_points = n_short_term_points          # Number of points used to build a short-term reference path
         self.short_term = short_term                            # Short-term reference path
         self.short_term_indices = short_term_indices            # Indices that indicate which part of the long-term reference path is used to build the short-term reference path
@@ -93,7 +95,13 @@ def get_rectangle_corners(center, yaw, width, length, is_close_shape: bool = Tru
     :param length: Length of the rectangles.
     :return: A tensor of corner points of the rectangles for each agent in the batch (batch_dim, 4, 2).
     """
-    batch_dim = center.size(0)
+    if center.ndim == 1:
+        batch_dim = 1
+        center = center.unsqueeze(0)
+        yaw = yaw.unsqueeze(0).unsqueeze(0)
+    else:
+        batch_dim = center.size(0)
+        
     width_half = width / 2
     length_half = length / 2
 
@@ -147,7 +155,7 @@ def find_short_term_trajectory(pos, reference_path, n_short_term_points=6):
 
     return short_term_path
 
-def get_perpendicular_distances(point, polyline, is_return_all_distances: bool = False):
+def get_perpendicular_distances(point, polyline):
     """
     Calculate the minimum perpendicular distance from the given point(s) to the given polyline.
     
@@ -182,24 +190,21 @@ def get_perpendicular_distances(point, polyline, is_return_all_distances: bool =
     # Calculate the distances from the given points to these closest points
     distances = torch.norm(closest_points - agent_positions_expanded, dim=2)
     
-    if is_return_all_distances:
-        # Return all distances from the given point(s) to the given polyline
-        return distances
-    else:
-        perpendicular_distances, indices_closest_points = torch.min(distances, dim=1)
-        
-        return perpendicular_distances, indices_closest_points
+    perpendicular_distances, indices_closest_points = torch.min(distances, dim=1)
+    
+    indices_closest_points[:] += 1 # Force the nearest point lies always in the future
+
+    return perpendicular_distances, indices_closest_points
 
 
-def get_short_term_reference_path(reference_path, closest_point_on_ref_path, n_short_term_points, device = torch.device("cpu")):
+def get_short_term_reference_path(reference_path, closest_point_on_ref_path, n_short_term_points, device = torch.device("cpu"), is_ref_path_loop: bool = False):
     # Create a tensor that represents the indices for n_short_term_points for each agent
     future_points_idx_tmp = torch.arange(n_short_term_points, device=device).unsqueeze(0) + closest_point_on_ref_path.unsqueeze(1)
     
     len_reference_path = len(reference_path)
     
-    # Check if the reference path is a loop
-    if torch.allclose(reference_path[0, :], reference_path[-1, :], rtol=1e-4):
-        # Apply modulo to handle the fact that each agent's reference path is a loop
+    if is_ref_path_loop:
+        # Apply modulo to handle the case that each agent's reference path is a loop
         future_points_idx = torch.where(future_points_idx_tmp >= len_reference_path - 1, (future_points_idx_tmp + 1) % len_reference_path, future_points_idx_tmp) # Use "+ 1" to skip the last point since it overlaps with the first point
     else:
         future_points_idx = torch.where(future_points_idx_tmp >= len_reference_path - 1, len_reference_path - 1, future_points_idx_tmp) # Set all the remaining points to the last point 

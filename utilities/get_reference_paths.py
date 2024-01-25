@@ -140,6 +140,9 @@ def get_reference_paths(n_agents, map_data, IS_VISUALIZE: bool = False):
 
         center_lines = (left_boundaries + right_boundaries) / 2
         
+        # Check if the center line is a loop
+        is_ref_path_loop = (center_lines[0, :] - center_lines[-1, :]).norm() <= 1e-4
+        
         center_lines_vec = torch.diff(center_lines, dim=0) # Vectors connecting each pair of neighboring points on the center lines
         center_lines_vec_length = torch.norm(center_lines_vec, dim=1) # The lengths of the vectors
         center_lines_vec_mean_length = torch.mean(center_lines_vec_length) # The mean length of the vectors
@@ -174,7 +177,8 @@ def get_reference_paths(n_agents, map_data, IS_VISUALIZE: bool = False):
                 "center_line": center_lines, # Center lines are calculated based on left and right boundaries (instead of shared left and right boundaries)
                 "center_line_yaw": center_line_yaw, # Yaw angle of each point on the center lines
                 "center_line_vec_normalized": center_lines_vec_normalized, # Normalized vectors connecting each pair of neighboring points on the center lines
-                "center_line_vec_mean_length": center_lines_vec_mean_length
+                "center_line_vec_mean_length": center_lines_vec_mean_length,
+                "is_ref_path_loop": is_ref_path_loop,
             }
         )
 
