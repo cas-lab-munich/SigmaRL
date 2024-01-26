@@ -226,7 +226,7 @@ def get_short_term_reference_path(reference_path, closest_point_on_ref_path, n_s
 
     # Extract the short-term reference path from the reference path
     short_term_path = reference_path[future_points_idx] # Note that the agent's current position is between the first and second points (may overlap with the second point)
-    if ~is_ref_path_loop:
+    if not is_ref_path_loop:
         # Extend the short-term reference path by one point when the goal point is reapeated at the end
         is_extend = (future_points_idx == len_reference_path - 1).sum(dim=1) >= 2
         short_term_path[is_extend, -1] = point_extended

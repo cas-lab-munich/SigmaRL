@@ -350,7 +350,7 @@ def multiagent_ppo_cavs(parameters: Parameters):
 
 
 if __name__ == "__main__":
-    scenario_name = "car_like_robots_path_tracking" # car_like_robots_road_traffic, car_like_robots_go_to_formation, car_like_robots_path_tracking
+    scenario_name = "car_like_robots_road_traffic" # car_like_robots_road_traffic, car_like_robots_go_to_formation, car_like_robots_path_tracking
     
     parameters = Parameters(
         n_agents=4,
@@ -380,7 +380,7 @@ if __name__ == "__main__":
         mode_name=None, 
         episode_reward_intermidiate=-1e3, # The initial value should be samll enough
         
-        where_to_save=f"outputs/{scenario_name}_ppo/circle/", # folder where to save the trained models, fig, data, etc.
+        where_to_save=f"outputs/{scenario_name}_ppo/test/", # folder where to save the trained models, fig, data, etc.
         path_tracking_type='circle', # [relevant to path-tracking scenarios] should be one of 'line', 'turning', 'circle', 'sine', and 'horizontal_8'
         
         # Scenario parameters

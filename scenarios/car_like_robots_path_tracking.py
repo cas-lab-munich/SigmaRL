@@ -246,7 +246,7 @@ def get_ref_path_for_tracking_scenarios(path_tracking_type, point_interval: floa
         start_pos -= center_point_path
         goal_pos -= center_point_path
 
-    if ~is_ref_path_loop:
+    if not is_ref_path_loop:
         # Extend an additional point (with the same direction) at the end of the path to workaround the phenomenon that the agent oscilltes near the final goal
         point_extended = 2 * tracking_path[-1, :] - tracking_path[-2, :]
     else:

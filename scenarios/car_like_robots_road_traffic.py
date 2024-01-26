@@ -242,7 +242,7 @@ class ScenarioRoadTraffic(BaseScenario):
         return world
 
     def reset_world_at(self, env_index: int = None):
-        print(f"[DEBUG] reset_world_at(): env_index = {env_index}")
+        # print(f"[DEBUG] reset_world_at(): env_index = {env_index}")
         """
         This function resets the world at the specified env_index.
 
