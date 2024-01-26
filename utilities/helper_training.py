@@ -27,7 +27,7 @@ def get_model_name(parameters):
     if "road" in parameters.scenario_name:
         model_name = f"reward{parameters.episode_reward_mean_current:.2f}"
     elif "path" in parameters.scenario_name:
-        model_name = f"{parameters.path_tracking_type}_reward{parameters.episode_reward_mean_current:.2f}"
+        model_name = f"reward{parameters.episode_reward_mean_current:.2f}"
     else:
         raise ValueError(f"Required scenario ('{parameters.scenario_name}') is not found.")
 
@@ -412,10 +412,11 @@ def find_the_hightest_reward_among_all_models(parameters:Parameters):
     # Initialize variables to track the highest reward and corresponding model
     highest_reward = float('-inf')
     
-    if "path_tracking" in parameters.scenario_name:
-        pattern = rf'{parameters.path_tracking_type}_reward(-?[0-9]*\.?[0-9]+)_'
-    else:
-        pattern = r'reward(-?[0-9]*\.?[0-9]+)_'
+    # if "path_tracking" in parameters.scenario_name:
+    #     pattern = rf'{parameters.path_tracking_type}_reward(-?[0-9]*\.?[0-9]+)_'
+    # else:
+    #     pattern = r'reward(-?[0-9]*\.?[0-9]+)_'
+    pattern = r'reward(-?[0-9]*\.?[0-9]+)_'
 
     # Iterate through the files in the directory
     for filename in os.listdir(parameters.where_to_save):

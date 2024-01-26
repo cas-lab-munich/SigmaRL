@@ -5,10 +5,11 @@ import torch
 ## Custom Classes
 ##################################################
 class Normalizers:
-    def __init__(self, pos, v, rot):
+    def __init__(self, pos = None, v = None, yaw = None, steering = None):
         self.pos = pos
         self.v = v
-        self.rot = rot
+        self.yaw = yaw
+        self.steering = steering
 
 class Rewards:
     def __init__(self, progress = None, weighting_ref_directions = None, higth_v = None, reach_goal = None, reach_intermediate_goal = None):
@@ -19,7 +20,7 @@ class Rewards:
         self.reach_intermediate_goal = reach_intermediate_goal
 
 class Penalties:
-    def __init__(self, deviate_from_ref_path = None, deviate_from_goal = None, weighting_deviate_from_ref_path = None, near_boundary = None, near_other_agents = None, collide_with_agents = None, collide_with_boundaries = None, leave_world = None, time = None, change_steering_direction = None):
+    def __init__(self, deviate_from_ref_path = None, deviate_from_goal = None, weighting_deviate_from_ref_path = None, near_boundary = None, near_other_agents = None, collide_with_agents = None, collide_with_boundaries = None, leave_world = None, time = None, change_steering = None):
         self.deviate_from_ref_path = deviate_from_ref_path  # Penalty for deviating from reference path
         self.deviate_from_goal = deviate_from_goal          # Penalty for deviating from goal position 
         self.weighting_deviate_from_ref_path = weighting_deviate_from_ref_path
@@ -29,10 +30,10 @@ class Penalties:
         self.collide_with_boundaries = collide_with_boundaries  # Penalty for colliding with lanelet boundaries
         self.leave_world = leave_world  # Penalty for leaving the world
         self.time = time                                    # Penalty for losing time
-        self.change_steering_direction = change_steering_direction # Penalty for changing steering direction
+        self.change_steering = change_steering # Penalty for changing steering direction
         
 class Thresholds:
-    def __init__(self, deviate_from_ref_path = None, near_boundary_low = None, near_boundary_high = None, near_other_agents_low = None, near_other_agents_high = None, reach_goal = None, reach_intermediate_goal = None, change_steering_direction = None):
+    def __init__(self, deviate_from_ref_path = None, near_boundary_low = None, near_boundary_high = None, near_other_agents_low = None, near_other_agents_high = None, reach_goal = None, reach_intermediate_goal = None, change_steering = None):
         self.deviate_from_ref_path = deviate_from_ref_path
         self.near_boundary_low = near_boundary_low
         self.near_boundary_high = near_boundary_high
@@ -40,7 +41,7 @@ class Thresholds:
         self.near_other_agents_high = near_other_agents_high
         self.reach_goal = reach_goal                              # Threshold less than which agents are considered at their goal positions
         self.reach_intermediate_goal = reach_intermediate_goal    # Threshold less than which agents are considered at their intermediate goal positions
-        self.change_steering_direction = change_steering_direction
+        self.change_steering = change_steering
 
 class ReferencePaths:
     def __init__(self, long_term = None, long_term_yaws = None, long_term_center_points = None, long_term_lengths = None, long_term_vecs_normalized = None, is_ref_path_loop = None, point_extended = None, n_short_term_points = None, short_term = None, short_term_indices = None, left_boundary_repeated = None, right_boundary_repeated = None):
@@ -58,12 +59,19 @@ class ReferencePaths:
         self.right_boundary_repeated = right_boundary_repeated  # Just to allocate memory for a specific purpose 
         
 class Observations:
-    def __init__(self, is_local = None, is_global_coordinate_sys = None, n_nearing_agents = None, is_add_noise = None, noise_level = None):
+    def __init__(self, is_local = None, is_global_coordinate_sys = None, n_nearing_agents = None, is_add_noise = None, noise_level = None, n_stored_steps = None, n_observed_steps = None, past_pos = None, past_vel = None, past_action_vel = None, past_action_steering = None, past_distance_to_ref_path = None):
         self.is_local = is_local # Local observation
         self.is_global_coordinate_sys = is_global_coordinate_sys
         self.n_nearing_agents = n_nearing_agents
         self.is_add_noise = is_add_noise # Whether to add noise to observations
         self.noise_level = noise_level # Whether to add noise to observations
+        self.n_stored_steps = n_stored_steps # Number of past steps to store
+        self.n_observed_steps = n_observed_steps # Number of past steps to observe
+        self.past_pos = past_pos # Past positions
+        self.past_vel = past_vel # Past velocites
+        self.past_action_vel = past_action_vel # Past velocity action
+        self.past_action_steering = past_action_steering # Past steering action
+        self.past_distance_to_ref_path = past_distance_to_ref_path # Past distance to refrence path
         
 class Distances:
     def __init__(self, type = None, agents = None, left_boundaries = None, right_boundaries = None, ref_paths = None, closest_point_on_ref_path = None, goal = None):
@@ -197,7 +205,7 @@ def get_perpendicular_distances(point, polyline):
     
     perpendicular_distances, indices_closest_points = torch.min(distances, dim=1)
     
-    indices_closest_points[:] += 1 # Force the nearest point lies always in the future
+    indices_closest_points[:] += 1 # Force the nearest point to lie always in the future
 
     return perpendicular_distances, indices_closest_points
 
@@ -462,6 +470,7 @@ def get_point_line_distance(points: torch.Tensor, lines_start_points: torch.Tens
 
     # Clamp the projection between 0 and 1 to find the nearest point on the line
     nearest = torch.clamp(projected, 0, 1)
+    is_projection_inside_line = (projected >= 0) & (projected <= 1)
 
     # Find the nearest point on the line to the point
     nearest_point = lines_start_points + nearest.unsqueeze(2) * line_vec
@@ -472,4 +481,4 @@ def get_point_line_distance(points: torch.Tensor, lines_start_points: torch.Tens
     are_two_points_overlapping = ((lines_start_points - lines_end_points).norm(dim=2) == 0).squeeze(1)
     distances[are_two_points_overlapping] = (points - lines_start_points)[are_two_points_overlapping].norm(dim=2)
 
-    return distances
+    return distances, is_projection_inside_line

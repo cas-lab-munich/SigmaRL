@@ -147,7 +147,7 @@ class ScenarioRoadTraffic(BaseScenario):
         self.normalizers = Normalizers(
             pos=torch.tensor([world_x_dim, world_y_dim], device=device, dtype=torch.float32),
             v=max_speed,
-            rot=torch.tensor(2 * torch.pi, device=device, dtype=torch.float32)
+            yaw=torch.tensor(2 * torch.pi, device=device, dtype=torch.float32)
         )
         
         weighting_ref_directions = torch.linspace(1, 0.2, steps=self.ref_paths.n_short_term_points-1, device=device, dtype=torch.float32)

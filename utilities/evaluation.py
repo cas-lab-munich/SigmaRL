@@ -31,7 +31,7 @@ def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: fl
     
     deviation_mean_relative = deviation_from_ref_path / agent_width
     deviation_from_ref_path_mean = deviation_from_ref_path.mean()
-    print(f"Mean deviation={deviation_from_ref_path_mean} m.")
+    print(f"Mean relative deviation={deviation_from_ref_path_mean / agent_width}.")
 
     xlim = None
     ylim = None

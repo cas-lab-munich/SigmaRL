@@ -362,7 +362,7 @@ if __name__ == "__main__":
         n_iters=100, # Number of sampling and training iterations (on-policy: rollouts are collected during sampling phase, which will be immediately used in the training phase of the same iteration),
         frames_per_batch=2**10, # Number of team frames collected per training iteration (minibatch_size*10)
         num_epochs=30, # Number of optimization steps per training iteration,
-        minibatch_size=2*9, # Size of the mini-batches in each optimization step (2**9 - 2**12?),
+        minibatch_size=2*8, # Size of the mini-batches in each optimization step (2**9 - 2**12?),
         lr=4e-4, # Learning rate,
         max_grad_norm=1.0, # Maximum norm for the gradients,
         clip_epsilon=0.2, # clip value for PPO loss,
@@ -379,7 +379,9 @@ if __name__ == "__main__":
         is_continue_train=False, # If offline models are loaded, whether to continue to train the model
         mode_name=None, 
         episode_reward_intermidiate=-1e3, # The initial value should be samll enough
-        where_to_save=f"outputs/{scenario_name}_ppo/line_progress_reward/", # folder where to save the trained models, fig, data, etc.
+        
+        where_to_save=f"outputs/{scenario_name}_ppo/circle/", # folder where to save the trained models, fig, data, etc.
+        path_tracking_type='circle', # [relevant to path-tracking scenarios] should be one of 'line', 'turning', 'circle', 'sine', and 'horizontal_8'
         
         # Scenario parameters
         is_local_observation=False, 
@@ -388,7 +390,6 @@ if __name__ == "__main__":
         is_testing_mode=False,
         is_visualize_short_term_path=True,
         
-        path_tracking_type='line', # [relevant to path-tracking scenarios] should be one of 'line', 'turning', 'circle', 'sine', and 'horizontal_8'
         is_dynamic_goal_reward=False, # [relevant to path-tracking scenarios] set to True if the goal reward is dynamically adjusted based on the performance of agents' history trajectories 
         is_save_eval_results=False,
     )
