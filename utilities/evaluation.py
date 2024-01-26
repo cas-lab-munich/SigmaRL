@@ -13,7 +13,7 @@ plt.rcParams.update({'figure.dpi': '100'}) # Avoid DPI problem (https://github.c
 plt.style.use(['science','ieee']) # The science + ieee styles for IEEE papers (can also be one of 'ieee' and 'science' )
 # print(plt.style.available) # List all available style
 
-def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: float = 0.1, ref_paths: torch.Tensor = None, is_sactter_plot: bool = False):
+def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: float = 0.1, ref_paths: torch.Tensor = None, is_sactter_plot: bool = False, max_speed = None):
     """This function evaluates the test results presented as a tensordict."""    
 
     path_eval_out_td = parameters.where_to_save + parameters.mode_name + "_out_td.pth"        
@@ -37,7 +37,8 @@ def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: fl
     ylim = None
     # Adjust parameters for plotting for different scenarios 
     if "path_tracking" in parameters.scenario_name:
-        subgraph_width_ratio = [2, 1]
+        subgraph_width_ratio = [3, 1]
+        legend_lc = "upper right"
         # Color bar
         cb_left_margin = 0.1
         cb_bottom_margin = 0.1
@@ -47,11 +48,19 @@ def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: fl
             figsize=(12, 4)
             cb_bottom_margin = 0.3
             cb_position_shape = [cb_left_margin, cb_bottom_margin, cb_width, cb_height]
+        if "turning" in parameters.path_tracking_type:
+            figsize=(9, 4)
+            legend_lc = "upper left"
+            subgraph_width_ratio = [3, 1]
+            cb_left_margin = 0.25
+            cb_bottom_margin = 0.9
+            cb_width = 0.34
+            cb_position_shape = [cb_left_margin, cb_bottom_margin, cb_width, cb_height]
         elif "sine" in parameters.path_tracking_type:
             figsize=(12, 6)
-            cb_left_margin = 0.27
-            cb_bottom_margin = 0.82
-            cb_width = 0.35
+            cb_left_margin = 0.34
+            cb_bottom_margin = 0.86
+            cb_width = 0.36
             cb_position_shape = [cb_left_margin, cb_bottom_margin, cb_width, cb_height]
         elif "circle" in parameters.path_tracking_type:
             figsize=(12, 8)
@@ -79,7 +88,7 @@ def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: fl
     print(f"Mean velocity={velocity_magnitude.mean()} m/s.")
     
     
-    norm = Normalize(vmin=0, vmax=velocity_magnitude.max())
+    norm = Normalize(vmin=0, vmax=velocity_magnitude.max() if max_speed is None else max_speed)
     lc = LineCollection(segments, cmap='Greys', norm=norm)
     lc.set_array(velocity_magnitude)
     lc.set_linewidth(2)
@@ -109,7 +118,7 @@ def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: fl
             ref_path_line, = ax1.plot(ref_paths[0,:,0], ref_paths[0,:,1], "b--")
 
     # Creating the legend
-    ax1.legend(handles=[lc, ref_path_line], labels=["Actual trajectory", "Reference path"], loc="upper right", fontsize=9)
+    ax1.legend(handles=[lc, ref_path_line], labels=["Actual trajectory", "Reference path"], loc=legend_lc, fontsize=9)
     # ax1.legend(handles=[lc, rp], labels=["Actual trajectory", "Reference path"], loc="upper right")
 
     # Color bar for the first subplot    

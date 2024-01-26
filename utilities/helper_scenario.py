@@ -19,7 +19,7 @@ class Rewards:
         self.reach_intermediate_goal = reach_intermediate_goal
 
 class Penalties:
-    def __init__(self, deviate_from_ref_path = None, deviate_from_goal = None, weighting_deviate_from_ref_path = None, near_boundary = None, near_other_agents = None, collide_with_agents = None, collide_with_boundaries = None, leave_world = None, time = None):
+    def __init__(self, deviate_from_ref_path = None, deviate_from_goal = None, weighting_deviate_from_ref_path = None, near_boundary = None, near_other_agents = None, collide_with_agents = None, collide_with_boundaries = None, leave_world = None, time = None, change_steering_direction = None):
         self.deviate_from_ref_path = deviate_from_ref_path  # Penalty for deviating from reference path
         self.deviate_from_goal = deviate_from_goal          # Penalty for deviating from goal position 
         self.weighting_deviate_from_ref_path = weighting_deviate_from_ref_path
@@ -29,9 +29,10 @@ class Penalties:
         self.collide_with_boundaries = collide_with_boundaries  # Penalty for colliding with lanelet boundaries
         self.leave_world = leave_world  # Penalty for leaving the world
         self.time = time                                    # Penalty for losing time
+        self.change_steering_direction = change_steering_direction # Penalty for changing steering direction
         
 class Thresholds:
-    def __init__(self, deviate_from_ref_path = None, near_boundary_low = None, near_boundary_high = None, near_other_agents_low = None, near_other_agents_high = None, reach_goal = None, reach_intermediate_goal = None):
+    def __init__(self, deviate_from_ref_path = None, near_boundary_low = None, near_boundary_high = None, near_other_agents_low = None, near_other_agents_high = None, reach_goal = None, reach_intermediate_goal = None, change_steering_direction = None):
         self.deviate_from_ref_path = deviate_from_ref_path
         self.near_boundary_low = near_boundary_low
         self.near_boundary_high = near_boundary_high
@@ -39,15 +40,17 @@ class Thresholds:
         self.near_other_agents_high = near_other_agents_high
         self.reach_goal = reach_goal                              # Threshold less than which agents are considered at their goal positions
         self.reach_intermediate_goal = reach_intermediate_goal    # Threshold less than which agents are considered at their intermediate goal positions
+        self.change_steering_direction = change_steering_direction
 
 class ReferencePaths:
-    def __init__(self, long_term = None, long_term_yaws = None, long_term_center_points = None, long_term_lengths = None, long_term_vecs_normalized = None, is_ref_path_loop = None, n_short_term_points = None, short_term = None, short_term_indices = None, left_boundary_repeated = None, right_boundary_repeated = None):
+    def __init__(self, long_term = None, long_term_yaws = None, long_term_center_points = None, long_term_lengths = None, long_term_vecs_normalized = None, is_ref_path_loop = None, point_extended = None, n_short_term_points = None, short_term = None, short_term_indices = None, left_boundary_repeated = None, right_boundary_repeated = None):
         self.long_term = long_term                              # Long-term reference path
         self.long_term_yaws = long_term_yaws                    # Yaws of the line segments on the long-term reference path
         self.long_term_center_points = long_term_center_points  # Center points of the line segments on the long-term reference path
         self.long_term_lengths = long_term_lengths              # Lengths of the line segments on the long-term reference path
         self.long_term_vecs_normalized = long_term_vecs_normalized  # Normalized vectors of the line segments on the long-term reference path
         self.is_ref_path_loop = is_ref_path_loop                # Whether the reference path is a loop
+        self.point_extended = point_extended                    # Extended point for a non-loop reference path (address the oscillations near the goal)
         self.n_short_term_points = n_short_term_points          # Number of points used to build a short-term reference path
         self.short_term = short_term                            # Short-term reference path
         self.short_term_indices = short_term_indices            # Indices that indicate which part of the long-term reference path is used to build the short-term reference path
@@ -55,10 +58,12 @@ class ReferencePaths:
         self.right_boundary_repeated = right_boundary_repeated  # Just to allocate memory for a specific purpose 
         
 class Observations:
-    def __init__(self, is_local = None, is_global_coordinate_sys = None, n_nearing_agents = None):
+    def __init__(self, is_local = None, is_global_coordinate_sys = None, n_nearing_agents = None, is_add_noise = None, noise_level = None):
         self.is_local = is_local # Local observation
         self.is_global_coordinate_sys = is_global_coordinate_sys
         self.n_nearing_agents = n_nearing_agents
+        self.is_add_noise = is_add_noise # Whether to add noise to observations
+        self.noise_level = noise_level # Whether to add noise to observations
         
 class Distances:
     def __init__(self, type = None, agents = None, left_boundaries = None, right_boundaries = None, ref_paths = None, closest_point_on_ref_path = None, goal = None):
@@ -197,7 +202,7 @@ def get_perpendicular_distances(point, polyline):
     return perpendicular_distances, indices_closest_points
 
 
-def get_short_term_reference_path(reference_path, closest_point_on_ref_path, n_short_term_points, device = torch.device("cpu"), is_ref_path_loop: bool = False):
+def get_short_term_reference_path(reference_path, closest_point_on_ref_path, n_short_term_points, device = torch.device("cpu"), is_ref_path_loop: bool = False, point_extended = None):
     # Create a tensor that represents the indices for n_short_term_points for each agent
     future_points_idx_tmp = torch.arange(n_short_term_points, device=device).unsqueeze(0) + closest_point_on_ref_path.unsqueeze(1)
     
@@ -208,10 +213,16 @@ def get_short_term_reference_path(reference_path, closest_point_on_ref_path, n_s
         future_points_idx = torch.where(future_points_idx_tmp >= len_reference_path - 1, (future_points_idx_tmp + 1) % len_reference_path, future_points_idx_tmp) # Use "+ 1" to skip the last point since it overlaps with the first point
     else:
         future_points_idx = torch.where(future_points_idx_tmp >= len_reference_path - 1, len_reference_path - 1, future_points_idx_tmp) # Set all the remaining points to the last point 
+        
+
 
     # Extract the short-term reference path from the reference path
     short_term_path = reference_path[future_points_idx] # Note that the agent's current position is between the first and second points (may overlap with the second point)
-    
+    if ~is_ref_path_loop:
+        # Extend the short-term reference path by one point when the goal point is reapeated at the end
+        is_extend = (future_points_idx == len_reference_path - 1).sum(dim=1) >= 2
+        short_term_path[is_extend, -1] = point_extended
+        
     return short_term_path, future_points_idx
 
 def calculate_projected_movement(agent_pos_cur, agent_pos_next, line_segments):

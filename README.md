@@ -30,7 +30,8 @@ git config --global user.email "you-email-address"
 - [2024-01-22] Sine-path-tracking scenario works. See branch `sine-path-tracking` and saved files in directory `outputs_saved/sine`.
 
 ## Todos
-- [ ] Add small random noise in observations of intermediate goals to avoid overfitting?
+- [x] If the reference path is not a loop, extend an additional point (with the same direction) at the end of the path to workaround the phenomenon that the agent oscilltes near the final goal
+- [x] Add small random noise in observations of intermediate goals to avoid overfitting?
 - [x] Define the world dimensions. Terminate an iteration with a high negative reward if agent moves outside the world.
 - [x] Set position normalizer based on the world dimensions
 - [ ] **memory is all you need?**
