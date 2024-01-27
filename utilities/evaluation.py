@@ -39,6 +39,7 @@ def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: fl
     if "path_tracking" in parameters.scenario_name:
         subgraph_width_ratio = [3, 1]
         legend_lc = "upper right"
+        bbox_to_anchor = None
         # Color bar
         cb_left_margin = 0.1
         cb_bottom_margin = 0.1
@@ -47,6 +48,11 @@ def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: fl
         if "line" in parameters.path_tracking_type:
             figsize=(12, 4)
             cb_bottom_margin = 0.3
+            legend_lc = None
+            bbox_to_anchor = (0.8, 1.2)
+            cb_left_margin = 0.1
+            cb_bottom_margin = 0.4
+            cb_width = subgraph_width_ratio[0] / sum(subgraph_width_ratio) - 2 * cb_left_margin
             cb_position_shape = [cb_left_margin, cb_bottom_margin, cb_width, cb_height]
         if "turning" in parameters.path_tracking_type:
             figsize=(9, 4)
@@ -118,7 +124,7 @@ def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: fl
             ref_path_line, = ax1.plot(ref_paths[0,:,0], ref_paths[0,:,1], "b--")
 
     # Creating the legend
-    ax1.legend(handles=[lc, ref_path_line], labels=["Actual trajectory", "Reference path"], loc=legend_lc, fontsize=9)
+    ax1.legend(handles=[lc, ref_path_line], labels=["Actual trajectory", "Reference path"], loc=legend_lc, fontsize=9, bbox_to_anchor=bbox_to_anchor)
     # ax1.legend(handles=[lc, rp], labels=["Actual trajectory", "Reference path"], loc="upper right")
 
     # Color bar for the first subplot    
