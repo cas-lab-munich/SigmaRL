@@ -1,4 +1,7 @@
+from matplotlib import pyplot as plt
 import torch
+
+from utilities.colors import Color
 
 
 ##################################################
@@ -20,7 +23,7 @@ class Rewards:
         self.reach_intermediate_goal = reach_intermediate_goal
 
 class Penalties:
-    def __init__(self, deviate_from_ref_path = None, deviate_from_goal = None, weighting_deviate_from_ref_path = None, near_boundary = None, near_other_agents = None, collide_with_agents = None, collide_with_boundaries = None, leave_world = None, time = None, change_steering = None):
+    def __init__(self, deviate_from_ref_path = None, deviate_from_goal = None, weighting_deviate_from_ref_path = None, near_boundary = None, near_other_agents = None, collide_with_agents = None, collide_with_boundaries = None, collide_with_obstacles = None, leave_world = None, time = None, change_steering = None):
         self.deviate_from_ref_path = deviate_from_ref_path  # Penalty for deviating from reference path
         self.deviate_from_goal = deviate_from_goal          # Penalty for deviating from goal position 
         self.weighting_deviate_from_ref_path = weighting_deviate_from_ref_path
@@ -28,6 +31,7 @@ class Penalties:
         self.near_other_agents = near_other_agents          # Penalty for being too close to other agents
         self.collide_with_agents = collide_with_agents      # Penalty for colliding with other agents
         self.collide_with_boundaries = collide_with_boundaries  # Penalty for colliding with lanelet boundaries
+        self.collide_with_obstacles = collide_with_obstacles  # Penalty for colliding with obstacles
         self.leave_world = leave_world  # Penalty for leaving the world
         self.time = time                                    # Penalty for losing time
         self.change_steering = change_steering # Penalty for changing steering direction
@@ -59,10 +63,11 @@ class ReferencePaths:
         self.right_boundary_repeated = right_boundary_repeated  # Just to allocate memory for a specific purpose 
         
 class Observations:
-    def __init__(self, is_local = None, is_global_coordinate_sys = None, n_nearing_agents = None, is_add_noise = None, noise_level = None, n_stored_steps = None, n_observed_steps = None, past_pos = None, past_vel = None, past_action_vel = None, past_action_steering = None, past_distance_to_ref_path = None):
+    def __init__(self, is_local = None, is_global_coordinate_sys = None, n_nearing_agents = None, n_nearing_obstacles_observed = None, is_add_noise = None, noise_level = None, n_stored_steps = None, n_observed_steps = None, past_pos = None, past_vel = None, past_action_vel = None, past_action_steering = None, past_distance_to_ref_path = None):
         self.is_local = is_local # Local observation
         self.is_global_coordinate_sys = is_global_coordinate_sys
         self.n_nearing_agents = n_nearing_agents
+        self.n_nearing_obstacles_observed = n_nearing_obstacles_observed
         self.is_add_noise = is_add_noise # Whether to add noise to observations
         self.noise_level = noise_level # Whether to add noise to observations
         self.n_stored_steps = n_stored_steps # Number of past steps to store
@@ -74,7 +79,7 @@ class Observations:
         self.past_distance_to_ref_path = past_distance_to_ref_path # Past distance to refrence path
         
 class Distances:
-    def __init__(self, type = None, agents = None, left_boundaries = None, right_boundaries = None, ref_paths = None, closest_point_on_ref_path = None, goal = None):
+    def __init__(self, type = None, agents = None, left_boundaries = None, right_boundaries = None, ref_paths = None, closest_point_on_ref_path = None, goal = None, obstacles = None):
         if (type is not None) & (type not in ['c2c', 'MTV']):
             raise ValueError("Invalid distance type. Must be 'c2c' or 'MTV'.")
         self.type = type                            # Distances between agents
@@ -84,6 +89,7 @@ class Distances:
         self.ref_paths = ref_paths                  # Distances between agents and the center line of their current lanelets
         self.closest_point_on_ref_path = closest_point_on_ref_path
         self.goal = goal                            # Distances to goal positions
+        self.obstacles = obstacles                  # Distances to obstacles
 
 class Evaluation:
     # This class stores the data relevant to evaluation of the system-wide performance, which necessitates the information being in the gloabl coordinate system.
@@ -93,6 +99,36 @@ class Evaluation:
         self.rot_traj = rot_traj    # Rotation trajectory
         self.deviation_from_ref_path = deviation_from_ref_path
         self.path_tracking_error_mean = path_tracking_error_mean # [relevant to path-tracking scenarios] Calculated when an agent reached its goal. The goal reward could be adjusted according to this variable
+
+class Obstacles:
+    # This class stores the data relevant to static and dynamic obstacles.
+    def __init__(self, n = None, pos = None, corners = None, vel = None, rot = None, length = None, width = None, center_points = None, lengths = None, yaws = None):
+        self.n = n              # The number of obstacles
+        self.pos = pos          # Position
+        self.corners = corners  # Corners
+        self.vel = vel          # Velocity
+        self.rot = rot          # Rotation
+        self.length = length    # Length of the dynamic obstacle
+        self.width = width      # Width of the dynamic obstacle
+        self.visu_center_points = center_points # For visualization
+        self.visu_lengths = lengths             # For visualization
+        self.visu_yaws = yaws                   # For visualization
+
+class Timer:
+    # This class stores the data relevant to static and dynamic obstacles.
+    def __init__(self, step = None, start = None, end = None, step_duration = None, step_begin = None, render_begin = None):
+        self.step = step              # Count the current time step
+        self.start = start              # Time point of simulation start
+        self.end = end              # Time point of simulation end
+        self.step_duration = step_duration # Duration of each time step
+        self.step_begin = step_begin        # Time when the current time step begins
+        self.render_begin = render_begin    # Time when the rendering of the current time step begins
+
+class Collisions:
+    def __init__(self, with_obstacles = None, with_agents = None, with_lanelets = None):
+        self.with_obstacles = with_obstacles        # Whether collide with obstacles
+        self.with_agents = with_agents              # Whether collide with agents
+        self.with_lanelets = with_lanelets          # Whether collide with lanelet boundaries
 
 ##################################################
 ## Helper Functions
@@ -168,7 +204,7 @@ def find_short_term_trajectory(pos, reference_path, n_short_term_points=6):
 
     return short_term_path
 
-def get_perpendicular_distances(point, polyline):
+def get_perpendicular_distances(point: torch.Tensor, polyline: torch.Tensor):
     """
     Calculate the minimum perpendicular distance from the given point(s) to the given polyline.
     
@@ -179,7 +215,11 @@ def get_perpendicular_distances(point, polyline):
     
     # Expand the polyline points to match the batch size
     batch_size = point.shape[0]
-    polyline_expanded = polyline.unsqueeze(0).expand(batch_size, -1, -1)  # Shape: [batch_size, n_points, 2]
+    if polyline.ndim == 2:
+        polyline_expanded = polyline.unsqueeze(0).expand(batch_size, -1, -1)  # Shape: [batch_size, n_points, 2]
+    else:
+        # TODO `polyline` could also have shape torch.Size([batch_size, num_points, 2])
+        polyline_expanded = polyline
 
     # Split the polyline into line segments
     line_starts = polyline_expanded[:, :-1, :]
@@ -324,14 +364,14 @@ def get_distances_between_agents(self):
         mutual_distances = torch.zeros((self.world.batch_dim, self.n_agents, self.n_agents), device=self.world.device, dtype=torch.float32)
         
         # Calculate the normal axes of the four edges of each rectangle (Note that each rectangle has two normal axes)
-        axes_all = torch.diff(self.corners_gloabl[:,:,0:3,:], dim=2)
+        axes_all = torch.diff(self.corners[:,:,0:3,:], dim=2)
         axes_norm_all = axes_all / torch.norm(axes_all, dim=-1).unsqueeze(-1) # Normalize
 
         for i in range(self.n_agents):
-            corners_i = self.corners_gloabl[:,i,0:4,:]
+            corners_i = self.corners[:,i,0:4,:]
             axes_norm_i = axes_norm_all[:,i]
             for j in range(i+1, self.n_agents):
-                corners_j = self.corners_gloabl[:,j,0:4,:]
+                corners_j = self.corners[:,j,0:4,:]
                 axes_norm_j = axes_norm_all[:,j]
                 
                 # 1. Project each of the four corners of rectangle i and all the four corners of rectangle j to each of the two axes of rectangle j. 
@@ -381,10 +421,12 @@ def get_distances_between_agents(self):
 
 def interX(L1, L2, is_return_points=False):
     """
-    Calculate the intersections of batches of curves using PyTorch tensors.
-    Each curve in the batches should be a tensor of shape (batch_size, points, 2), 
-    where points is the number of points in the curve.
+    Calculate the intersections of batches of curves. 
     Adapted from https://www.mathworks.com/matlabcentral/fileexchange/22441-curve-intersections
+    
+    L1: [batch_size, num_points, 2]
+    L2: [batch_size, num_points, 2]
+    is_return_points: bool. Whether to return the intersecting points.
     """
     # L1[:,:,0] -= 0.35
     # L1[:,:,1] -= 0.05
@@ -482,3 +524,326 @@ def get_point_line_distance(points: torch.Tensor, lines_start_points: torch.Tens
     distances[are_two_points_overlapping] = (points - lines_start_points)[are_two_points_overlapping].norm(dim=2)
 
     return distances, is_projection_inside_line
+
+
+def visualize_path(tracking_path, start_pos, goal_pos, start_rot, agent_width, agent_length, is_ref_path_loop: bool = False, is_save_fig: bool = False, path_save_fig: str = "fig.pdf", obstacles = None):
+    plt.plot(tracking_path[:,0], tracking_path[:,1], color=Color.black100, linewidth=0.5)
+
+    corners = get_rectangle_corners(
+        center=start_pos,
+        yaw=start_rot,
+        width=agent_width,
+        length=agent_length,
+        is_close_shape=True
+    )
+    if corners.shape[0] == 1:
+        corners = corners.squeeze(0)
+
+    plt.fill(corners[:, 0], corners[:, 1], color=Color.blue100, linewidth=0.2, edgecolor='black') #  , alpha=0.5, 
+    
+    # Calculate the end point of the arrow based on the rotation angle
+    dx = agent_length / 2 * torch.cos(start_rot)
+    dy = agent_length / 2 * torch.sin(start_rot)
+    
+    # Draw an arrow from the center of the agent to the calculated end point
+    plt.arrow(start_pos[0], start_pos[1], dx, dy, width=0.01, head_width=0.03, color=Color.black100)
+
+    if not is_ref_path_loop:
+        # Goal only exists if the reference path is not a loop
+        plt.scatter(goal_pos[0], goal_pos[1], s=12, color=Color.red100, edgecolors="black", linewidths=0.2)
+
+    # Visualize obstacles if any
+    if obstacles is not None:
+        if "dynamic" in path_save_fig:
+            # Many dynamics obstacles
+            max_steps = obstacles.shape[1]
+            for i_obs in range(obstacles.shape[0]):
+                plt.fill(obstacles[i_obs, -1, :, 0], obstacles[i_obs, -1, :, 1], color=Color.green100, linestyle="-")
+        else:
+            # One static obstacle
+            plt.fill(obstacles[:, 0], obstacles[:, 1], color=Color.green100, linestyle="-")
+        
+    plt.axis("equal")
+    plt.xlabel(r"$x$ [m]")
+    plt.ylabel(r"$y$ [m]")
+    
+    if is_save_fig:
+        plt.tight_layout(rect=[0, 0, 1, 1]) # left, bottom, right, top in normalized (0,1) figure coordinates
+        plt.savefig(path_save_fig, format="pdf", bbox_inches="tight")
+        print(f"An visualization of the path is saved under {path_save_fig}.")
+        
+    plt.show()
+       
+
+def remove_overlapping_points(polyline: torch.Tensor, threshold: float = 1e-4):
+    remove = polyline.diff(dim=0).norm(dim=1) <= threshold
+    remove = torch.hstack((remove, torch.zeros(1, dtype=torch.bool))) # Always keep the last point
+    # Filter out overlapping points
+    return polyline[~remove]
+
+def generate_sine_path(start_pos, path_length_x, amplitude, num_points, device):
+    # Generate linearly spaced x coordinates
+    x_coords = torch.linspace(start_pos[0], start_pos[0] + path_length_x, num_points, device=device)
+    # Generate sine y coordinates
+    y_coords = start_pos[1] + amplitude * torch.sin(2 * torch.pi * (x_coords - start_pos[0]) / path_length_x)
+    
+    tracking_path = torch.stack((x_coords, y_coords), dim=1)
+    return tracking_path
+
+     
+
+def get_ref_path_for_tracking_scenarios(path_tracking_type, agent_width: float = 0.1, agent_length: float = 0.2, point_interval: float = 0.1, max_speed: float = 0.5, device = torch.device("cpu"), center_point = None, is_visualize: bool = False, is_save_fig: bool = False):
+    if path_tracking_type == "line":
+        first_point = torch.tensor([-1, 0], device=device, dtype=torch.float32)
+
+        path_length = 3 # [m]
+        
+        last_point = first_point.clone()
+        last_point[0] += path_length
+        
+        num_points = int(path_length / point_interval)  # Total number of points to discretize the reference path
+        tracking_path = torch.stack(
+            [torch.linspace(first_point[i], last_point[i], num_points, device=device, dtype=torch.float32) for i in range(2)], dim=1
+        )
+        
+        start_rot = torch.tensor(45, device=device, dtype=torch.float32).deg2rad()
+        goal_rot = torch.tensor(0, device=device, dtype=torch.float32).deg2rad()
+
+    elif path_tracking_type == "turning":
+        first_point = torch.tensor([-1, 0], device=device, dtype=torch.float32)
+
+        horizontal_length = 3  # [m] Length of the horizontal part. Default 3 m
+        vertical_length = 2  # [m] Length of the vertical part. Default 2 m
+        num_points = int((horizontal_length + vertical_length) / point_interval)  # Total number of points to discretize the reference path
+
+        # Number of points for each segment
+        num_points_horizontal = int(num_points * horizontal_length / (horizontal_length + vertical_length))
+        num_points_vertical = num_points - num_points_horizontal
+
+        # Generate horizontal segment
+        x_coords_horizontal = torch.linspace(first_point[0], first_point[0] + horizontal_length, num_points_horizontal, device=device)
+        y_coords_horizontal = torch.full((num_points_horizontal,), first_point[1], device=device)
+
+        # Generate vertical segment
+        x_coords_vertical = torch.full((num_points_vertical,), first_point[0] + horizontal_length, device=device)
+        y_coords_vertical = torch.linspace(first_point[1], first_point[1] + vertical_length, num_points_vertical, device=device)
+
+        # Combine segments
+        x_coords = torch.cat((x_coords_horizontal, x_coords_vertical))
+        y_coords = torch.cat((y_coords_horizontal, y_coords_vertical))
+        tracking_path = torch.stack((x_coords, y_coords), dim=1)
+
+        start_rot = torch.tensor(0, device=device, dtype=torch.float32).deg2rad()
+        goal_rot = torch.tensor(90, device=device, dtype=torch.float32).deg2rad()
+        
+    elif path_tracking_type == "circle":
+        first_point = torch.tensor([-1, 0], device=device, dtype=torch.float32)
+        
+        circle_radius = 1.5 # [m] default: 1.5
+        
+        # Calculate the number of discrete points that consist of the whole path such that the interval between points is roughly `point_interval`
+        path_length = 2 * torch.pi * circle_radius # [m]
+        num_points = int(path_length / point_interval) 
+        
+        circle_origin = first_point.clone()
+        circle_origin[0] += circle_radius
+                
+        # Generate angles for each point on the tracking path
+        angles = torch.linspace(torch.pi, -torch.pi, num_points, device=device)
+
+        # Calculate x and y coordinates for each point 
+        x_coords = circle_origin[0] + circle_radius * torch.cos(angles)
+        y_coords = circle_origin[1] + circle_radius * torch.sin(angles)
+
+        tracking_path = torch.stack((x_coords, y_coords), dim=1)
+
+        start_rot = torch.tensor(90, device=device, dtype=torch.float32).deg2rad()
+        goal_rot = start_rot.clone()
+    elif path_tracking_type == "sine":
+        first_point = torch.tensor([-1, 0], device=device, dtype=torch.float32)
+
+        path_length_x = 3.0  # [m] Length along x-axis. Default: 3
+        num_points_tmp = 100  # Will be used to calculate the sine wave in a numerical way. Should be sufficient but not overly large
+        amplitude = 1.0  # Amplitude of the sine wave. Default: 1
+
+        # Calculate the actual needed number of discrete points
+        tracking_path_tmp = generate_sine_path(first_point, path_length_x, amplitude, num_points_tmp, device)
+        path_length = ((tracking_path_tmp.diff(dim=0) ** 2).sum(dim=1) ** 0.5).sum()
+        num_points = int(path_length / point_interval) # Total number of points to discretize the reference path
+        
+        tracking_path = generate_sine_path(first_point, path_length_x, amplitude, num_points, device)
+
+        start_rot = torch.tensor(90, device=device, dtype=torch.float32).deg2rad()
+        goal_rot = torch.tensor(90, device=device, dtype=torch.float32).deg2rad()        
+    elif path_tracking_type == "horizontal_8":
+        # Use lemniscate of Bernoulli to generate a horizontal "8" path (inspired by https://mathworld.wolfram.com/Lemniscate.html)
+        first_point = torch.tensor([-1, 0], device=device, dtype=torch.float32)
+
+        center_point_8 = first_point.clone() # Center point of the lemniscate
+        a = 1.5  # half-width of the lemniscate
+        center_point_8[0] += a
+        num_points = 100  # Number of points to discretize the reference path
+
+        # Generate parameter t
+        t = torch.linspace(-torch.pi, torch.pi, num_points, device=device)
+
+        # Parametric equations for the lemniscate
+        x_coords = first_point[0] + (a * torch.cos(t)) / (1 + torch.sin(t)**2)
+        y_coords = first_point[1] + (a * torch.sin(t) * torch.cos(t)) / (1 + torch.sin(t)**2)
+
+        # Combine x and y coordinates
+        tracking_path = torch.stack((x_coords, y_coords), dim=1)
+
+        start_rot = torch.tensor(90, device=device, dtype=torch.float32).deg2rad()
+        goal_rot = torch.tensor(90, device=device, dtype=torch.float32).deg2rad()
+
+    else:
+        raise ValueError("Invalid path tracking type provided. Must be one of 'line', 'turning', 'circle', 'sine', and 'turning'.")
+    
+    tracking_path = remove_overlapping_points(tracking_path)
+    # Initial velocity is set as the haf of the maximum velocity
+    start_vel = torch.tensor([0.5*max_speed*torch.cos(start_rot), 0.5*max_speed*torch.sin(start_rot)], device=device, dtype=torch.float32) 
+    
+    # Mean length of the line segments on the path
+    mean_length_line_segments = tracking_path.diff(dim=0).norm(dim=1).mean()
+    # print(f"The mean length of the line segments of the tracking path is {mean_length_line_segments}.")
+
+    # Check is the reference path is a loop
+    is_ref_path_loop = (tracking_path[0, :] - tracking_path[-1, :]).norm() <= 1e-4
+
+    # Determine the x- and y-range of the reference path, which will later be used to determine the x- and y-dimensions of the world
+    x_min = torch.min(tracking_path[:, 0])
+    x_max = torch.max(tracking_path[:, 0])
+    y_min = torch.min(tracking_path[:, 1])
+    y_max = torch.max(tracking_path[:, 1])
+    ranges = torch.hstack((x_max - x_min, y_max - y_min))
+    center_point_path = torch.hstack(
+        (
+            (x_min + x_max) / 2,
+            (y_min + y_max) / 2
+        )
+    )
+    
+    tracking_path -= center_point_path # Move the path center to the origin
+    
+    if center_point is not None:
+        tracking_path += center_point # Move the path center to the given center point
+        
+    start_pos = tracking_path[0, :].clone()
+    goal_pos = tracking_path[-1, :].clone()
+
+    if not is_ref_path_loop:
+        # Extend an additional point (with the same direction) at the end of the path to workaround the phenomenon that the agent oscilltes near the final goal
+        point_extended = 2 * tracking_path[-1, :] - tracking_path[-2, :]
+    else:
+        point_extended = None
+        
+    if is_visualize:
+        is_save_fig = True
+        path_save_fig = "outputs/path_tracking_" + path_tracking_type + ".pdf"
+        visualize_path(tracking_path, start_pos, goal_pos, start_rot, agent_width, agent_length, is_ref_path_loop, is_save_fig, path_save_fig)
+    
+    return tracking_path, ranges, start_pos, start_rot, start_vel, goal_pos, goal_rot, is_ref_path_loop, point_extended
+
+def get_ref_path_for_obstacle_avoidance_scenarios(agent_width: float = 0.1, agent_length: float = 0.2, point_interval: float = 0.1, max_speed: float = 0.5, device = torch.device("cpu"), center_point = True, is_visualize: bool = False, is_save_fig: bool = False, obstacles = None):
+    
+    first_point = torch.tensor([-1, 0], device=device, dtype=torch.float32)
+
+    path_length = 3 # [m]
+    
+    last_point = first_point.clone()
+    last_point[0] += path_length
+    
+    num_points = int(path_length / point_interval)  # Total number of points to discretize the reference path
+    tracking_path = torch.stack(
+        [torch.linspace(first_point[i], last_point[i], num_points, device=device, dtype=torch.float32) for i in range(2)], dim=1
+    )
+    
+    start_rot = torch.tensor(0, device=device, dtype=torch.float32).deg2rad()
+    goal_rot = torch.tensor(0, device=device, dtype=torch.float32).deg2rad()
+    
+    tracking_path = remove_overlapping_points(tracking_path)
+    # Initial velocity is set as the haf of the maximum velocity
+    start_vel = torch.tensor([0.5*max_speed*torch.cos(start_rot), 0.5*max_speed*torch.sin(start_rot)], device=device, dtype=torch.float32) 
+    
+    # Mean length of the line segments on the path
+    mean_length_line_segments = tracking_path.diff(dim=0).norm(dim=1).mean()
+    # print(f"The mean length of the line segments of the tracking path is {mean_length_line_segments}.")
+
+    # Check is the reference path is a loop
+    is_ref_path_loop = (tracking_path[0, :] - tracking_path[-1, :]).norm() <= 1e-4
+        
+    # Determine the x- and y-range of the reference path, which will later be used to determine the x- and y-dimensions of the world
+    x_min = torch.min(tracking_path[:, 0])
+    x_max = torch.max(tracking_path[:, 0])
+    y_min = torch.min(tracking_path[:, 1])
+    y_max = torch.max(tracking_path[:, 1])
+    ranges = torch.hstack((x_max - x_min, y_max - y_min))
+    center_point_path = torch.hstack(
+        (
+            (x_min + x_max) / 2,
+            (y_min + y_max) / 2
+        )
+    )
+
+    tracking_path -= center_point_path # Move the path center to the origin
+    
+    if center_point is not None:
+        tracking_path += center_point # Move the path center to the given center point
+        
+    start_pos = tracking_path[0, :].clone()
+    goal_pos = tracking_path[-1, :].clone()
+
+    if not is_ref_path_loop:
+        # Extend an additional point (with the same direction) at the end of the path to workaround the phenomenon that the agent oscilltes near the final goal
+        point_extended = 2 * tracking_path[-1, :] - tracking_path[-2, :]
+    else:
+        point_extended = None
+        
+    if is_visualize:
+        is_save_fig = True
+        if obstacles.ndim == 4:
+            path_save_fig = "outputs/obstacle_avoidance_dynamics.pdf"
+        else:
+            path_save_fig = "outputs/obstacle_avoidance_static.pdf"
+        visualize_path(tracking_path, start_pos, goal_pos, start_rot, agent_width, agent_length, is_ref_path_loop, is_save_fig, path_save_fig, obstacles=obstacles)
+    
+    return tracking_path, ranges, start_pos, start_rot, start_vel, goal_pos, goal_rot, is_ref_path_loop, point_extended
+
+
+def transform_from_global_to_local_coordinate(pos_i: torch.Tensor, pos_j: torch.Tensor, rot_i):
+    """
+    Arguments
+    pos_i: torch.Size([batch_size, 2])
+    pos_j: torch.Size([batch_size, num_points, 2]) or torch.Size([num_points, 2])
+    rot_i: torch.Size([batch_size, 1])
+    rot_j: torch.Size([batch_size, 1]) or None
+    """
+    # Prepare for vectorized ccomputation
+    if pos_j.ndim == 3:
+        pos_i_extended = pos_i.unsqueeze(1)
+        # Check if the last point overlaps with the first point
+        if (pos_j[0, 0, :] - pos_j[0, -1, :]).norm() == 0:
+            pos_j_extended = pos_j[:, 0:-1, :]
+        else:
+            pos_j_extended = pos_j
+    else:
+        pos_i_extended = pos_i.unsqueeze(1)
+        # Check if the last point overlaps with the first point
+        if (pos_j[0, :] - pos_j[-1, :]).norm() == 0:
+            pos_j_extended = pos_j[0:-1, :].unsqueeze(0)
+        else:
+            pos_j_extended = pos_j.unsqueeze(0)
+                        
+    pos_vec = pos_j_extended - pos_i_extended
+    pos_vec_norm = pos_vec.norm(dim=2)
+    rot_rel = torch.atan2(pos_vec[:, :, 1], pos_vec[:, :, 0]) - rot_i
+    
+    pos_rel = torch.stack(
+        (
+            torch.cos(rot_rel) * pos_vec_norm,
+            torch.sin(rot_rel) * pos_vec_norm,
+        ), dim=2
+    )
+    
+    return pos_rel

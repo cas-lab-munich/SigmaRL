@@ -36,15 +36,16 @@ def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: fl
     xlim = None
     ylim = None
     # Adjust parameters for plotting for different scenarios 
+    subgraph_width_ratio = [3, 1]
+    legend_lc = "upper right"
+    bbox_to_anchor = None
+    # Color bar
+    cb_left_margin = 0.1
+    cb_bottom_margin = 0.1
+    cb_width = subgraph_width_ratio[0] / sum(subgraph_width_ratio) - 2 * cb_left_margin
+    cb_height = 0.02
+
     if "path_tracking" in parameters.scenario_name:
-        subgraph_width_ratio = [3, 1]
-        legend_lc = "upper right"
-        bbox_to_anchor = None
-        # Color bar
-        cb_left_margin = 0.1
-        cb_bottom_margin = 0.1
-        cb_width = subgraph_width_ratio[0] / sum(subgraph_width_ratio) - 2 * cb_left_margin
-        cb_height = 0.02
         if "line" in parameters.path_tracking_type:
             figsize=(12, 4)
             cb_bottom_margin = 0.3
@@ -78,6 +79,17 @@ def evaluate_outputs(out_td: TensorDict, parameters: Parameters, agent_width: fl
             ylim = (-1.6, 1.8)
         else:
             figsize=(12, 6) # Default
+            subgraph_width_ratio = [3, 1]
+    elif "obstacle_avoidance" in parameters.scenario_name:
+            figsize=(12, 6)
+            cb_bottom_margin = 0.3
+            legend_lc = None
+            bbox_to_anchor = (0.8, 1.2)
+            cb_left_margin = 0.1
+            cb_bottom_margin = 0.4
+            cb_width = subgraph_width_ratio[0] / sum(subgraph_width_ratio) - 2 * cb_left_margin
+            cb_position_shape = [cb_left_margin, cb_bottom_margin, cb_width, cb_height]
+
     else:
         subgraph_width_ratio = [2, 1] # Default
         

@@ -28,6 +28,8 @@ def get_model_name(parameters):
         model_name = f"reward{parameters.episode_reward_mean_current:.2f}"
     elif "path" in parameters.scenario_name:
         model_name = f"reward{parameters.episode_reward_mean_current:.2f}"
+    elif "obstacle_avoidance" in parameters.scenario_name:
+        model_name = f"reward{parameters.episode_reward_mean_current:.2f}"
     else:
         raise ValueError(f"Required scenario ('{parameters.scenario_name}') is not found.")
 
@@ -274,6 +276,7 @@ class Parameters():
                 num_vmas_envs: int = None,      # Number of vectorized environments
 
                 n_nearing_agents_observed: int = None,      # Number of nearing agents to be observed (consider limited sensor range)
+                n_nearing_obstacles_observed: int = None,   # Number of nearing obstacles to be observed (consider limited sensor range)
                 episode_reward_mean_current: float = None,  # Achieved mean episode reward (total/n_agents)
                 episode_reward_intermidiate: float = None,  
                 
@@ -292,9 +295,13 @@ class Parameters():
                 is_continue_train: bool = None,             # Whether to continue training after loading an offline model
                 is_save_eval_results: bool = None,
                 is_load_out_td: bool = None,
+                
+                is_real_time_rendering: bool = None,        # Simulation will be paused at each time step for a certain duration to enable real-time rendering
 
                 path_tracking_type: str = None,             # For path-tracking scenarios
                 is_dynamic_goal_reward: bool = None,        # TODO Adjust the goal reward based on how well agents achieve their goals
+
+                obstacle_type: str = None,                  # For obstacle-avoidance scenarios
                 ):
         
         self.n_agents = n_agents
@@ -332,6 +339,7 @@ class Parameters():
         self.is_load_model = is_load_model
         
         self.n_nearing_agents_observed = n_nearing_agents_observed
+        self.n_nearing_obstacles_observed = n_nearing_obstacles_observed
         self.episode_reward_mean_current = episode_reward_mean_current
         self.episode_reward_intermidiate = episode_reward_intermidiate
         self.where_to_save = where_to_save
@@ -345,12 +353,15 @@ class Parameters():
         self.is_visualize_short_term_path = is_visualize_short_term_path
         
         self.path_tracking_type = path_tracking_type
-        
         self.is_dynamic_goal_reward = is_dynamic_goal_reward
+        
+        self.obstacle_type = obstacle_type
 
         self.is_save_eval_results = is_save_eval_results
         self.is_load_out_td = is_load_out_td
             
+        self.is_real_time_rendering = is_real_time_rendering
+        
         if (mode_name is None) and (scenario_name is not None):
             self.mode_name = get_model_name(self)
             
