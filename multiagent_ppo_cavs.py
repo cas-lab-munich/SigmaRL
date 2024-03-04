@@ -44,6 +44,8 @@ from utilities.evaluation import evaluate_outputs
 
 from scenarios.car_like_robots_road_traffic import ScenarioRoadTraffic
 from scenarios.car_like_robots_path_tracking import ScenarioPathTracking
+from scenarios.car_like_robots_obstacle_avoidance import ScenarioObstacleAvoidance 
+
 
 # Reproducibility
 torch.manual_seed(0)
@@ -54,6 +56,8 @@ def multiagent_ppo_cavs(parameters: Parameters):
         scenario = ScenarioRoadTraffic()
     elif "path_tracking" in parameters.scenario_name:
         scenario = ScenarioPathTracking()
+    elif "obstacle_avoidance" in parameters.scenario_name:
+        scenario = ScenarioObstacleAvoidance()
     else:
         raise ValueError(f"The given scenario '{parameters.scenario_name}' is not found. Current implementation includes 'car_like_robots_road_traffic' and 'car_like_robots_path_tracking'.")
     
@@ -350,29 +354,30 @@ def multiagent_ppo_cavs(parameters: Parameters):
 
 
 if __name__ == "__main__":
-    scenario_name = "car_like_robots_road_traffic" # car_like_robots_road_traffic, car_like_robots_go_to_formation, car_like_robots_path_tracking
+    scenario_name = "car_like_robots_road_traffic" # car_like_robots_road_traffic, car_like_robots_path_tracking, car_like_robots_obstacle_avoidance
     
     parameters = Parameters(
-        n_agents=4,
+        n_agents=10,
         dt=0.1, # [s] sample time 
         device="cpu" if not torch.backends.cuda.is_built() else "cuda:0",  # The divice where learning is run
         scenario_name=scenario_name,
         
         # Training parameters
-        n_iters=100, # Number of sampling and training iterations (on-policy: rollouts are collected during sampling phase, which will be immediately used in the training phase of the same iteration),
+        n_iters=200, # Number of sampling and training iterations (on-policy: rollouts are collected during sampling phase, which will be immediately used in the training phase of the same iteration),
         frames_per_batch=2**10, # Number of team frames collected per training iteration (minibatch_size*10)
         num_epochs=30, # Number of optimization steps per training iteration,
-        minibatch_size=2*8, # Size of the mini-batches in each optimization step (2**9 - 2**12?),
-        lr=4e-4, # Learning rate,
+        minibatch_size=2*9, # Size of the mini-batches in each optimization step (2**9 - 2**12?),
+        lr=1e-4, # Learning rate,
         max_grad_norm=1.0, # Maximum norm for the gradients,
         clip_epsilon=0.2, # clip value for PPO loss,
         gamma=0.98, # discount factor (empirical formula: 0.1 = gamma^t, where t is the number of future steps that you want your agents to predict {0.96 -> 56 steps, 0.98 -> 114 steps, 0.99 -> 229 steps, 0.995 -> 459 steps})
         lmbda=0.9, # lambda for generalised advantage estimation,
         entropy_eps=1e-4, # coefficient of the entropy term in the PPO loss,
         max_steps=2**7, # Episode steps before done
+        training_strategy='4', # One of {'1', '2', '3', '4'}
         
         is_save_intermidiate_model=True, # Is this is true, the model with the hightest mean episode reward will be saved,
-        n_nearing_agents_observed=4,
+        
         episode_reward_mean_current=0.00,
         
         is_load_model=False, # Load offline model if available. The offline model in `where_to_save` whose name contains `episode_reward_mean_current` will be loaded
@@ -380,19 +385,37 @@ if __name__ == "__main__":
         mode_name=None, 
         episode_reward_intermidiate=-1e3, # The initial value should be samll enough
         
-        where_to_save=f"outputs/{scenario_name}_ppo/test/", # folder where to save the trained models, fig, data, etc.
-        path_tracking_type='circle', # [relevant to path-tracking scenarios] should be one of 'line', 'turning', 'circle', 'sine', and 'horizontal_8'
-        
+        where_to_save=f"outputs/{scenario_name}_ppo/mixed_training/", # folder where to save the trained models, fig, data, etc.
+
         # Scenario parameters
-        is_local_observation=False, 
+        is_local_observation=True, 
         is_global_coordinate_sys=False,
-        n_short_term_points=6,
+        n_points_short_term=6,
+        is_use_intermediate_goals=False,
+        n_nearing_agents_observed=4,
+        n_nearing_obstacles_observed=4,
+        
         is_testing_mode=False,
         is_visualize_short_term_path=True,
         
-        is_dynamic_goal_reward=False, # [relevant to path-tracking scenarios] set to True if the goal reward is dynamically adjusted based on the performance of agents' history trajectories 
-        is_save_eval_results=False,
+        is_save_eval_results=True,
+        
+        ############################################
+        # For car_like_robots_path_tracking only
+        ############################################
+        path_tracking_type='sine', # [relevant to path-tracking scenarios] should be one of 'line', 'turning', 'circle', 'sine', and 'horizontal_8'
+        obstacle_type="static", # [relevant for obstacle-avoidance scenarios] should be one of "static" and "dynamic"
+        is_mixed_scenario_training = True,
+        is_dynamic_goal_reward=False, # set to True if the goal reward is dynamically adjusted based on the performance of agents' history trajectories 
+
+        ############################################
+        # For car_like_robots_obstacle_avoidance only
+        ############################################
+        is_observe_corners=False,
     )
+    
+    if (scenario_name == "car_like_robots_road_traffic") &  (parameters.training_strategy == "4"):
+        parameters.n_agents = min(parameters.n_agents, 8) # The map size of mixed scenarios are smaller than the whole map, therefore maximum 8 agents are needed for training
     
     env, policy, parameters = multiagent_ppo_cavs(parameters=parameters)
 

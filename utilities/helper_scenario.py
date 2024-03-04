@@ -47,23 +47,37 @@ class Thresholds:
         self.reach_intermediate_goal = reach_intermediate_goal    # Threshold less than which agents are considered at their intermediate goal positions
         self.change_steering = change_steering
 
-class ReferencePaths:
-    def __init__(self, long_term = None, long_term_yaws = None, long_term_center_points = None, long_term_lengths = None, long_term_vecs_normalized = None, is_ref_path_loop = None, point_extended = None, n_short_term_points = None, short_term = None, short_term_indices = None, left_boundary_repeated = None, right_boundary_repeated = None):
-        self.long_term = long_term                              # Long-term reference path
-        self.long_term_yaws = long_term_yaws                    # Yaws of the line segments on the long-term reference path
-        self.long_term_center_points = long_term_center_points  # Center points of the line segments on the long-term reference path
-        self.long_term_lengths = long_term_lengths              # Lengths of the line segments on the long-term reference path
+class ReferencePathsMapRelated:
+    def __init__(self, long_term_all = None, long_term_intersection = None, long_term_merge_in = None, long_term_merge_out = None, point_extended_all = None, point_extended_intersection = None, point_extended_merge_in = None, point_extended_merge_out = None, long_term_vecs_normalized = None, point_extended = None):
+        self.long_term_all = long_term_all                              # All long-term reference paths
+        self.long_term_intersection = long_term_intersection            # Long-term reference paths for the intersection scenario
+        self.long_term_merge_in = long_term_merge_in                    # Long-term reference paths for the mergin in scenario
+        self.long_term_merge_out = long_term_merge_out                  # Long-term reference paths for the merge out scenario
+        self.point_extended_all = point_extended_all                    # Extend the long-term reference paths by one point at the end
+        self.point_extended_intersection = point_extended_intersection  # Extend the long-term reference paths by one point at the end
+        self.point_extended_merge_in = point_extended_merge_in          # Extend the long-term reference paths by one point at the end
+        self.point_extended_merge_out = point_extended_merge_out        # Extend the long-term reference paths by one point at the end
+
         self.long_term_vecs_normalized = long_term_vecs_normalized  # Normalized vectors of the line segments on the long-term reference path
-        self.is_ref_path_loop = is_ref_path_loop                # Whether the reference path is a loop
         self.point_extended = point_extended                    # Extended point for a non-loop reference path (address the oscillations near the goal)
-        self.n_short_term_points = n_short_term_points          # Number of points used to build a short-term reference path
+        
+class ReferencePathsAgentRelated:
+    def __init__(self, long_term = None, long_term_vec_normalized = None, point_extended = None, left_boundary = None, right_boundary = None, n_points_long_term = None, n_points_left_b = None, n_points_right_b = None, is_loop = None, n_points_short_term = None, short_term = None, short_term_indices = None):
+        self.long_term = long_term                # Actual long-term reference paths of agents
+        self.long_term_vec_normalized = long_term_vec_normalized # Normalized vectories on the long-term trajectory
+        self.point_extended = point_extended
+        self.left_boundary = left_boundary
+        self.right_boundary = right_boundary
+        self.is_loop = is_loop                # Whether the reference path is a loop
+        self.n_points_long_term = n_points_long_term            # The number of points on the long-term reference paths
+        self.n_points_left_b = n_points_left_b            # The number of points on the left boundary of the long-term reference paths 
+        self.n_points_right_b = n_points_right_b          # The number of points on the right boundary of the long-term reference paths 
         self.short_term = short_term                            # Short-term reference path
         self.short_term_indices = short_term_indices            # Indices that indicate which part of the long-term reference path is used to build the short-term reference path
-        self.left_boundary_repeated = left_boundary_repeated    # Just to allocate memory for a specific purpose 
-        self.right_boundary_repeated = right_boundary_repeated  # Just to allocate memory for a specific purpose 
-        
+        self.n_points_short_term = n_points_short_term          # Number of points used to build a short-term reference path
+
 class Observations:
-    def __init__(self, is_local = None, is_global_coordinate_sys = None, n_nearing_agents = None, n_nearing_obstacles_observed = None, is_add_noise = None, noise_level = None, n_stored_steps = None, n_observed_steps = None, past_pos = None, past_vel = None, past_action_vel = None, past_action_steering = None, past_distance_to_ref_path = None):
+    def __init__(self, is_local = None, is_global_coordinate_sys = None, n_nearing_agents = None, n_nearing_obstacles_observed = None, is_add_noise = None, noise_level = None, n_stored_steps = None, n_observed_steps = None, is_observe_corners = None, past_pos = None, past_vel = None, past_action_vel = None, past_action_steering = None, past_distance_to_ref_path = None):
         self.is_local = is_local # Local observation
         self.is_global_coordinate_sys = is_global_coordinate_sys
         self.n_nearing_agents = n_nearing_agents
@@ -72,6 +86,8 @@ class Observations:
         self.noise_level = noise_level # Whether to add noise to observations
         self.n_stored_steps = n_stored_steps # Number of past steps to store
         self.n_observed_steps = n_observed_steps # Number of past steps to observe
+        self.is_observe_corners = is_observe_corners
+
         self.past_pos = past_pos # Past positions
         self.past_vel = past_vel # Past velocites
         self.past_action_vel = past_action_vel # Past velocity action
@@ -110,9 +126,6 @@ class Obstacles:
         self.rot = rot          # Rotation
         self.length = length    # Length of the dynamic obstacle
         self.width = width      # Width of the dynamic obstacle
-        self.visu_center_points = center_points # For visualization
-        self.visu_lengths = lengths             # For visualization
-        self.visu_yaws = yaws                   # For visualization
 
 class Timer:
     # This class stores the data relevant to static and dynamic obstacles.
@@ -181,7 +194,7 @@ def get_rectangle_corners(center, yaw, width, length, is_close_shape: bool = Tru
 
     return corners_global
 
-def find_short_term_trajectory(pos, reference_path, n_short_term_points=6):
+def find_short_term_trajectory(pos, reference_path, n_points_short_term=6):
     n_points = reference_path.shape[0]
 
     # Expand dimensions for vectorized computation of distances
@@ -195,8 +208,8 @@ def find_short_term_trajectory(pos, reference_path, n_short_term_points=6):
     # Find the indices of the closest points
     closest_indices = torch.argmin(distances, dim=1)
 
-    # Create a range of indices for the next n_short_term_points points
-    future_idx_range = torch.arange(0, n_short_term_points)
+    # Create a range of indices for the next n_points_short_term points
+    future_idx_range = torch.arange(0, n_points_short_term)
     future_indices = (closest_indices.unsqueeze(1) + future_idx_range.unsqueeze(0)) % n_points
 
     # Gather the short-term trajectory points for each agent
@@ -204,17 +217,18 @@ def find_short_term_trajectory(pos, reference_path, n_short_term_points=6):
 
     return short_term_path
 
-def get_perpendicular_distances(point: torch.Tensor, polyline: torch.Tensor):
+def get_perpendicular_distances(point: torch.Tensor, polyline: torch.Tensor, n_points_long_term = None):
     """
     Calculate the minimum perpendicular distance from the given point(s) to the given polyline.
     
     Args:
-        point: position of the point, with shape torch.Size([batch_size,2]), `batch_size` could also be 1.
-        polyline: x- and y-coordinates of the points on the polyline, with shape torch.Size([num_points,2]).
+        point: torch.Size([batch_size, 2]), position of the point, with shape torch.Size([batch_size,2]), `batch_size` could also be 1.
+        polyline: torch.Size([num_points, 2]) or torch.Size([batch_size, num_points, 2]) x- and y-coordinates of the points on the polyline.
     """
     
     # Expand the polyline points to match the batch size
     batch_size = point.shape[0]
+            
     if polyline.ndim == 2:
         polyline_expanded = polyline.unsqueeze(0).expand(batch_size, -1, -1)  # Shape: [batch_size, n_points, 2]
     else:
@@ -243,6 +257,16 @@ def get_perpendicular_distances(point: torch.Tensor, polyline: torch.Tensor):
     # Calculate the distances from the given points to these closest points
     distances = torch.norm(closest_points - agent_positions_expanded, dim=2)
     
+    if n_points_long_term is not None:
+        if n_points_long_term.ndim == 0:
+            n_points_long_term = n_points_long_term.unsqueeze(0)
+        for env_idx, n_long_term_point in enumerate(n_points_long_term):
+            distance_to_end_point = distances[env_idx, n_long_term_point-2]
+            distances[env_idx, n_long_term_point-1:] = distance_to_end_point
+    if distances.isnan().any():
+        print("debug")
+    assert ~distances.isnan().any()
+    
     perpendicular_distances, indices_closest_points = torch.min(distances, dim=1)
     
     indices_closest_points[:] += 1 # Force the nearest point to lie always in the future
@@ -250,26 +274,44 @@ def get_perpendicular_distances(point: torch.Tensor, polyline: torch.Tensor):
     return perpendicular_distances, indices_closest_points
 
 
-def get_short_term_reference_path(reference_path, closest_point_on_ref_path, n_short_term_points, device = torch.device("cpu"), is_ref_path_loop: bool = False, point_extended = None):
-    # Create a tensor that represents the indices for n_short_term_points for each agent
-    future_points_idx_tmp = torch.arange(n_short_term_points, device=device).unsqueeze(0) + closest_point_on_ref_path.unsqueeze(1)
-    
-    len_reference_path = len(reference_path)
-    
-    if is_ref_path_loop:
-        # Apply modulo to handle the case that each agent's reference path is a loop
-        future_points_idx = torch.where(future_points_idx_tmp >= len_reference_path - 1, (future_points_idx_tmp + 1) % len_reference_path, future_points_idx_tmp) # Use "+ 1" to skip the last point since it overlaps with the first point
-    else:
-        future_points_idx = torch.where(future_points_idx_tmp >= len_reference_path - 1, len_reference_path - 1, future_points_idx_tmp) # Set all the remaining points to the last point 
-        
+def get_short_term_reference_path(reference_path, closest_point_on_ref_path, n_points_short_term, device = torch.device("cpu"), is_ref_path_loop: bool = False, point_extended = None, n_points_long_term = None,):
+    """
+    reference_path:             torch.Size(batch_size, num_points, 2). 
+    closest_point_on_ref_path:  torch.Size(batch_size, 1)
+    n_points_short_term:        torch.Size(1)
+    is_ref_path_loop:           torch.Size(batch_size)
+    point_extended:             torch.Size(batch_size, 2)
+    n_points_long_term:         torch.Size(batch_size)
+    """
+    batch_size = closest_point_on_ref_path.shape[0]        
 
+    # Create a tensor that represents the indices for n_points_short_term for each agent
+    future_points_idx_tmp = torch.arange(n_points_short_term, device=device) + closest_point_on_ref_path
+    
+    if n_points_long_term is None:
+        n_points_long_term = reference_path.shape[-2]
+    
+    is_extend = torch.zeros(batch_size, device=device, dtype=torch.bool)
+    future_points_idx = torch.zeros(future_points_idx_tmp.shape, device=device, dtype=torch.int)
+
+    for env_i in range(batch_size):
+        n_long_term_point = n_points_long_term[env_i]
+        if is_ref_path_loop[env_i]:
+            # Apply modulo to handle the case that each agent's reference path is a loop
+            future_points_idx[env_i] = torch.where(future_points_idx_tmp[env_i] >= n_long_term_point - 1, (future_points_idx_tmp[env_i] + 1) % n_long_term_point, future_points_idx_tmp[env_i]) # Use "+ 1" to skip the last point since it overlaps with the first point
+        else:
+            future_points_idx[env_i] = torch.where(future_points_idx_tmp[env_i] >= n_long_term_point - 1, n_long_term_point - 1, future_points_idx_tmp[env_i]) # Set all the remaining points to the last point 
+            is_extend[env_i] = (future_points_idx[env_i] == n_points_long_term[env_i] - 1).sum() >= 2
+        
+    # Create a tensor for the batch indices
+    batch_indices = torch.arange(batch_size, device=device).unsqueeze(1)
 
     # Extract the short-term reference path from the reference path
-    short_term_path = reference_path[future_points_idx] # Note that the agent's current position is between the first and second points (may overlap with the second point)
-    if not is_ref_path_loop:
-        # Extend the short-term reference path by one point when the goal point is reapeated at the end
-        is_extend = (future_points_idx == len_reference_path - 1).sum(dim=1) >= 2
-        short_term_path[is_extend, -1] = point_extended
+    short_term_path = reference_path[batch_indices, future_points_idx] # Note that the agent's current position is between the first and second points (may overlap with the second point)
+
+    # Extend the short-term reference path by one point when the goal point is reapeated at the end
+    if is_extend.any():
+        short_term_path[is_extend, -1] = point_extended[is_extend, :]
         
     return short_term_path, future_points_idx
 
@@ -332,7 +374,7 @@ def exponential_decreasing_fcn(x, x0, x1):
     
     return y
 
-def get_distances_between_agents(self):
+def get_distances_between_agents(self, distance_type):
     """
     This function calculates the mutual distances between agents. 
     Currently, the calculation of two types of distances is supported ('c2c' and 'MTV'): 
@@ -340,7 +382,7 @@ def get_distances_between_agents(self):
         MTV: minimum translation vector (MTV)-based distance
     TODO: Add the posibility to calculate the mutual distances between agents in a single env (`reset_world` sometime only needs to resets a single env)
     """
-    if self.distances.type == 'c2c':
+    if distance_type == 'c2c':
         # Collect positions for all agents across all batches, shape [n_agents, batch_size, 2]
         positions = torch.stack([self.world.agents[i].state.pos for i in range(self.n_agents)])
         
@@ -359,7 +401,7 @@ def get_distances_between_agents(self):
 
         # Take the square root to get actual distances, shape [batch_size, n_agents, n_agents]
         mutual_distances = torch.sqrt(squared_distances)
-    elif self.distances.type == 'MTV':
+    elif distance_type == 'MTV':
         # Initialize
         mutual_distances = torch.zeros((self.world.batch_dim, self.n_agents, self.n_agents), device=self.world.device, dtype=torch.float32)
         
@@ -592,7 +634,7 @@ def generate_sine_path(start_pos, path_length_x, amplitude, num_points, device):
 
      
 
-def get_ref_path_for_tracking_scenarios(path_tracking_type, agent_width: float = 0.1, agent_length: float = 0.2, point_interval: float = 0.1, max_speed: float = 0.5, device = torch.device("cpu"), center_point = None, is_visualize: bool = False, is_save_fig: bool = False):
+def get_ref_path_for_tracking_scenarios(path_tracking_type, agent_width: float = 0.1, agent_length: float = 0.2, point_interval: float = 0.1, max_speed: float = 0.5, device = torch.device("cpu"), center_point = None, is_visualize: bool = False, is_save_fig: bool = False, max_ref_path_points = None):
     if path_tracking_type == "line":
         first_point = torch.tensor([-1, 0], device=device, dtype=torch.float32)
 
@@ -662,9 +704,9 @@ def get_ref_path_for_tracking_scenarios(path_tracking_type, agent_width: float =
     elif path_tracking_type == "sine":
         first_point = torch.tensor([-1, 0], device=device, dtype=torch.float32)
 
-        path_length_x = 3.0  # [m] Length along x-axis. Default: 3
+        path_length_x = 2.5  # [m] Length along x-axis. Default: 3
         num_points_tmp = 100  # Will be used to calculate the sine wave in a numerical way. Should be sufficient but not overly large
-        amplitude = 1.0  # Amplitude of the sine wave. Default: 1
+        amplitude = 0.8  # Amplitude of the sine wave. Default: 1
 
         # Calculate the actual needed number of discrete points
         tracking_path_tmp = generate_sine_path(first_point, path_length_x, amplitude, num_points_tmp, device)
@@ -701,6 +743,7 @@ def get_ref_path_for_tracking_scenarios(path_tracking_type, agent_width: float =
         raise ValueError("Invalid path tracking type provided. Must be one of 'line', 'turning', 'circle', 'sine', and 'turning'.")
     
     tracking_path = remove_overlapping_points(tracking_path)
+    num_points = tracking_path.shape[0] # Update
     # Initial velocity is set as the haf of the maximum velocity
     start_vel = torch.tensor([0.5*max_speed*torch.cos(start_rot), 0.5*max_speed*torch.sin(start_rot)], device=device, dtype=torch.float32) 
     
@@ -732,18 +775,22 @@ def get_ref_path_for_tracking_scenarios(path_tracking_type, agent_width: float =
     start_pos = tracking_path[0, :].clone()
     goal_pos = tracking_path[-1, :].clone()
 
-    if not is_ref_path_loop:
-        # Extend an additional point (with the same direction) at the end of the path to workaround the phenomenon that the agent oscilltes near the final goal
-        point_extended = 2 * tracking_path[-1, :] - tracking_path[-2, :]
-    else:
-        point_extended = None
+    # Extend an additional point (with the same direction) at the end of the path to workaround the phenomenon that the agent oscilltes near the final goal. Only used in non-loop path-tracking scenarios.
+    point_extended = 2 * tracking_path[-1, :] - tracking_path[-2, :]
+
         
     if is_visualize:
         is_save_fig = True
         path_save_fig = "outputs/path_tracking_" + path_tracking_type + ".pdf"
         visualize_path(tracking_path, start_pos, goal_pos, start_rot, agent_width, agent_length, is_ref_path_loop, is_save_fig, path_save_fig)
+        
+    if max_ref_path_points is not None:
+        # Repeated the last point
+        assert max_ref_path_points > num_points, "The number of points on the reference path should be smaller than the defined maximum number."
+        last_point = tracking_path[-1, :].unsqueeze(0).repeat(max_ref_path_points - num_points, 1)
+        tracking_path_last_point_repeated = torch.cat((tracking_path, last_point), dim=0)
     
-    return tracking_path, ranges, start_pos, start_rot, start_vel, goal_pos, goal_rot, is_ref_path_loop, point_extended
+    return tracking_path_last_point_repeated, num_points, ranges, start_pos, start_rot, start_vel, goal_pos, goal_rot, is_ref_path_loop, point_extended
 
 def get_ref_path_for_obstacle_avoidance_scenarios(agent_width: float = 0.1, agent_length: float = 0.2, point_interval: float = 0.1, max_speed: float = 0.5, device = torch.device("cpu"), center_point = True, is_visualize: bool = False, is_save_fig: bool = False, obstacles = None):
     
@@ -836,14 +883,30 @@ def transform_from_global_to_local_coordinate(pos_i: torch.Tensor, pos_j: torch.
             pos_j_extended = pos_j.unsqueeze(0)
                         
     pos_vec = pos_j_extended - pos_i_extended
-    pos_vec_norm = pos_vec.norm(dim=2)
+    pos_vec_abs = pos_vec.norm(dim=2)
     rot_rel = torch.atan2(pos_vec[:, :, 1], pos_vec[:, :, 0]) - rot_i
     
     pos_rel = torch.stack(
         (
-            torch.cos(rot_rel) * pos_vec_norm,
-            torch.sin(rot_rel) * pos_vec_norm,
+            torch.cos(rot_rel) * pos_vec_abs,
+            torch.sin(rot_rel) * pos_vec_abs,
         ), dim=2
     )
     
     return pos_rel
+
+
+def normalize_angle(angle):
+    """
+    Normalize an angle to be within the range -pi to pi.
+
+    Parameters:
+    angle (torch.Tensor): The angle to normalize, in radians. Can be a tensor of any shape.
+
+    Returns:
+    torch.Tensor: Normalized angle between -pi and pi.
+    """
+    two_pi = 2 * torch.pi
+    angle = angle % two_pi  # Normalize angle to be within 0 and 2*pi
+    angle[angle > torch.pi] -= two_pi  # Shift to -pi to pi range
+    return angle

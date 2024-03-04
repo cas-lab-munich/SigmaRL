@@ -274,15 +274,23 @@ class Parameters():
                 max_steps: int = None,
                 total_frames: int = None,
                 num_vmas_envs: int = None,      # Number of vectorized environments
+                training_strategy: str = None,
+                
+                # Scenario parameters
+                is_mixed_scenario_training: bool = None,    # Whether to use mixed scenarios durining training
 
-                n_nearing_agents_observed: int = None,      # Number of nearing agents to be observed (consider limited sensor range)
-                n_nearing_obstacles_observed: int = None,   # Number of nearing obstacles to be observed (consider limited sensor range)
                 episode_reward_mean_current: float = None,  # Achieved mean episode reward (total/n_agents)
                 episode_reward_intermidiate: float = None,  
                 
+                # Observation
                 is_local_observation: bool = None,
                 is_global_coordinate_sys: bool = None,      # Global or local coordinate system
-                n_short_term_points: int = None,            # Number of points that build a short-term reference path
+                n_points_short_term: int = None,            # Number of points that build a short-term reference path
+                is_use_intermediate_goals: bool = None,     # If True, intermediate goals will be used, serving as reward shaping; otherwise, only a final goal will be used
+                n_nearing_agents_observed: int = None,      # Number of nearing agents to be observed (consider limited sensor range)
+                n_nearing_obstacles_observed: int = None,   # Number of nearing obstacles to be observed (consider limited sensor range)
+                is_observe_corners: bool = None,            # If True, corners of agents/obstacles will be observed; otherwise, the center point and rotation angle.
+
                 is_testing_mode: bool = None,               # In testing mode, collisions do not terminate the current simulation
                 is_visualize_short_term_path: bool = None,
                 
@@ -322,33 +330,36 @@ class Parameters():
         self.minibatch_size = minibatch_size
         self.lr = lr
         self.max_grad_norm = max_grad_norm
-        
-        # PPO
         self.clip_epsilon = clip_epsilon
         self.gamma = gamma
         self.lmbda = lmbda
         self.entropy_eps = entropy_eps
-        
-        
         self.max_steps = max_steps
+        self.training_strategy = training_strategy
+        
+        # Scenario parameters
+        self.is_mixed_scenario_training = is_mixed_scenario_training
         
         if (frames_per_batch is not None) and (max_steps is not None):
             self.num_vmas_envs = frames_per_batch // max_steps # Number of vectorized envs. frames_per_batch should be divisible by this number,
 
         self.is_save_intermidiate_model = is_save_intermidiate_model
-        self.is_load_model = is_load_model
+        self.is_load_model = is_load_model        
         
-        self.n_nearing_agents_observed = n_nearing_agents_observed
-        self.n_nearing_obstacles_observed = n_nearing_obstacles_observed
         self.episode_reward_mean_current = episode_reward_mean_current
         self.episode_reward_intermidiate = episode_reward_intermidiate
         self.where_to_save = where_to_save
         self.is_continue_train = is_continue_train
-        
-        # Scenario parameters    
+
+        # Observation
         self.is_local_observation = is_local_observation
         self.is_global_coordinate_sys = is_global_coordinate_sys
-        self.n_short_term_points = n_short_term_points
+        self.n_points_short_term = n_points_short_term
+        self.is_use_intermediate_goals = is_use_intermediate_goals
+        self.n_nearing_agents_observed = n_nearing_agents_observed
+        self.n_nearing_obstacles_observed = n_nearing_obstacles_observed
+        self.is_observe_corners = is_observe_corners
+        
         self.is_testing_mode = is_testing_mode
         self.is_visualize_short_term_path = is_visualize_short_term_path
         

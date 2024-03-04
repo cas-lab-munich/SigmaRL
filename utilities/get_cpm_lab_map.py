@@ -4,7 +4,16 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Scientific plotting
-import scienceplots # Do not remove (https://github.com/garrettj403/SciencePlots)
+import scienceplots
+
+import os
+import sys
+script_dir = os.path.dirname(__file__) # Directory of the current script
+project_root = os.path.dirname(script_dir) # Project root directory
+if project_root not in sys.path:
+    sys.path.append(project_root)
+    
+from utilities.colors import Color # Do not remove (https://github.com/garrettj403/SciencePlots)
 plt.rcParams.update({'figure.dpi': '100'}) # Avoid DPI problem (https://github.com/garrettj403/SciencePlots/issues/60)
 plt.style.use(['science','ieee']) # The science + ieee styles for IEEE papers (can also be one of 'ieee' and 'science' )
 # print(plt.style.available) # List all available style
@@ -112,17 +121,13 @@ def parse_intersections(element):
     return intersection_info
 
 
-def visualize_map(lanelets, is_save_fig = False):
+def visualize_and_save_map(lanelets, is_save_fig = False, is_visualize = False, is_show_a_vehicle = True,):
     x_lim = 4.5 # [m] Dimension in x-direction 
     y_lim = 4.0 # [m] Dimension in y-direction 
 
     # Set up the plot
     plt.figure(figsize=(x_lim*3, y_lim*3))  # Size in inches, adjusted for 4.0m x 4.5m dimensions
     plt.axis("equal")  # Ensure x and y dimensions are equally scaled
-
-    is_use_random_color = True
-
-    file_name = "cpm_lab_map_visualization.pdf"
 
     line_width = 1.0
     font_size = 14
@@ -138,34 +143,53 @@ def visualize_map(lanelets, is_save_fig = False):
         right_line_marking = lanelet["right_line_marking"]
         center_line_marking = lanelet["center_line_marking"]
 
+        is_use_random_color = False
+        is_show_id = False
         # Choose color
-        color = np.random.rand(3,) if is_use_random_color else "black"
+        color = np.random.rand(3,) if is_use_random_color else "grey"
 
         # Plot left boundary
         plt.plot(left_bound[:, 0], left_bound[:, 1], linestyle="--" if left_line_marking == "dashed" else "-", color=color, linewidth=line_width)
         # Plot right boundary
         plt.plot(right_bound[:, 0], right_bound[:, 1], linestyle="--" if right_line_marking == "dashed" else "-", color=color, linewidth=line_width)
         # Plot center line
-        plt.plot(center_line[:, 0], center_line[:, 1], linestyle="--" if center_line_marking == "dashed" else "-", color=color, linewidth=line_width)
+        # plt.plot(center_line[:, 0], center_line[:, 1], linestyle="--" if center_line_marking == "dashed" else "-", color=color, linewidth=line_width)
         # Adding lanelet ID as text
-        plt.text(center_line[int(len(center_line)/2), 0], center_line[int(len(center_line)/2), 1], str(lanelet["id"]), color=color, fontsize=font_size)
+        if is_show_id:
+            plt.text(center_line[int(len(center_line)/2), 0], center_line[int(len(center_line)/2), 1], str(lanelet["id"]), color=color, fontsize=font_size)
+            
+    if is_show_a_vehicle:
+        w = 0.1 # Width
+        l = 0.2 # Length
+        
+        rec_x = [0.208, 0.208, 0.208 + w, 0.208 + w, 0.208]
+        rec_y = [2.1, 2.1 - l, 2.1 - l, 2.1, 2.1]
+        plt.fill(rec_x, rec_y, color=Color.blue100)
 
-    plt.xlabel(r"$x$ [m]", fontsize=12)
-    plt.ylabel(r"$y$ [m]", fontsize=12)
+    plt.xlabel(r"$x$ [m]", fontsize=18)
+    plt.ylabel(r"$y$ [m]", fontsize=18)
     plt.xlim((0, x_lim))
     plt.ylim((0, y_lim))
-    plt.title("CPM Map Visualization", fontsize=14)
+    plt.xticks(np.arange(0, x_lim+0.05, 0.5), fontsize=12)
+    plt.yticks(np.arange(0, y_lim+0.05, 0.5), fontsize=12)
+    plt.title("CPM Map Visualization", fontsize=18)
 
     # Save fig
     if is_save_fig:
+        if is_show_id:
+            file_name = "cpm_lab_map_visualization_with_ids.pdf"
+        else:
+            file_name = "cpm_lab_map_visualization.pdf"
+
         plt.tight_layout() # Set the layout to be tight to minimize white space
         plt.savefig(file_name, format="pdf", bbox_inches="tight")
         
-    plt.show()
+    if is_visualize:
+        plt.show()
 
 
 # Parse the XML file
-def get_map_data(is_save_fig = False, is_visualize = False, **kwargs):
+def get_map_data(is_save_fig = False, is_visualize = False, is_show_a_vehicle = True, **kwargs):
     xml_file_path = kwargs.get("xml_file_path", "assets/cpm_lab_map.xml")
     device = kwargs.get("device", torch.device("cpu"))
     
@@ -192,16 +216,17 @@ def get_map_data(is_save_fig = False, is_visualize = False, **kwargs):
     
     
     # Visualization
-    if is_visualize:
-        visualize_map(lanelets, is_save_fig)
+    if is_visualize | is_save_fig:
+        visualize_and_save_map(lanelets, is_save_fig, is_visualize, is_show_a_vehicle)
         
     return map_data
 
 
 if __name__ == "__main__":
     map_data = get_map_data(
-        is_visualize=True, # Rendering may be slow due to the usage of the package `scienceplots`. You may want to disable it by commenting the related codes out.
-        is_save_fig=False, 
+        is_visualize=False, # Rendering may be slow due to the usage of the package `scienceplots`. You may want to disable it by commenting the related codes out.
+        is_save_fig=True, 
+        is_show_a_vehicle=True,
     )
     print(map_data)
 
