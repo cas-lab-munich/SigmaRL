@@ -24,7 +24,7 @@
         "episode_reward_intermidiate": 81.04383087158203,
         "where_to_save": "outputs/car_like_robots_path_tracking_ppo/circle/",
         "is_continue_train": false,
-        "is_local_observation": false,
+        "is_partial_observation": false,
         "is_global_coordinate_sys": false,
         "n_short_term_points": 6,
         "is_testing_mode": false,

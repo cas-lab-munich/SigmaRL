@@ -266,6 +266,7 @@ class Parameters():
                 num_epochs: int = None,
                 minibatch_size: int = None,
                 lr: float = None,               # Learning rate
+                lr_min: float = None,           # Minimum learning rate (used for scheduling of learning rate)
                 max_grad_norm: float = None,
                 clip_epsilon: float = None,
                 gamma: float = None,
@@ -283,7 +284,7 @@ class Parameters():
                 episode_reward_intermidiate: float = None,  
                 
                 # Observation
-                is_local_observation: bool = None,
+                is_partial_observation: bool = None,
                 is_global_coordinate_sys: bool = None,      # Global or local coordinate system
                 n_points_short_term: int = None,            # Number of points that build a short-term reference path
                 is_use_intermediate_goals: bool = None,     # If True, intermediate goals will be used, serving as reward shaping; otherwise, only a final goal will be used
@@ -329,6 +330,7 @@ class Parameters():
         self.num_epochs = num_epochs
         self.minibatch_size = minibatch_size
         self.lr = lr
+        self.lr_min = lr_min
         self.max_grad_norm = max_grad_norm
         self.clip_epsilon = clip_epsilon
         self.gamma = gamma
@@ -352,7 +354,7 @@ class Parameters():
         self.is_continue_train = is_continue_train
 
         # Observation
-        self.is_local_observation = is_local_observation
+        self.is_partial_observation = is_partial_observation
         self.is_global_coordinate_sys = is_global_coordinate_sys
         self.n_points_short_term = n_points_short_term
         self.is_use_intermediate_goals = is_use_intermediate_goals

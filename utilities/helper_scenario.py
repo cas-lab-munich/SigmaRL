@@ -8,19 +8,26 @@ from utilities.colors import Color
 ## Custom Classes
 ##################################################
 class Normalizers:
-    def __init__(self, pos = None, v = None, yaw = None, steering = None):
+    def __init__(self, pos = None, pos_world = None, v = None, rot = None, action_steering = None, action_vel = None, distance_lanelet = None, distance_agent = None, distance_ref = None, priority = None,):
         self.pos = pos
+        self.pos_world = pos_world
         self.v = v
-        self.yaw = yaw
-        self.steering = steering
+        self.rot = rot
+        self.action_steering = action_steering
+        self.action_vel = action_vel
+        self.distance_lanelet = distance_lanelet
+        self.distance_agent = distance_agent
+        self.distance_ref = distance_ref
+        self.priority = priority
 
 class Rewards:
-    def __init__(self, progress = None, weighting_ref_directions = None, higth_v = None, reach_goal = None, reach_intermediate_goal = None):
+    def __init__(self, progress = None, weighting_ref_directions = None, higth_v = None, reach_goal = None, reach_intermediate_goal = None,):
         self.progress = progress
         self.weighting_ref_directions = weighting_ref_directions
         self.higth_v = higth_v
         self.reach_goal = reach_goal
         self.reach_intermediate_goal = reach_intermediate_goal
+
 
 class Penalties:
     def __init__(self, deviate_from_ref_path = None, deviate_from_goal = None, weighting_deviate_from_ref_path = None, near_boundary = None, near_other_agents = None, collide_with_agents = None, collide_with_boundaries = None, collide_with_obstacles = None, leave_world = None, time = None, change_steering = None):
@@ -37,7 +44,7 @@ class Penalties:
         self.change_steering = change_steering # Penalty for changing steering direction
         
 class Thresholds:
-    def __init__(self, deviate_from_ref_path = None, near_boundary_low = None, near_boundary_high = None, near_other_agents_low = None, near_other_agents_high = None, reach_goal = None, reach_intermediate_goal = None, change_steering = None):
+    def __init__(self, deviate_from_ref_path = None, near_boundary_low = None, near_boundary_high = None, near_other_agents_low = None, near_other_agents_high = None, reach_goal = None, reach_intermediate_goal = None, change_steering = None, no_reward_if_too_close_to_boundaries = None, no_reward_if_too_close_to_other_agents = None, distance_mask_agents = None):
         self.deviate_from_ref_path = deviate_from_ref_path
         self.near_boundary_low = near_boundary_low
         self.near_boundary_high = near_boundary_high
@@ -46,9 +53,12 @@ class Thresholds:
         self.reach_goal = reach_goal                              # Threshold less than which agents are considered at their goal positions
         self.reach_intermediate_goal = reach_intermediate_goal    # Threshold less than which agents are considered at their intermediate goal positions
         self.change_steering = change_steering
+        self.no_reward_if_too_close_to_boundaries = no_reward_if_too_close_to_boundaries # Agents get no reward if they are too close to lanelet boundaries
+        self.no_reward_if_too_close_to_other_agents = no_reward_if_too_close_to_other_agents # Agents get no reward if they are too close to other agents
+        self.distance_mask_agents = distance_mask_agents # Threshold above which nearing agents will be masked
 
 class ReferencePathsMapRelated:
-    def __init__(self, long_term_all = None, long_term_intersection = None, long_term_merge_in = None, long_term_merge_out = None, point_extended_all = None, point_extended_intersection = None, point_extended_merge_in = None, point_extended_merge_out = None, long_term_vecs_normalized = None, point_extended = None):
+    def __init__(self, long_term_all = None, long_term_intersection = None, long_term_merge_in = None, long_term_merge_out = None, point_extended_all = None, point_extended_intersection = None, point_extended_merge_in = None, point_extended_merge_out = None, long_term_vecs_normalized = None, point_extended = None, sample_interval = None):
         self.long_term_all = long_term_all                              # All long-term reference paths
         self.long_term_intersection = long_term_intersection            # Long-term reference paths for the intersection scenario
         self.long_term_merge_in = long_term_merge_in                    # Long-term reference paths for the mergin in scenario
@@ -58,16 +68,21 @@ class ReferencePathsMapRelated:
         self.point_extended_merge_in = point_extended_merge_in          # Extend the long-term reference paths by one point at the end
         self.point_extended_merge_out = point_extended_merge_out        # Extend the long-term reference paths by one point at the end
 
-        self.long_term_vecs_normalized = long_term_vecs_normalized  # Normalized vectors of the line segments on the long-term reference path
-        self.point_extended = point_extended                    # Extended point for a non-loop reference path (address the oscillations near the goal)
+        self.long_term_vecs_normalized = long_term_vecs_normalized      # Normalized vectors of the line segments on the long-term reference path
+        self.point_extended = point_extended                            # Extended point for a non-loop reference path (address the oscillations near the goal)
+        self.sample_interval = sample_interval                          # Integer, sample interval from the long-term reference path for the short-term reference paths
+                                                                        # TODO Instead of an integer, sample with a fixed distance from the long-term reference paths when reading the map data
+
         
 class ReferencePathsAgentRelated:
-    def __init__(self, long_term = None, long_term_vec_normalized = None, point_extended = None, left_boundary = None, right_boundary = None, n_points_long_term = None, n_points_left_b = None, n_points_right_b = None, is_loop = None, n_points_short_term = None, short_term = None, short_term_indices = None):
+    def __init__(self, long_term: torch.Tensor = None, long_term_vec_normalized: torch.Tensor = None, point_extended: torch.Tensor = None, left_boundary: torch.Tensor = None, right_boundary: torch.Tensor = None, entry: torch.Tensor = None, exit: torch.Tensor = None, n_points_long_term: torch.Tensor = None, n_points_left_b: torch.Tensor = None, n_points_right_b: torch.Tensor = None, is_loop: torch.Tensor = None, n_points_short_term: torch.Tensor = None, short_term: torch.Tensor = None, short_term_indices: torch.Tensor = None):
         self.long_term = long_term                # Actual long-term reference paths of agents
         self.long_term_vec_normalized = long_term_vec_normalized # Normalized vectories on the long-term trajectory
         self.point_extended = point_extended
         self.left_boundary = left_boundary
         self.right_boundary = right_boundary
+        self.entry = entry                      # [for non-loop path only] Line segment of entry
+        self.exit = exit                        # [for non-loop path only] Line segment of exit
         self.is_loop = is_loop                # Whether the reference path is a loop
         self.n_points_long_term = n_points_long_term            # The number of points on the long-term reference paths
         self.n_points_left_b = n_points_left_b            # The number of points on the left boundary of the long-term reference paths 
@@ -77,31 +92,41 @@ class ReferencePathsAgentRelated:
         self.n_points_short_term = n_points_short_term          # Number of points used to build a short-term reference path
 
 class Observations:
-    def __init__(self, is_local = None, is_global_coordinate_sys = None, n_nearing_agents = None, n_nearing_obstacles_observed = None, is_add_noise = None, noise_level = None, n_stored_steps = None, n_observed_steps = None, is_observe_corners = None, past_pos = None, past_vel = None, past_action_vel = None, past_action_steering = None, past_distance_to_ref_path = None):
-        self.is_local = is_local # Local observation
+    def __init__(self, is_partial = None, is_global_coordinate_sys = None, n_nearing_agents = None, nearing_agents_indices = None, n_nearing_obstacles_observed = None, is_add_noise = None, noise_level = None, n_stored_steps = None, n_observed_steps = None, is_observe_corners = None, past_pri: torch.Tensor = None, past_pos: torch.Tensor = None, past_rot: torch.Tensor = None, past_corners: torch.Tensor = None, past_vel: torch.Tensor = None, past_short_term_ref_points: torch.Tensor = None, past_action_vel: torch.Tensor = None, past_action_steering: torch.Tensor = None, past_distance_to_ref_path: torch.Tensor = None, past_distance_to_boundaries: torch.Tensor = None, past_distance_to_left_boundary: torch.Tensor = None, past_distance_to_right_boundary: torch.Tensor = None, past_distance_to_agents: torch.Tensor = None):
+        self.is_partial = is_partial    # Local observation
         self.is_global_coordinate_sys = is_global_coordinate_sys
         self.n_nearing_agents = n_nearing_agents
+        self.nearing_agents_indices = nearing_agents_indices
         self.n_nearing_obstacles_observed = n_nearing_obstacles_observed
-        self.is_add_noise = is_add_noise # Whether to add noise to observations
-        self.noise_level = noise_level # Whether to add noise to observations
-        self.n_stored_steps = n_stored_steps # Number of past steps to store
-        self.n_observed_steps = n_observed_steps # Number of past steps to observe
+        self.is_add_noise = is_add_noise            # Whether to add noise to observations
+        self.noise_level = noise_level              # Whether to add noise to observations
+        self.n_stored_steps = n_stored_steps        # Number of past steps to store
+        self.n_observed_steps = n_observed_steps    # Number of past steps to observe
         self.is_observe_corners = is_observe_corners
 
-        self.past_pos = past_pos # Past positions
-        self.past_vel = past_vel # Past velocites
-        self.past_action_vel = past_action_vel # Past velocity action
-        self.past_action_steering = past_action_steering # Past steering action
-        self.past_distance_to_ref_path = past_distance_to_ref_path # Past distance to refrence path
+        self.past_pri = past_pri            # Past priorities
+        self.past_pos = past_pos            # Past positions
+        self.past_rot = past_rot            # Past rotations
+        self.past_corners = past_corners    # Past corners
+        self.past_vel = past_vel            # Past velocites
+        self.past_short_term_ref_points = past_short_term_ref_points    # Past short-term reference points
+        self.past_action_vel = past_action_vel                          # Past velocity action
+        self.past_action_steering = past_action_steering                # Past steering action
+        self.past_distance_to_ref_path = past_distance_to_ref_path      # Past distance to refrence path
+        self.past_distance_to_boundaries = past_distance_to_boundaries  # Past distance to lanelet boundaries
+        self.past_distance_to_left_boundary = past_distance_to_left_boundary  # Past distance to left lanelet boundary
+        self.past_distance_to_right_boundary = past_distance_to_right_boundary  # Past distance to right lanelet boundary
+        self.past_distance_to_agents = past_distance_to_agents  # Past mutual distance between agents
         
 class Distances:
-    def __init__(self, type = None, agents = None, left_boundaries = None, right_boundaries = None, ref_paths = None, closest_point_on_ref_path = None, goal = None, obstacles = None):
+    def __init__(self, type = None, agents = None, left_boundaries = None, right_boundaries = None, boundaries = None, ref_paths = None, closest_point_on_ref_path = None, goal = None, obstacles = None):
         if (type is not None) & (type not in ['c2c', 'MTV']):
             raise ValueError("Invalid distance type. Must be 'c2c' or 'MTV'.")
         self.type = type                            # Distances between agents
         self.agents = agents                        # Distances between agents
-        self.left_boundaries = left_boundaries      # Distances between agents and the left boundaries of their current lanelets
-        self.right_boundaries = right_boundaries    # Distances between agents and the right boundaries of their current lanelets
+        self.left_boundaries = left_boundaries      # Distances between agents and the left boundaries of their current lanelets (for each corner of each agent)
+        self.right_boundaries = right_boundaries    # Distances between agents and the right boundaries of their current lanelets (for each corner of each agent)
+        self.boundaries = boundaries                # The minimum distances between agents and the boundaries of their current lanelets
         self.ref_paths = ref_paths                  # Distances between agents and the center line of their current lanelets
         self.closest_point_on_ref_path = closest_point_on_ref_path
         self.goal = goal                            # Distances to goal positions
@@ -138,31 +163,72 @@ class Timer:
         self.render_begin = render_begin    # Time when the rendering of the current time step begins
 
 class Collisions:
-    def __init__(self, with_obstacles = None, with_agents = None, with_lanelets = None):
-        self.with_obstacles = with_obstacles        # Whether collide with obstacles
+    def __init__(self, with_obstacles: torch.Tensor = None, with_agents: torch.Tensor = None, with_lanelets: torch.Tensor = None, with_entry_segments: torch.Tensor = None, with_exit_segments: torch.Tensor = None):
         self.with_agents = with_agents              # Whether collide with agents
+        self.with_obstacles = with_obstacles        # Whether collide with obstacles
         self.with_lanelets = with_lanelets          # Whether collide with lanelet boundaries
+        self.with_entry_segments = with_entry_segments # Whether collide with entry segments
+        self.with_exit_segments = with_exit_segments   # Whether collide with exit segments
+        
+class Constants:
+    # Predefined constants that may be used during simulations
+    def __init__(self, env_idx_broadcasting: torch.Tensor = None, empty_actions: torch.Tensor = None, mask_pos: torch.Tensor = None, mask_vel: torch.Tensor = None, mask_rot: torch.Tensor = None, mask_zero: torch.Tensor = None, mask_one: torch.Tensor = None, reset_agent_min_distance: torch.Tensor = None):
+        self.env_idx_broadcasting = env_idx_broadcasting
+        self.empty_actions = empty_actions
+        self.mask_pos = mask_pos
+        self.mask_zero = mask_zero
+        self.mask_one = mask_one
+        self.mask_vel = mask_vel
+        self.mask_rot = mask_rot
+        self.reset_agent_min_distance = reset_agent_min_distance   # The minimum distance between agents when being reset
+        
+class Prioritization:
+    def __init__(self, values = None,):
+        self.values = values
+
+class Noise:
+    def __init__(self, vel: torch.Tensor = None, ref: torch.Tensor = None, dis_ref: torch.Tensor = None, dis_lanelets: torch.Tensor = None, other_agents_pri: torch.Tensor = None, other_agents_pos: torch.Tensor = None, other_agents_rot: torch.Tensor = None, other_agents_vel: torch.Tensor = None, other_agents_dis: torch.Tensor = None, level_vel: torch.Tensor = None, level_pos: torch.Tensor = None, level_rot: torch.Tensor = None, level_dis: torch.Tensor = None, level_pri: torch.Tensor = None):
+        self.vel = vel
+        self.ref = ref
+        self.dis_ref = dis_ref
+        self.dis_lanelets = dis_lanelets
+        self.other_agents_pri = other_agents_pri
+        self.other_agents_pos = other_agents_pos
+        self.other_agents_rot = other_agents_rot
+        self.other_agents_vel = other_agents_vel
+        self.other_agents_dis = other_agents_dis
+        self.level_vel = level_vel
+        self.level_pos = level_pos
+        self.level_rot = level_rot
+        self.level_dis = level_dis
+        self.level_pri = level_pri
+
 
 ##################################################
 ## Helper Functions
 ##################################################
-def get_rectangle_corners(center, yaw, width, length, is_close_shape: bool = True):
-    """
-    Compute the corners of rectangles for a batch of agents given their centers, yaws (rotations),
+def get_rectangle_corners(center: torch.Tensor, yaw, width, length, is_close_shape: bool = True):
+    """ Compute the corners of rectangles for a batch of agents given their centers, yaws (rotations),
     widths, and lengths, using PyTorch tensors.
 
-    :param center: Center positions of the rectangles (batch_dim, 2).
-    :param yaw: Rotation angles in radians (batch_dim, 1).
-    :param width: Width of the rectangles.
-    :param length: Length of the rectangles.
-    :return: A tensor of corner points of the rectangles for each agent in the batch (batch_dim, 4, 2).
+    Args:
+        center: [batch_dim, 2] or [2] center positions of the rectangles. In the case of the latter, batch_dim is deemed to be 1.
+        yaw: [batch_dim, 1] or [1] or [] Rotation angles in radians.
+        width: [scalar] Width of the rectangles.
+        length: [scalar] Length of the rectangles.
+        
+    Return: 
+        [batch_dim, 4, 2] Corner points of the rectangles for each agent.
     """
     if center.ndim == 1:
-        batch_dim = 1
         center = center.unsqueeze(0)
+        
+    if yaw.ndim == 0:
         yaw = yaw.unsqueeze(0).unsqueeze(0)
-    else:
-        batch_dim = center.size(0)
+    elif yaw.ndim == 1:
+        yaw = yaw.unsqueeze(0)
+    
+    batch_dim = center.shape[0]
         
     width_half = width / 2
     length_half = length / 2
@@ -217,22 +283,23 @@ def find_short_term_trajectory(pos, reference_path, n_points_short_term=6):
 
     return short_term_path
 
-def get_perpendicular_distances(point: torch.Tensor, polyline: torch.Tensor, n_points_long_term = None):
-    """
-    Calculate the minimum perpendicular distance from the given point(s) to the given polyline.
+def get_perpendicular_distances(point: torch.Tensor, polyline: torch.Tensor, n_points_long_term: torch.Tensor = None):
+    """ Calculate the minimum perpendicular distance from the given point(s) to the given polyline.
     
     Args:
-        point: torch.Size([batch_size, 2]), position of the point, with shape torch.Size([batch_size,2]), `batch_size` could also be 1.
+        point: torch.Size([batch_size, 2]) or torch.Size([2]), position of the point. In the case of the latter, the batch_size is deemed to be 1.
         polyline: torch.Size([num_points, 2]) or torch.Size([batch_size, num_points, 2]) x- and y-coordinates of the points on the polyline.
     """
     
-    # Expand the polyline points to match the batch size
+    if point.ndim == 1:
+        point = point.unsqueeze(0)
+    
     batch_size = point.shape[0]
-            
+    
+    # Expand the polyline points to match the batch size        
     if polyline.ndim == 2:
-        polyline_expanded = polyline.unsqueeze(0).expand(batch_size, -1, -1)  # Shape: [batch_size, n_points, 2]
+        polyline_expanded = polyline.unsqueeze(0).expand(batch_size, -1, -1)  # [batch_size, n_points, 2]
     else:
-        # TODO `polyline` could also have shape torch.Size([batch_size, num_points, 2])
         polyline_expanded = polyline
 
     # Split the polyline into line segments
@@ -240,9 +307,9 @@ def get_perpendicular_distances(point: torch.Tensor, polyline: torch.Tensor, n_p
     line_ends = polyline_expanded[:, 1:, :]
 
     # Create vectors for each line segment and for the point to the start of each segment
-    agent_positions_expanded = point.unsqueeze(1)  # Shape: [batch_size, 1, 2]
+    point_expanded = point.unsqueeze(1)  # Shape: [batch_size, 1, 2]
     line_vecs = line_ends - line_starts
-    point_vecs = agent_positions_expanded - line_starts
+    point_vecs = point_expanded - line_starts
 
     # Project point_vecs onto line_vecs
     line_lens_squared = torch.sum(line_vecs ** 2, dim=2)
@@ -255,7 +322,7 @@ def get_perpendicular_distances(point: torch.Tensor, polyline: torch.Tensor, n_p
     closest_points = line_starts + (line_vecs * clamped_lengths.unsqueeze(2))
 
     # Calculate the distances from the given points to these closest points
-    distances = torch.norm(closest_points - agent_positions_expanded, dim=2)
+    distances = torch.norm(closest_points - point_expanded, dim=2)
     
     if n_points_long_term is not None:
         if n_points_long_term.ndim == 0:
@@ -263,9 +330,8 @@ def get_perpendicular_distances(point: torch.Tensor, polyline: torch.Tensor, n_p
         for env_idx, n_long_term_point in enumerate(n_points_long_term):
             distance_to_end_point = distances[env_idx, n_long_term_point-2]
             distances[env_idx, n_long_term_point-1:] = distance_to_end_point
-    if distances.isnan().any():
-        print("debug")
-    assert ~distances.isnan().any()
+    
+    assert not distances.isnan().any()
     
     perpendicular_distances, indices_closest_points = torch.min(distances, dim=1)
     
@@ -274,44 +340,46 @@ def get_perpendicular_distances(point: torch.Tensor, polyline: torch.Tensor, n_p
     return perpendicular_distances, indices_closest_points
 
 
-def get_short_term_reference_path(reference_path, closest_point_on_ref_path, n_points_short_term, device = torch.device("cpu"), is_ref_path_loop: bool = False, point_extended = None, n_points_long_term = None,):
+def get_short_term_reference_path(reference_path: torch.Tensor, closest_point_on_ref_path: torch.Tensor, n_points_short_term, device = torch.device("cpu"), is_ref_path_loop: torch.Tensor = False, n_points_long_term: torch.Tensor = None, sample_interval: int = 2):
     """
-    reference_path:             torch.Size(batch_size, num_points, 2). 
-    closest_point_on_ref_path:  torch.Size(batch_size, 1)
-    n_points_short_term:        torch.Size(1)
-    is_ref_path_loop:           torch.Size(batch_size)
-    point_extended:             torch.Size(batch_size, 2)
-    n_points_long_term:         torch.Size(batch_size)
+    
+    Args:
+        reference_path:             [batch_size, num_points, 2] or [num_points, 2]. In the case of the latter, batch_dim is deemed as 1.
+        closest_point_on_ref_path:  [batch_size, 1] or [1] or []. In the case of the latter, batch_dim is deemed as 1.
+        n_points_short_term:        [1] or []. In the case of the latter, batch_dim is deemed as 1.
+        is_ref_path_loop:           [batch_size] or []. In the case of the latter, batch_dim is deemed as 1.
+        n_points_long_term:         [batch_size] or []. In the case of the latter, batch_dim is deemed as 1.
     """
+    if reference_path.ndim == 2:
+        reference_path = reference_path.unsqueeze(0)
+    if closest_point_on_ref_path.ndim == 1:
+        closest_point_on_ref_path = closest_point_on_ref_path.unsqueeze(1)
+    elif closest_point_on_ref_path.ndim == 0:
+        closest_point_on_ref_path = closest_point_on_ref_path.unsqueeze(0).unsqueeze(1)
+    if is_ref_path_loop.ndim == 0:
+        is_ref_path_loop = is_ref_path_loop.unsqueeze(0)
+    if n_points_long_term.ndim == 0:
+        n_points_long_term = n_points_long_term.unsqueeze(0)
+        
     batch_size = closest_point_on_ref_path.shape[0]        
 
     # Create a tensor that represents the indices for n_points_short_term for each agent
-    future_points_idx_tmp = torch.arange(n_points_short_term, device=device) + closest_point_on_ref_path
-    
+    future_points_idx = torch.arange(n_points_short_term, device=device) * sample_interval + closest_point_on_ref_path + 1 # Add one to push the short-term reference path one point further
+
     if n_points_long_term is None:
         n_points_long_term = reference_path.shape[-2]
     
-    is_extend = torch.zeros(batch_size, device=device, dtype=torch.bool)
-    future_points_idx = torch.zeros(future_points_idx_tmp.shape, device=device, dtype=torch.int)
-
     for env_i in range(batch_size):
         n_long_term_point = n_points_long_term[env_i]
         if is_ref_path_loop[env_i]:
             # Apply modulo to handle the case that each agent's reference path is a loop
-            future_points_idx[env_i] = torch.where(future_points_idx_tmp[env_i] >= n_long_term_point - 1, (future_points_idx_tmp[env_i] + 1) % n_long_term_point, future_points_idx_tmp[env_i]) # Use "+ 1" to skip the last point since it overlaps with the first point
-        else:
-            future_points_idx[env_i] = torch.where(future_points_idx_tmp[env_i] >= n_long_term_point - 1, n_long_term_point - 1, future_points_idx_tmp[env_i]) # Set all the remaining points to the last point 
-            is_extend[env_i] = (future_points_idx[env_i] == n_points_long_term[env_i] - 1).sum() >= 2
-        
-    # Create a tensor for the batch indices
-    batch_indices = torch.arange(batch_size, device=device).unsqueeze(1)
+            future_points_idx[env_i] = torch.where(future_points_idx[env_i] >= n_long_term_point - 1, (future_points_idx[env_i] + 1) % n_long_term_point, future_points_idx[env_i]) # Use "+ 1" to skip the last point since it overlaps with the first point
 
     # Extract the short-term reference path from the reference path
-    short_term_path = reference_path[batch_indices, future_points_idx] # Note that the agent's current position is between the first and second points (may overlap with the second point)
-
-    # Extend the short-term reference path by one point when the goal point is reapeated at the end
-    if is_extend.any():
-        short_term_path[is_extend, -1] = point_extended[is_extend, :]
+    short_term_path = reference_path[
+        torch.arange(batch_size, device=device, dtype=torch.int).unsqueeze(1), # For broadcasting
+        future_points_idx
+    ] # Note that the agent's current position is between the first and second points (may overlap with the second point)
         
     return short_term_path, future_points_idx
 
@@ -342,10 +410,10 @@ def calculate_projected_movement(agent_pos_cur, agent_pos_next, line_segments):
     projected_movement_lengths = torch.sum(agent_movement_vec_expanded * line_vecs, dim=2) / line_lens_squared
 
     # Expand agent positions for perpendicular distance calculation
-    agent_positions_expanded = agent_pos_cur.unsqueeze(1)  # Shape: [batch_size, 1, 2]
+    point_expanded = agent_pos_cur.unsqueeze(1)  # Shape: [batch_size, 1, 2]
 
     # Vectors from agent positions to the start of each line segment
-    point_vecs = agent_positions_expanded - line_starts
+    point_vecs = point_expanded - line_starts
 
     # Project point_vecs onto line_vecs
     projected_lengths = torch.sum(point_vecs * line_vecs, dim=2) / line_lens_squared
@@ -357,7 +425,7 @@ def calculate_projected_movement(agent_pos_cur, agent_pos_next, line_segments):
     closest_points = line_starts + (line_vecs * clamped_lengths.unsqueeze(2))
 
     # Calculate the distances from each agent position to these closest points
-    distances = torch.norm(closest_points - agent_positions_expanded, dim=2)
+    distances = torch.norm(closest_points - point_expanded, dim=2)
 
     # Return the minimum distance for each agent and projected movements
     return torch.min(distances, dim=1), projected_movement_lengths
@@ -374,12 +442,14 @@ def exponential_decreasing_fcn(x, x0, x1):
     
     return y
 
-def get_distances_between_agents(self, distance_type):
-    """
-    This function calculates the mutual distances between agents. 
-    Currently, the calculation of two types of distances is supported ('c2c' and 'MTV'): 
-        c2c: center-to-center distance
-        MTV: minimum translation vector (MTV)-based distance
+def get_distances_between_agents(self, distance_type, is_set_diagonal = False):
+    """ This function calculates the mutual distances between agents. 
+        Currently, the calculation of two types of distances is supported ('c2c' and 'MTV'): 
+            c2c: center-to-center distance
+            MTV: minimum translation vector (MTV)-based distance
+    Args:
+        distance_type: one of {c2c, MTV}
+        is_set_diagonal: whether to set the diagonal elements (distance from an agent to this agent itself) from zero to a high value 
     TODO: Add the posibility to calculate the mutual distances between agents in a single env (`reset_world` sometime only needs to resets a single env)
     """
     if distance_type == 'c2c':
@@ -458,17 +528,20 @@ def get_distances_between_agents(self, distance_type):
 
                 mutual_distances[:,i,j] = distance_ji # The smaller one among the distance from rectangle i to j and the distance from rectangle j to i is define as the distance between two rectangles 
                 mutual_distances[:,j,i] = distance_ji
+                
+    if is_set_diagonal:
+        mutual_distances.diagonal(dim1=-2, dim2=-1).fill_(torch.sqrt(self.world.x_semidim ** 2 + self.world.y_semidim ** 2))
+        
     return mutual_distances
 
 
 def interX(L1, L2, is_return_points=False):
-    """
-    Calculate the intersections of batches of curves. 
-    Adapted from https://www.mathworks.com/matlabcentral/fileexchange/22441-curve-intersections
-    
-    L1: [batch_size, num_points, 2]
-    L2: [batch_size, num_points, 2]
-    is_return_points: bool. Whether to return the intersecting points.
+    """ Calculate the intersections of batches of curves. 
+        Adapted from https://www.mathworks.com/matlabcentral/fileexchange/22441-curve-intersections
+    Args:
+        L1: [batch_size, num_points, 2]
+        L2: [batch_size, num_points, 2]
+        is_return_points: bool. Whether to return the intersecting points.
     """
     # L1[:,:,0] -= 0.35
     # L1[:,:,1] -= 0.05
@@ -529,12 +602,12 @@ def get_point_line_distance(points: torch.Tensor, lines_start_points: torch.Tens
     Calculate the distance from multiple points (or a single point) to a line.
 
     Args:
-    points: A tensor of shape [batch_size, num_points, 2] representing the x- and y-coordinates of the points. Both `num_points` and `batch_size` could potentially be 1.
-    lines_start_points: A tensor of shape [batch_size, 2] representing the start points of the lines
-    lines_end_points: A tensor of shape [batch_size, 2] representing the end points of the lines
+        points: [batch_size, num_points, 2] representing the x- and y-coordinates of the points. Both `num_points` and `batch_size` could potentially be 1.
+        lines_start_points: [batch_size, 2] representing the start points of the lines
+        lines_end_points: [batch_size, 2] representing the end points of the lines
 
     Returns:
-    torch.Tensor: A tensor of shape [num_points] containing distances from the points to the line.
+        torch.Tensor: [num_points] containing distances from the points to the line.
     """
     batch_size = max(points.shape[0], lines_start_points.shape[0])
     num_distances = max(points.shape[1], 1)
@@ -860,11 +933,10 @@ def get_ref_path_for_obstacle_avoidance_scenarios(agent_width: float = 0.1, agen
 
 def transform_from_global_to_local_coordinate(pos_i: torch.Tensor, pos_j: torch.Tensor, rot_i):
     """
-    Arguments
-    pos_i: torch.Size([batch_size, 2])
-    pos_j: torch.Size([batch_size, num_points, 2]) or torch.Size([num_points, 2])
-    rot_i: torch.Size([batch_size, 1])
-    rot_j: torch.Size([batch_size, 1]) or None
+    Args:
+        pos_i: torch.Size([batch_size, 2])
+        pos_j: torch.Size([batch_size, num_points, 2]) or torch.Size([num_points, 2])
+        rot_i: torch.Size([batch_size, 1])
     """
     # Prepare for vectorized ccomputation
     if pos_j.ndim == 3:
@@ -896,15 +968,15 @@ def transform_from_global_to_local_coordinate(pos_i: torch.Tensor, pos_j: torch.
     return pos_rel
 
 
-def normalize_angle(angle):
+def angle_eliminate_two_pi(angle):
     """
     Normalize an angle to be within the range -pi to pi.
 
-    Parameters:
-    angle (torch.Tensor): The angle to normalize, in radians. Can be a tensor of any shape.
+    Args:
+        angle (torch.Tensor): The angle to normalize in radians. Can be a tensor of any shape.
 
     Returns:
-    torch.Tensor: Normalized angle between -pi and pi.
+        torch.Tensor: Normalized angle between -pi and pi.
     """
     two_pi = 2 * torch.pi
     angle = angle % two_pi  # Normalize angle to be within 0 and 2*pi

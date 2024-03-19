@@ -3,6 +3,9 @@
 # Torch
 import torch
 
+# Enable anomaly detection
+# torch.autograd.set_detect_anomaly(True)
+
 # Tensordict modules
 from tensordict.nn import TensorDictModule
 from tensordict.nn.distributions import NormalParamExtractor
@@ -146,7 +149,19 @@ def multiagent_ppo_cavs(parameters: Parameters):
     mappo = True  # IPPO (Independent PPO) if False
 
     critic_net = MultiAgentMLP(
-        n_agent_inputs=env.observation_spec["agents", "observation"].shape[-1], # Number of observations
+        # n_agent_inputs=env.observation_spec["agents", "observation"].shape[-1], # Number of observations
+        n_agent_inputs=
+                        env.observation_spec["agents", "info", "pri"].shape[-1]
+                        + env.observation_spec["agents", "info", "pos"].shape[-1]
+                        + env.observation_spec["agents", "info", "rot"].shape[-1]
+                        + env.observation_spec["agents", "info", "vel"].shape[-1]
+                        # + env.observation_spec["agents", "info", "act_vel"].shape[-1]
+                        # + env.observation_spec["agents", "info", "act_steer"].shape[-1]
+                        # + env.observation_spec["agents", "info", "ref"].shape[-1]  # TODO Check if refefrence paths are needed for the critic
+                        # + env.observation_spec["agents", "info", "distance_ref"].shape[-1]
+                        # + env.observation_spec["agents", "info", "distance_left_b"].shape[-1]
+                        # + env.observation_spec["agents", "info", "distance_right_b"].shape[-1]
+                        ,
         n_agent_outputs=1,  # 1 value per agent
         n_agents=env.n_agents,
         centralised=mappo, # If `centralised` is True (which may help overcome the non-stationary problem in MARL), each agent will use the inputs of all agents to compute its output (n_agent_inputs * n_agents will be the number of inputs for one agent). Otherwise, each agent will only use its data as input.
@@ -159,7 +174,20 @@ def multiagent_ppo_cavs(parameters: Parameters):
     # print(critic_net)
     critic = TensorDictModule(
         module=critic_net,
-        in_keys=[("agents", "observation")], # Note that the critic in PPO only takes the same inputs (observations) as the actor
+        # in_keys=[("agents", "observation")], # Note that the critic in PPO only takes the same inputs (observations) as the actor
+        in_keys=
+        [
+            ("agents", "info", "pri"),
+            ("agents", "info", "pos"),
+            ("agents", "info", "rot"),
+            ("agents", "info", "vel"),
+            # ("agents", "info", "act_steer"),
+            # ("agents", "info", "act_vel"),
+            # ("agents", "info", "ref"),
+            # ("agents", "info", "distance_ref"),
+            # ("agents", "info", "distance_left_b"),
+            # ("agents", "info", "distance_right_b")
+        ], # Different observations for the critic
         out_keys=[("agents", "state_value")],
     )
 
@@ -289,6 +317,11 @@ def multiagent_ppo_cavs(parameters: Parameters):
                     + loss_vals["loss_critic"]
                     + loss_vals["loss_entropy"]
                 )
+                
+                # print(loss_value)
+                
+                assert not loss_value.isnan().any()
+                assert not loss_value.isinf().any()
 
                 loss_value.backward()
 
@@ -332,7 +365,9 @@ def multiagent_ppo_cavs(parameters: Parameters):
 
         # Learning rate schedule
         for param_group in optim.param_groups:
-            param_group['lr'] = parameters.lr * (1 - (pbar.n / parameters.n_iters))
+            # Linear decay to lr_min
+            lr_decay = (parameters.lr - parameters.lr_min) * (1 - (pbar.n / parameters.n_iters))
+            param_group['lr'] = parameters.lr_min + lr_decay
             if (pbar.n % 10 == 0):
                 print(f"Learning rate updated to {param_group['lr']}.")
                 
@@ -357,23 +392,27 @@ if __name__ == "__main__":
     scenario_name = "car_like_robots_road_traffic" # car_like_robots_road_traffic, car_like_robots_path_tracking, car_like_robots_obstacle_avoidance
     
     parameters = Parameters(
-        n_agents=10,
-        dt=0.1, # [s] sample time 
+        n_agents=4,
+        dt=0.05, # [s] sample time 
         device="cpu" if not torch.backends.cuda.is_built() else "cuda:0",  # The divice where learning is run
         scenario_name=scenario_name,
         
         # Training parameters
-        n_iters=200, # Number of sampling and training iterations (on-policy: rollouts are collected during sampling phase, which will be immediately used in the training phase of the same iteration),
-        frames_per_batch=2**10, # Number of team frames collected per training iteration (minibatch_size*10)
-        num_epochs=30, # Number of optimization steps per training iteration,
+        n_iters=500, # Number of sampling and training iterations (on-policy: rollouts are collected during sampling phase, which will be immediately used in the training phase of the same iteration),
+        frames_per_batch=2**12, # Number of team frames collected per training iteration 
+                                # num_envs = frames_per_batch / max_steps
+                                # total_frames = frames_per_batch * n_iters
+                                # sub_batch_size = frames_per_batch // minibatch_size
+        num_epochs=60, # Optimization steps per batch of data collected,
         minibatch_size=2*9, # Size of the mini-batches in each optimization step (2**9 - 2**12?),
-        lr=1e-4, # Learning rate,
+        lr=2e-4, # Learning rate,
+        lr_min=1e-5, # Learning rate,
         max_grad_norm=1.0, # Maximum norm for the gradients,
         clip_epsilon=0.2, # clip value for PPO loss,
-        gamma=0.98, # discount factor (empirical formula: 0.1 = gamma^t, where t is the number of future steps that you want your agents to predict {0.96 -> 56 steps, 0.98 -> 114 steps, 0.99 -> 229 steps, 0.995 -> 459 steps})
+        gamma=0.99, # discount factor (empirical formula: 0.1 = gamma^t, where t is the number of future steps that you want your agents to predict {0.96 -> 56 steps, 0.98 -> 114 steps, 0.99 -> 229 steps, 0.995 -> 459 steps})
         lmbda=0.9, # lambda for generalised advantage estimation,
         entropy_eps=1e-4, # coefficient of the entropy term in the PPO loss,
-        max_steps=2**7, # Episode steps before done
+        max_steps=2**8, # Episode steps before done
         training_strategy='4', # One of {'1', '2', '3', '4'}
         
         is_save_intermidiate_model=True, # Is this is true, the model with the hightest mean episode reward will be saved,
@@ -385,14 +424,14 @@ if __name__ == "__main__":
         mode_name=None, 
         episode_reward_intermidiate=-1e3, # The initial value should be samll enough
         
-        where_to_save=f"outputs/{scenario_name}_ppo/mixed_training/", # folder where to save the trained models, fig, data, etc.
+        where_to_save=f"outputs/{scenario_name}_ppo/mixed_training_0318_time_reward/", # folder where to save the trained models, fig, data, etc.
 
         # Scenario parameters
-        is_local_observation=True, 
+        is_partial_observation=True,
         is_global_coordinate_sys=False,
-        n_points_short_term=6,
+        n_points_short_term=3,
         is_use_intermediate_goals=False,
-        n_nearing_agents_observed=4,
+        n_nearing_agents_observed=3,
         n_nearing_obstacles_observed=4,
         
         is_testing_mode=False,
@@ -413,10 +452,7 @@ if __name__ == "__main__":
         ############################################
         is_observe_corners=False,
     )
-    
-    if (scenario_name == "car_like_robots_road_traffic") &  (parameters.training_strategy == "4"):
-        parameters.n_agents = min(parameters.n_agents, 8) # The map size of mixed scenarios are smaller than the whole map, therefore maximum 8 agents are needed for training
-    
+        
     env, policy, parameters = multiagent_ppo_cavs(parameters=parameters)
 
     # Evaluate the model
