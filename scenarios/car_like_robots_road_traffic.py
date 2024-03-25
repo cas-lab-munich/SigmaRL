@@ -33,7 +33,7 @@ from utilities.get_cpm_lab_map import get_map_data
 from utilities.get_reference_paths import get_reference_paths
 
 ## Simulation parameters 
-n_agents = 2                    # The number of agents
+n_agents = 5                    # The number of agents
 dt = 0.05                        # Sample time in [s]
 max_steps = 1000                # Maximum simulation steps
 is_real_time_rendering = True   # Simulation will be paused at each time step for real-time rendering
@@ -51,22 +51,21 @@ wheelbase_rear = agent_length - wheelbase_front     # Rear wheelbase in [m]
 lane_width = 0.15               # The (rough) width of each lane in [m]
 
 ## Reward
-reward_progress = 2.0     # Reward for moving along reference paths
-reward_vel = 1.0        # Reward for moving in high velocities. 
-assert reward_vel < reward_progress, "Speed reward should be smaller than progress reward to discourage moving in a high speed in a wrong direction"
-reward_reach_goal = 10       # Goal-reaching reward
+r_p_normalizer = 100    # Rewards and renalties must be normalized to range [-1, 1]
 
-finish_a_loop = 100     # TODO Reward for finishing a loop 
+reward_progress = 10 / r_p_normalizer   # Reward for moving along reference paths
+reward_vel = 5 / r_p_normalizer         # Reward for moving in high velocities. 
+reward_reach_goal = 0 / r_p_normalizer  # Goal-reaching reward
 
 ## Penalty
-penalty_deviate_from_ref_path = -0.5      # Penalty for deviating from reference paths
+penalty_deviate_from_ref_path = -2 / r_p_normalizer      # Penalty for deviating from reference paths
 threshold_deviate_from_ref_path = (lane_width - agent_width) / 2 # Use for penalizing of deviating from reference path
-penalty_near_boundary = -4              # Penalty for being too close to lanelet boundaries
-penalty_near_other_agents = -4          # Penalty for being too close to other agents
-penalty_collide_with_agents = -20       # Penalty for colliding with other agents 
-penalty_collide_with_boundaries = -20   # Penalty for colliding with lanelet boundaries
-penalty_change_steering = -0.5          # Penalty for changing steering too quick
-penalty_time = 1                       # Penalty for losing time
+penalty_near_boundary = -20 / r_p_normalizer              # Penalty for being too close to lanelet boundaries
+penalty_near_other_agents = -20 / r_p_normalizer          # Penalty for being too close to other agents
+penalty_collide_with_agents = -100 / r_p_normalizer       # Penalty for colliding with other agents 
+penalty_collide_with_boundaries = -100 / r_p_normalizer   # Penalty for colliding with lanelet boundaries
+penalty_change_steering = -2 / r_p_normalizer          # Penalty for changing steering too quick
+penalty_time = 0                       # Penalty for losing time
 
 threshold_reach_goal = agent_width / 2  # Threshold less than which agents are considered at their goal positions
 
@@ -255,6 +254,7 @@ class ScenarioRoadTraffic(BaseScenario):
             short_term=torch.zeros((batch_dim, self.n_agents, self.parameters.n_points_short_term, 2), device=device, dtype=torch.float32), # Short-term reference path
             short_term_indices = torch.zeros((batch_dim, self.n_agents, self.parameters.n_points_short_term), device=device, dtype=torch.int),
             n_points_short_term=torch.tensor(self.parameters.n_points_short_term, device=device, dtype=torch.int),
+            scenario=torch.zeros((batch_dim, self.n_agents), device=device, dtype=torch.int), # Which scenarios agents are (current implementation includes (1) intersection, (2) merge-in, and (3) merge-out)
         )
         
         # The shape of each car-like robots is considered a rectangle with 4 corners. 
@@ -391,6 +391,8 @@ class ScenarioRoadTraffic(BaseScenario):
             # Create a variable to store the position of the agent at the previous time step 
             agent.state.pos_previous = torch.zeros((batch_dim, 2), device=device, dtype=torch.float32)
             agent.state.vel_previous = torch.zeros((batch_dim, 2), device=device, dtype=torch.float32)
+            agent.scenario = "" # Initialize
+                            
             world.add_agent(agent)
 
         self.constants = Constants(
@@ -400,6 +402,7 @@ class ScenarioRoadTraffic(BaseScenario):
             mask_zero=torch.tensor(0, device=device, dtype=torch.float32),
             mask_one=torch.tensor(1, device=device, dtype=torch.float32),
             reset_agent_min_distance=torch.tensor((l_f+l_r) ** 2 + width ** 2, device=device, dtype=torch.float32).sqrt() * 1.2,
+            reset_scenario_probabilities=torch.tensor([0.4, 0.3, 0.3], device=device, dtype=torch.float32), # 1 for intersection, 2 for merge-in, 3 for merge-out scenario
         )
         
         # Initialize collision matrix
@@ -475,17 +478,21 @@ class ScenarioRoadTraffic(BaseScenario):
         if self.parameters.training_strategy == '4':
             # Train in mixed scenarios
             # Customize the probabilities of training in intersection scenario, merge-in scenario, and merge-out scenario
-            probabilities = torch.tensor([1, 0, 0], dtype=torch.float32, device=self.world.device) 
-            random_scenario_id = torch.multinomial(probabilities, 1, replacement=True).item() + 1 # 1 for intersection, 2 for merge-in, 3 for merge-out scenario
-            if random_scenario_id == 1:
+            if is_reset_single_agent:
+                scenario_id = self.ref_paths_agent_related.scenario[env_index, agent_index]
+            else:
+                scenario_id = torch.multinomial(self.constants.reset_scenario_probabilities, 1, replacement=True).item() + 1 # Random
+                self.ref_paths_agent_related.scenario[env_index, :] = scenario_id
+            
+            if scenario_id == 1:
                 # Intersection scenario
                 ref_paths_scenario = self.ref_paths_map_related.long_term_intersection
                 extended_points = self.ref_paths_map_related.point_extended_intersection
-            elif random_scenario_id == 2:
+            elif scenario_id == 2:
                 # Merge-in scenario
                 ref_paths_scenario = self.ref_paths_map_related.long_term_merge_in
                 extended_points = self.ref_paths_map_related.point_extended_merge_in
-            elif random_scenario_id == 3:
+            elif scenario_id == 3:
                 # Merge-out scenario
                 ref_paths_scenario = self.ref_paths_map_related.long_term_merge_out
                 extended_points = self.ref_paths_map_related.point_extended_merge_out
@@ -504,15 +511,15 @@ class ScenarioRoadTraffic(BaseScenario):
             # Ramdomly generate initial states for each agent
             if self.parameters.training_strategy in ("1", "2", "4"):
                 while not is_feasible_initial_position_found:
-                    # if random_count >= 1:
-                    #     print(random_count)
+                    if random_count >= 1:
+                        print(f"Resetting agent(s): random_count = {random_count}.")
                     random_count += 1
                     
                     random_path_id = torch.randint(0, num_ref_paths, (1,)).item() # Select randomly a path
                     ref_path = ref_paths_scenario[random_path_id]
                     
                     num_points = ref_path["center_line"].shape[0]
-                    random_point_id = torch.randint(3, 12, (1,)).item() # Random point on the center as initial position TODO Find the suitable range
+                    random_point_id = torch.randint(3, num_points-5, (1,)).item() # Random point on the center as initial position TODO Find the suitable range
                     position_start = ref_path["center_line"][random_point_id]
                     agents[i_agent].set_pos(position_start, batch_index=None if isinstance(env_index, slice) else env_index)
 
@@ -786,10 +793,12 @@ class ScenarioRoadTraffic(BaseScenario):
             dim=-1
         )
         
-        # Agents that are too close to lanelet boundaries or other agents will not receive any rewards
+        # Agents that are too close to lanelet boundaries or higher-priority agents will not receive any rewards
         too_close_to_boundaries = self.distances.boundaries[:, agent_index] <= self.thresholds.no_reward_if_too_close_to_boundaries
-        too_close_to_other_agents = self.distances.agents[:, agent_index].min(dim=-1)[0] <= self.thresholds.no_reward_if_too_close_to_other_agents
-        agents_no_reward_indices = too_close_to_boundaries | too_close_to_other_agents
+        too_close_to_other_agents = self.distances.agents[:, agent_index] <= self.thresholds.no_reward_if_too_close_to_other_agents
+        are_others_with_higher_priority = self.prioritization.values[:, agent_index].unsqueeze(-1) > self.prioritization.values
+        too_close_to_higher_priority_agents = too_close_to_other_agents & are_others_with_higher_priority
+        agents_no_reward_indices = too_close_to_boundaries | too_close_to_higher_priority_agents.any(dim=-1)
 
         ##################################################
         ## [reward] forward movement
@@ -822,7 +831,7 @@ class ScenarioRoadTraffic(BaseScenario):
         self.rew += reward_goal
 
         ##################################################
-        ## [penalty] too close to lanelet boundaries
+        ## [penalty] close to lanelet boundaries
         ##################################################        
         penalty_close_to_lanelets = exponential_decreasing_fcn(
             x=self.distances.boundaries[:, agent_index],
@@ -832,7 +841,7 @@ class ScenarioRoadTraffic(BaseScenario):
         self.rew += penalty_close_to_lanelets
 
         ##################################################
-        ## [penalty] too close to other agents
+        ## [penalty] close to other agents
         ##################################################
         mutual_distance_exp_fcn = exponential_decreasing_fcn(
             x=self.distances.agents[:, agent_index, :], 
@@ -861,10 +870,12 @@ class ScenarioRoadTraffic(BaseScenario):
         self.rew += penalty_change_steering
 
         # ##################################################
-        # ## [penalty] colliding with other agents
+        # ## [penalty] colliding with other agents (with higher priorities)
         # ##################################################
-        is_collide_with_agents = self.collisions.with_agents[:, agent_index].any(dim=1) # [batch_dim]
-        penalty_collide_other_agents = is_collide_with_agents * self.penalties.collide_with_agents
+        is_collide_with_agents = self.collisions.with_agents[:, agent_index]
+        is_collide_with_higher_pri_agents = is_collide_with_agents & are_others_with_higher_priority # collide with higher-priority agents
+        
+        penalty_collide_other_agents = is_collide_with_higher_pri_agents.any(dim=-1) * self.penalties.collide_with_agents
         self.rew += penalty_collide_other_agents
 
         ##################################################
@@ -875,12 +886,10 @@ class ScenarioRoadTraffic(BaseScenario):
         self.rew += penalty_collide_lanelet
 
         ##################################################
-        ## [penalty] losing time
+        ## [penalty/reward] time
         ##################################################
         # TODO Check if this is necessary
-        # Get time reward if speed is positively high enough
-        time_reward = (v_proj > 0) * agent.state.vel.norm(dim=-1) / agent.max_speed * self.penalties.time
-        self.rew += time_reward
+        self.rew += self.penalties.time
 
         # [update] previous positions and short-term reference paths
         agent.state.pos_previous[:] = agent.state.pos[:]
@@ -899,9 +908,8 @@ class ScenarioRoadTraffic(BaseScenario):
         assert not self.rew.isinf().any(), "Rewards contain inf."
         
         # Clamed the reward to avoid abs(reward) being too large values
-        rew_clamed = torch.clamp(self.rew, min=self.penalties.collide_with_agents, max=-self.penalties.collide_with_agents)
+        rew_clamed = torch.clamp(self.rew, min=-1, max=1)
         
-        assert not (rew_clamed.abs() > (-self.penalties.collide_with_agents * 2 + 10)).any(), f"Rewards contain unexpectedly great values. self.rew = {self.rew}"
         # reward_all = torch.vstack(
         #     [
         #         reward_movement,
@@ -966,7 +974,7 @@ class ScenarioRoadTraffic(BaseScenario):
                     rot_i = self.world.agents[a_i].state.rot
 
                     # Store new observation - priority
-                    self.observations.past_pri[:, -1, a_i] = self.prioritization.values[:, a_i].unsqueeze(-1) > self.prioritization.values[:, :] # True if the ego agent has a higher priority
+                    self.observations.past_pri[:, -1, a_i] = self.prioritization.values[:, a_i].unsqueeze(-1) > self.prioritization.values[:, :] # True if other agents have higher priorities than the ego agent (lower priority values correspond to higher priorities)
                     
                     # Store new observation - position
                     self.observations.past_pos[:, -1, a_i] = transform_from_global_to_local_coordinate(
@@ -1179,7 +1187,7 @@ class ScenarioRoadTraffic(BaseScenario):
         
         # Concatenate along the last dimension to combine all observations
         obs_other_agents = torch.cat([
-            obs_pri_other_agents_flat,
+            # obs_pri_other_agents_flat,
             zero_avoiding_distance + obs_pos_other_agents_flat,                # [others] positions
             obs_rot_other_agents_flat,                      # [others] rotations
             obs_vel_other_agents_flat,                      # [others] velocities

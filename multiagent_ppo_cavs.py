@@ -149,19 +149,19 @@ def multiagent_ppo_cavs(parameters: Parameters):
     mappo = True  # IPPO (Independent PPO) if False
 
     critic_net = MultiAgentMLP(
-        # n_agent_inputs=env.observation_spec["agents", "observation"].shape[-1], # Number of observations
-        n_agent_inputs=
-                        env.observation_spec["agents", "info", "pri"].shape[-1]
-                        + env.observation_spec["agents", "info", "pos"].shape[-1]
-                        + env.observation_spec["agents", "info", "rot"].shape[-1]
-                        + env.observation_spec["agents", "info", "vel"].shape[-1]
-                        # + env.observation_spec["agents", "info", "act_vel"].shape[-1]
-                        # + env.observation_spec["agents", "info", "act_steer"].shape[-1]
-                        # + env.observation_spec["agents", "info", "ref"].shape[-1]  # TODO Check if refefrence paths are needed for the critic
-                        # + env.observation_spec["agents", "info", "distance_ref"].shape[-1]
-                        # + env.observation_spec["agents", "info", "distance_left_b"].shape[-1]
-                        # + env.observation_spec["agents", "info", "distance_right_b"].shape[-1]
-                        ,
+        n_agent_inputs=env.observation_spec["agents", "observation"].shape[-1], # Number of observations
+        # n_agent_inputs=
+        #                 env.observation_spec["agents", "info", "pri"].shape[-1]
+        #                 + env.observation_spec["agents", "info", "pos"].shape[-1]
+        #                 + env.observation_spec["agents", "info", "rot"].shape[-1]
+        #                 + env.observation_spec["agents", "info", "vel"].shape[-1]
+        #                 + env.observation_spec["agents", "info", "act_vel"].shape[-1]
+        #                 + env.observation_spec["agents", "info", "act_steer"].shape[-1]
+        #                 + env.observation_spec["agents", "info", "ref"].shape[-1]  # TODO Check if refefrence paths are needed for the critic
+        #                 # + env.observation_spec["agents", "info", "distance_ref"].shape[-1]
+        #                 # + env.observation_spec["agents", "info", "distance_left_b"].shape[-1]
+        #                 # + env.observation_spec["agents", "info", "distance_right_b"].shape[-1]
+        #                 ,
         n_agent_outputs=1,  # 1 value per agent
         n_agents=env.n_agents,
         centralised=mappo, # If `centralised` is True (which may help overcome the non-stationary problem in MARL), each agent will use the inputs of all agents to compute its output (n_agent_inputs * n_agents will be the number of inputs for one agent). Otherwise, each agent will only use its data as input.
@@ -174,20 +174,20 @@ def multiagent_ppo_cavs(parameters: Parameters):
     # print(critic_net)
     critic = TensorDictModule(
         module=critic_net,
-        # in_keys=[("agents", "observation")], # Note that the critic in PPO only takes the same inputs (observations) as the actor
-        in_keys=
-        [
-            ("agents", "info", "pri"),
-            ("agents", "info", "pos"),
-            ("agents", "info", "rot"),
-            ("agents", "info", "vel"),
-            # ("agents", "info", "act_steer"),
-            # ("agents", "info", "act_vel"),
-            # ("agents", "info", "ref"),
-            # ("agents", "info", "distance_ref"),
-            # ("agents", "info", "distance_left_b"),
-            # ("agents", "info", "distance_right_b")
-        ], # Different observations for the critic
+        in_keys=[("agents", "observation")], # Note that the critic in PPO only takes the same inputs (observations) as the actor
+        # in_keys=
+        # [
+        #     ("agents", "info", "pri"),
+        #     ("agents", "info", "pos"),
+        #     ("agents", "info", "rot"),
+        #     ("agents", "info", "vel"),
+        #     ("agents", "info", "act_steer"),
+        #     ("agents", "info", "act_vel"),
+        #     ("agents", "info", "ref"),
+        #     # ("agents", "info", "distance_ref"),
+        #     # ("agents", "info", "distance_left_b"),
+        #     # ("agents", "info", "distance_right_b")
+        # ], # Different observations for the critic
         out_keys=[("agents", "state_value")],
     )
 
@@ -392,7 +392,7 @@ if __name__ == "__main__":
     scenario_name = "car_like_robots_road_traffic" # car_like_robots_road_traffic, car_like_robots_path_tracking, car_like_robots_obstacle_avoidance
     
     parameters = Parameters(
-        n_agents=4,
+        n_agents=5,
         dt=0.05, # [s] sample time 
         device="cpu" if not torch.backends.cuda.is_built() else "cuda:0",  # The divice where learning is run
         scenario_name=scenario_name,
@@ -412,7 +412,7 @@ if __name__ == "__main__":
         gamma=0.99, # discount factor (empirical formula: 0.1 = gamma^t, where t is the number of future steps that you want your agents to predict {0.96 -> 56 steps, 0.98 -> 114 steps, 0.99 -> 229 steps, 0.995 -> 459 steps})
         lmbda=0.9, # lambda for generalised advantage estimation,
         entropy_eps=1e-4, # coefficient of the entropy term in the PPO loss,
-        max_steps=2**8, # Episode steps before done
+        max_steps=2**7, # Episode steps before done
         training_strategy='4', # One of {'1', '2', '3', '4'}
         
         is_save_intermidiate_model=True, # Is this is true, the model with the hightest mean episode reward will be saved,
@@ -424,14 +424,14 @@ if __name__ == "__main__":
         mode_name=None, 
         episode_reward_intermidiate=-1e3, # The initial value should be samll enough
         
-        where_to_save=f"outputs/{scenario_name}_ppo/mixed_training_0318_time_reward/", # folder where to save the trained models, fig, data, etc.
+        where_to_save=f"outputs/{scenario_name}_ppo/mixed_training_0325_without_pri/", # folder where to save the trained models, fig, data, etc.
 
         # Scenario parameters
         is_partial_observation=True,
         is_global_coordinate_sys=False,
         n_points_short_term=3,
         is_use_intermediate_goals=False,
-        n_nearing_agents_observed=3,
+        n_nearing_agents_observed=2,
         n_nearing_obstacles_observed=4,
         
         is_testing_mode=False,

@@ -75,7 +75,7 @@ class ReferencePathsMapRelated:
 
         
 class ReferencePathsAgentRelated:
-    def __init__(self, long_term: torch.Tensor = None, long_term_vec_normalized: torch.Tensor = None, point_extended: torch.Tensor = None, left_boundary: torch.Tensor = None, right_boundary: torch.Tensor = None, entry: torch.Tensor = None, exit: torch.Tensor = None, n_points_long_term: torch.Tensor = None, n_points_left_b: torch.Tensor = None, n_points_right_b: torch.Tensor = None, is_loop: torch.Tensor = None, n_points_short_term: torch.Tensor = None, short_term: torch.Tensor = None, short_term_indices: torch.Tensor = None):
+    def __init__(self, long_term: torch.Tensor = None, long_term_vec_normalized: torch.Tensor = None, point_extended: torch.Tensor = None, left_boundary: torch.Tensor = None, right_boundary: torch.Tensor = None, entry: torch.Tensor = None, exit: torch.Tensor = None, n_points_long_term: torch.Tensor = None, n_points_left_b: torch.Tensor = None, n_points_right_b: torch.Tensor = None, is_loop: torch.Tensor = None, n_points_short_term: torch.Tensor = None, short_term: torch.Tensor = None, short_term_indices: torch.Tensor = None, scenario: torch.Tensor = None):
         self.long_term = long_term                # Actual long-term reference paths of agents
         self.long_term_vec_normalized = long_term_vec_normalized # Normalized vectories on the long-term trajectory
         self.point_extended = point_extended
@@ -90,6 +90,7 @@ class ReferencePathsAgentRelated:
         self.short_term = short_term                            # Short-term reference path
         self.short_term_indices = short_term_indices            # Indices that indicate which part of the long-term reference path is used to build the short-term reference path
         self.n_points_short_term = n_points_short_term          # Number of points used to build a short-term reference path
+        self.scenario = scenario          # Which scenarios agents are (current implementation includes (1) intersection, (2) merge-in, and (3) merge-out)
 
 class Observations:
     def __init__(self, is_partial = None, is_global_coordinate_sys = None, n_nearing_agents = None, nearing_agents_indices = None, n_nearing_obstacles_observed = None, is_add_noise = None, noise_level = None, n_stored_steps = None, n_observed_steps = None, is_observe_corners = None, past_pri: torch.Tensor = None, past_pos: torch.Tensor = None, past_rot: torch.Tensor = None, past_corners: torch.Tensor = None, past_vel: torch.Tensor = None, past_short_term_ref_points: torch.Tensor = None, past_action_vel: torch.Tensor = None, past_action_steering: torch.Tensor = None, past_distance_to_ref_path: torch.Tensor = None, past_distance_to_boundaries: torch.Tensor = None, past_distance_to_left_boundary: torch.Tensor = None, past_distance_to_right_boundary: torch.Tensor = None, past_distance_to_agents: torch.Tensor = None):
@@ -172,7 +173,7 @@ class Collisions:
         
 class Constants:
     # Predefined constants that may be used during simulations
-    def __init__(self, env_idx_broadcasting: torch.Tensor = None, empty_actions: torch.Tensor = None, mask_pos: torch.Tensor = None, mask_vel: torch.Tensor = None, mask_rot: torch.Tensor = None, mask_zero: torch.Tensor = None, mask_one: torch.Tensor = None, reset_agent_min_distance: torch.Tensor = None):
+    def __init__(self, env_idx_broadcasting: torch.Tensor = None, empty_actions: torch.Tensor = None, mask_pos: torch.Tensor = None, mask_vel: torch.Tensor = None, mask_rot: torch.Tensor = None, mask_zero: torch.Tensor = None, mask_one: torch.Tensor = None, reset_agent_min_distance: torch.Tensor = None, reset_scenario_probabilities: torch.Tensor = None):
         self.env_idx_broadcasting = env_idx_broadcasting
         self.empty_actions = empty_actions
         self.mask_pos = mask_pos
@@ -181,9 +182,10 @@ class Constants:
         self.mask_vel = mask_vel
         self.mask_rot = mask_rot
         self.reset_agent_min_distance = reset_agent_min_distance   # The minimum distance between agents when being reset
+        self.reset_scenario_probabilities = reset_scenario_probabilities   # Reset the agents to different scenarios with different probability
         
 class Prioritization:
-    def __init__(self, values = None,):
+    def __init__(self, values: torch.Tensor = None,):
         self.values = values
 
 class Noise:
