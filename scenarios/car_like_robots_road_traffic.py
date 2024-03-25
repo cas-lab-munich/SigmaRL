@@ -65,7 +65,7 @@ penalty_near_other_agents = -20 / r_p_normalizer          # Penalty for being to
 penalty_collide_with_agents = -100 / r_p_normalizer       # Penalty for colliding with other agents 
 penalty_collide_with_boundaries = -100 / r_p_normalizer   # Penalty for colliding with lanelet boundaries
 penalty_change_steering = -2 / r_p_normalizer          # Penalty for changing steering too quick
-penalty_time = 0                       # Penalty for losing time
+penalty_time = 1                                        # Penalty for losing time
 
 threshold_reach_goal = agent_width / 2  # Threshold less than which agents are considered at their goal positions
 
@@ -163,13 +163,16 @@ class ScenarioRoadTraffic(BaseScenario):
             
         # Parameter adjustment to meet simulation requirements
         if self.parameters.training_strategy == "4":
-            self.parameters.n_agents = min(self.parameters.n_agents, 6) # The map size of mixed scenarios are smaller than the whole map, therefore limited number of agents are needed for training
+            n_agents_intersection = 5
+            n_agents_merge_in = 3
+            n_agents_merge_out = 3
+            self.parameters.n_agents = n_agents_intersection + n_agents_merge_in + n_agents_merge_out # 5 agents in the intersection, 3 in merge-in, 3 in merge-out
+            print(f"\033[91mChange the number of agents to {self.parameters.n_agents}, as the training strategy is 'train in mixed scenarios'.\033[0m")
 
         self.parameters.n_nearing_agents_observed = min(self.parameters.n_nearing_agents_observed, self.parameters.n_agents - 1)
         
         self.n_agents = self.parameters.n_agents
 
-            
         # Timer for the first env
         self.timer = Timer(
             start=time.time(),
@@ -254,7 +257,16 @@ class ScenarioRoadTraffic(BaseScenario):
             short_term=torch.zeros((batch_dim, self.n_agents, self.parameters.n_points_short_term, 2), device=device, dtype=torch.float32), # Short-term reference path
             short_term_indices = torch.zeros((batch_dim, self.n_agents, self.parameters.n_points_short_term), device=device, dtype=torch.int),
             n_points_short_term=torch.tensor(self.parameters.n_points_short_term, device=device, dtype=torch.int),
-            scenario=torch.zeros((batch_dim, self.n_agents), device=device, dtype=torch.int), # Which scenarios agents are (current implementation includes (1) intersection, (2) merge-in, and (3) merge-out)
+            scenario=torch.zeros((batch_dim, self.n_agents), device=device, dtype=torch.int), # Which scenarios agents are (1 for intersection, 2 for merge-in, 3 for merge-out)
+        )
+        self.ref_paths_agent_related.scenario[:] = torch.cat(
+            (
+                torch.ones((batch_dim, n_agents_intersection), device=device, dtype=torch.int) * 1,
+                torch.ones((batch_dim, n_agents_merge_in), device=device, dtype=torch.int) * 2,
+                torch.ones((batch_dim, n_agents_merge_out), device=device, dtype=torch.int) * 3,
+                
+            ), 
+            dim=1
         )
         
         # The shape of each car-like robots is considered a rectangle with 4 corners. 
@@ -391,7 +403,6 @@ class ScenarioRoadTraffic(BaseScenario):
             # Create a variable to store the position of the agent at the previous time step 
             agent.state.pos_previous = torch.zeros((batch_dim, 2), device=device, dtype=torch.float32)
             agent.state.vel_previous = torch.zeros((batch_dim, 2), device=device, dtype=torch.float32)
-            agent.scenario = "" # Initialize
                             
             world.add_agent(agent)
 
@@ -402,7 +413,8 @@ class ScenarioRoadTraffic(BaseScenario):
             mask_zero=torch.tensor(0, device=device, dtype=torch.float32),
             mask_one=torch.tensor(1, device=device, dtype=torch.float32),
             reset_agent_min_distance=torch.tensor((l_f+l_r) ** 2 + width ** 2, device=device, dtype=torch.float32).sqrt() * 1.2,
-            reset_scenario_probabilities=torch.tensor([0.4, 0.3, 0.3], device=device, dtype=torch.float32), # 1 for intersection, 2 for merge-in, 3 for merge-out scenario
+            # reset_scenario_probabilities=torch.tensor([0.4, 0.3, 0.3], device=device, dtype=torch.float32), # 1 for intersection, 2 for merge-in, 3 for merge-out scenario
+            reset_scenario_probabilities=torch.tensor([1.0, 0.0, 0.0], device=device, dtype=torch.float32), # 1 for intersection, 2 for merge-in, 3 for merge-out scenario TODO Check if nevessary
         )
         
         # Initialize collision matrix
@@ -475,47 +487,38 @@ class ScenarioRoadTraffic(BaseScenario):
         self.prioritization.values[env_index, :] = self.prioritization.values[env_index, :]
         
         # Get the center line and boundaries of the long-term reference path for each agent
-        if self.parameters.training_strategy == '4':
-            # Train in mixed scenarios
-            # Customize the probabilities of training in intersection scenario, merge-in scenario, and merge-out scenario
-            if is_reset_single_agent:
-                scenario_id = self.ref_paths_agent_related.scenario[env_index, agent_index]
-            else:
-                scenario_id = torch.multinomial(self.constants.reset_scenario_probabilities, 1, replacement=True).item() + 1 # Random
-                self.ref_paths_agent_related.scenario[env_index, :] = scenario_id
-            
-            if scenario_id == 1:
-                # Intersection scenario
-                ref_paths_scenario = self.ref_paths_map_related.long_term_intersection
-                extended_points = self.ref_paths_map_related.point_extended_intersection
-            elif scenario_id == 2:
-                # Merge-in scenario
-                ref_paths_scenario = self.ref_paths_map_related.long_term_merge_in
-                extended_points = self.ref_paths_map_related.point_extended_merge_in
-            elif scenario_id == 3:
-                # Merge-out scenario
-                ref_paths_scenario = self.ref_paths_map_related.long_term_merge_out
-                extended_points = self.ref_paths_map_related.point_extended_merge_out
-            else:
-                raise ValueError("Scenario ID should not exceed the number of mixed scenarios.")
-        else:
+        if self.parameters.training_strategy in {"1", "2", "3"}:
             ref_paths_scenario = self.ref_paths_map_related.long_term_all
             extended_points = self.ref_paths_map_related.point_extended_all
-
-        num_ref_paths = len(ref_paths_scenario)
         
         for i_agent in range(self.n_agents) if not is_reset_single_agent else agent_index.unsqueeze(0):
             is_feasible_initial_position_found = False
             random_count = 0
             
+            if self.parameters.training_strategy == "4":
+                scenario_id = self.ref_paths_agent_related.scenario[0, i_agent]
+                assert self.ref_paths_agent_related.scenario[:, i_agent].unique().shape[0] == 1, "Current implementation assumes that agents with the same indices are in the same scenarios"
+                if scenario_id == 1:
+                    # Intersection scenario
+                    ref_paths_scenario = self.ref_paths_map_related.long_term_intersection
+                    extended_points = self.ref_paths_map_related.point_extended_intersection
+                elif scenario_id == 2:
+                    # Merge-in scenario
+                    ref_paths_scenario = self.ref_paths_map_related.long_term_merge_in
+                    extended_points = self.ref_paths_map_related.point_extended_merge_in
+                elif scenario_id == 3:
+                    # Merge-out scenario
+                    ref_paths_scenario = self.ref_paths_map_related.long_term_merge_out
+                    extended_points = self.ref_paths_map_related.point_extended_merge_out
+            
             # Ramdomly generate initial states for each agent
             if self.parameters.training_strategy in ("1", "2", "4"):
                 while not is_feasible_initial_position_found:
-                    if random_count >= 1:
-                        print(f"Resetting agent(s): random_count = {random_count}.")
-                    random_count += 1
+                    # if random_count >= 1:
+                    #     print(f"Resetting agent(s): random_count = {random_count}.")
+                    # random_count += 1
                     
-                    random_path_id = torch.randint(0, num_ref_paths, (1,)).item() # Select randomly a path
+                    random_path_id = torch.randint(0, len(ref_paths_scenario), (1,)).item() # Select randomly a path
                     ref_path = ref_paths_scenario[random_path_id]
                     
                     num_points = ref_path["center_line"].shape[0]
@@ -889,7 +892,9 @@ class ScenarioRoadTraffic(BaseScenario):
         ## [penalty/reward] time
         ##################################################
         # TODO Check if this is necessary
-        self.rew += self.penalties.time
+        # Get time reward proportional to positive speed
+        time_reward = (v_proj > 0) * agent.state.vel.norm(dim=-1) / agent.max_speed * self.penalties.time
+        self.rew += time_reward
 
         # [update] previous positions and short-term reference paths
         agent.state.pos_previous[:] = agent.state.pos[:]
@@ -1187,7 +1192,7 @@ class ScenarioRoadTraffic(BaseScenario):
         
         # Concatenate along the last dimension to combine all observations
         obs_other_agents = torch.cat([
-            # obs_pri_other_agents_flat,
+            obs_pri_other_agents_flat,
             zero_avoiding_distance + obs_pos_other_agents_flat,                # [others] positions
             obs_rot_other_agents_flat,                      # [others] rotations
             obs_vel_other_agents_flat,                      # [others] velocities
@@ -1227,29 +1232,39 @@ class ScenarioRoadTraffic(BaseScenario):
     def done(self):
         # print("[DEBUG] done()")
         is_collision_with_agents_occur = self.collisions.with_agents.view(self.world.batch_dim,-1).any(dim=-1) # [batch_dim]
-        is_collision_with_lanelets_occur = self.collisions.with_lanelets.view(self.world.batch_dim,-1).any(dim=-1) # [batch_dim]
-        is_leaving_entry_segment = self.collisions.with_entry_segments.any(dim=-1) & (self.timer.step >= 20) # Consider the case that agents are initially on their entry segments
-
-        # Reaching the maximum time steps terminates an episode
+        is_collision_with_lanelets_occur = self.collisions.with_lanelets.view(self.world.batch_dim,-1).any(dim=-1)
+        is_leaving_entry_segment = self.collisions.with_entry_segments.any(dim=-1) & (self.timer.step >= 20)
+        is_any_agents_leaving_exit_segment = self.collisions.with_exit_segments.any(dim=-1)
         is_max_steps_reached = self.timer.step == (self.parameters.max_steps - 1)
         
         if self.parameters.training_strategy == "4":
-            # Terminate the current simulation if at least one agent is near its end point when training in mixed scenarios
-            # idx_near_end_point = min(self.ref_paths_agent_related.n_points_short_term, 3)
-            # is_any_agent_near_end_point = (self.ref_paths_agent_related.short_term_indices[:, :, -idx_near_end_point] >= (self.ref_paths_agent_related.n_points_long_term-1)).any(dim=1)
-            is_any_agents_leaving_exit_segment = self.collisions.with_exit_segments.any(dim=-1)
+            # Done if the maximum time steps are reached
+            is_done = is_max_steps_reached
+            
+            # If training in mixed scenarios, reset agents that collide with other agents, collide with lanelets, leave entries, or leave exits
+            agents_reset = (
+                self.collisions.with_agents.any(dim=-1) |
+                self.collisions.with_lanelets |
+                self.collisions.with_entry_segments |
+                self.collisions.with_exit_segments
+            )
+            
+            agents_reset_indices = torch.where(agents_reset)
+
+            for env_idx, agent_idx in zip(agents_reset_indices[0], agents_reset_indices[1]):
+                if not is_done[env_idx]:
+                    self.reset_world_at(env_index=env_idx, agent_index=agent_idx)
+                    print(f"Reset agent {agent_idx} in env {env_idx}")
+            
         else:
-            # is_any_agent_near_end_point = torch.zeros(self.world.batch_dim, device=self.world.device, dtype=torch.bool)
-            is_any_agents_leaving_exit_segment = torch.zeros(self.world.batch_dim, device=self.world.device, dtype=torch.bool)
-        
+            # Done if agents collide with other agents or with lanelets, or the maximum time steps are reached
+            is_done = is_collision_with_agents_occur | is_collision_with_lanelets_occur | is_leaving_entry_segment | is_max_steps_reached
+
         assert not (is_collision_with_agents_occur & (self.timer.step == 0)).any()
         assert not (is_collision_with_lanelets_occur & (self.timer.step == 0)).any()
         assert not (is_leaving_entry_segment & (self.timer.step == 0)).any()
         assert not (is_max_steps_reached & (self.timer.step == 0)).any()
         assert not (is_any_agents_leaving_exit_segment & (self.timer.step == 0)).any()
-        
-        is_done = is_collision_with_agents_occur | is_collision_with_lanelets_occur | is_leaving_entry_segment | is_max_steps_reached
-        # is_done = is_collision_with_lanelets_occur | is_leaving_entry_segment | is_max_steps_reached
         
         # Logs
         if is_collision_with_agents_occur.any():
@@ -1261,26 +1276,12 @@ class ScenarioRoadTraffic(BaseScenario):
         if is_max_steps_reached.any():
             print("The number of the maximum steps is reached.")
         if is_any_agents_leaving_exit_segment.any():
-            print("At least one agent is leaving its exit segment.")
-        # if is_done.any():
-        #     print(self.world.agents[0].state.pos)
-            
+            print("At least one agent is leaving its exit segment.")            
         if self.parameters.is_testing_mode:
             is_done = torch.zeros(is_done.shape, device=self.world.device, dtype=torch.bool)
             if self.timer.step[0] % 20 == 0:
                 print("You are in testing mode. Collisions do not terminate the simulation.")
-                
-        # TODO For all agents that reach the goal, reset them
-        # for env_i in 
-        #     self.reset_world_at(env_index=2, agent_index=)
-        goal_reached_indices = torch.where(self.collisions.with_exit_segments)
-        
-        for env_idx, agent_idx in zip(goal_reached_indices[0], goal_reached_indices[1]):
-            if not is_done[env_idx]:
-                # If one agent reaches its goal but its env is not set as done, reset this agent "munually"
-                self.reset_world_at(env_index=env_idx, agent_index=agent_idx)
-                print(f"Reset agent {agent_idx} in env {env_idx}")
-        
+
         return is_done
 
 
