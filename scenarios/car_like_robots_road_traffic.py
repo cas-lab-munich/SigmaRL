@@ -460,7 +460,6 @@ class ScenarioRoadTraffic(BaseScenario):
         # env_index = slice(None) if env_index is None else env_index # `slice(None)` is equivalent to `:`
 
         for env_index in [env_index] if env_index is not None else range(self.world.batch_dim):
-            print(f"env_index={env_index}")
                 
             # Begining of a new simulation (only record for the first env)
             if env_index == 0:
