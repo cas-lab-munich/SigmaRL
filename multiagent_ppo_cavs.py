@@ -405,7 +405,7 @@ if __name__ == "__main__":
                                 # sub_batch_size = frames_per_batch // minibatch_size
         num_epochs=60, # Optimization steps per batch of data collected,
         minibatch_size=2*9, # Size of the mini-batches in each optimization step (2**9 - 2**12?),
-        lr=2e-4, # Learning rate,
+        lr=4e-4, # Learning rate,
         lr_min=1e-5, # Learning rate,
         max_grad_norm=1.0, # Maximum norm for the gradients,
         clip_epsilon=0.2, # clip value for PPO loss,
@@ -424,7 +424,7 @@ if __name__ == "__main__":
         mode_name=None, 
         episode_reward_intermidiate=-1e3, # The initial value should be samll enough
         
-        where_to_save=f"outputs/{scenario_name}_ppo/mixed_training_0325_mixed_scenarios_533/", # folder where to save the trained models, fig, data, etc.
+        where_to_save=f"outputs/{scenario_name}_ppo/mixed_training_0326_mixed_scenarios_533_no_done/", # folder where to save the trained models, fig, data, etc.
 
         # Scenario parameters
         is_partial_observation=True,
