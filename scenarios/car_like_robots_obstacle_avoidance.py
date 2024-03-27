@@ -1206,7 +1206,7 @@ if __name__ == "__main__":
         n_iters=100, # Number of sampling and training iterations (on-policy: rollouts are collected during sampling phase, which will be immediately used in the training phase of the same iteration),
         frames_per_batch=2**10, # Number of team frames collected per training iteration (minibatch_size*10)
         num_epochs=30, # Number of optimization steps per training iteration,
-        minibatch_size=2*9, # Size of the mini-batches in each optimization step (2**9 - 2**12?),
+        minibatch_size=2**9, # Size of the mini-batches in each optimization step (2**9 - 2**12?),
         lr=4e-4, # Learning rate,
         max_grad_norm=1.0, # Maximum norm for the gradients,
         clip_epsilon=0.2, # clip value for PPO loss,

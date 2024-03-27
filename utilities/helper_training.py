@@ -485,4 +485,4 @@ def save(parameters: Parameters, save_data: SaveData, policy=None, critic=None):
         torch.save(policy.state_dict(), PATH_POLICY)
         torch.save(critic.state_dict(), PATH_CRITIC)
         
-    print(f"Saved model has a mean reward of {parameters.episode_reward_mean_current:.2f}.")
+    print(f"Saved model: {parameters.episode_reward_mean_current:.2f}.")
