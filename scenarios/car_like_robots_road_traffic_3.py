@@ -1206,36 +1206,47 @@ class ScenarioRoadTraffic(BaseScenario):
         is_any_agents_leaving_exit_segment = self.collisions.with_exit_segments.any(dim=-1)
         is_max_steps_reached = self.timer.step == (self.parameters.max_steps - 1)
         
-        if self.parameters.training_strategy == "4":
-            # Done if the maximum time steps are reached
-            # is_done = is_max_steps_reached
-            is_done = is_max_steps_reached | is_collision_with_agents_occur | is_collision_with_lanelets_occur
+        if self.parameters.is_testing_mode:
+            is_done = is_max_steps_reached # In test mode, we only reset the whole env if the maximum time steps are reached
             
-            # If training in mixed scenarios, reset agents that collide with other agents, collide with lanelets, leave entries, or leave exits
+            # Reset single agent
             agents_reset = (
-                # self.collisions.with_agents.any(dim=-1) |
-                # self.collisions.with_lanelets |
+                self.collisions.with_agents.any(dim=-1) |
+                self.collisions.with_lanelets |
                 self.collisions.with_entry_segments |
                 self.collisions.with_exit_segments
             )
-            
             agents_reset_indices = torch.where(agents_reset)
-
             for env_idx, agent_idx in zip(agents_reset_indices[0], agents_reset_indices[1]):
                 if not is_done[env_idx]:
                     self.reset_world_at(env_index=env_idx, agent_index=agent_idx)
-                    # print(f"Reset agent {agent_idx} in env {env_idx}")
-            
         else:
-            # Done if agents collide with other agents or with lanelets, or the maximum time steps are reached
-            is_done = is_collision_with_agents_occur | is_collision_with_lanelets_occur | is_leaving_entry_segment | is_max_steps_reached
+            if self.parameters.training_strategy == "4":
+                # is_done = is_max_steps_reached
+                is_done = is_max_steps_reached | is_collision_with_agents_occur | is_collision_with_lanelets_occur
+                
+                # Reset single agnet
+                agents_reset = (
+                    # self.collisions.with_agents.any(dim=-1) |
+                    # self.collisions.with_lanelets |
+                    self.collisions.with_entry_segments |
+                    self.collisions.with_exit_segments
+                )
+                agents_reset_indices = torch.where(agents_reset)
+                for env_idx, agent_idx in zip(agents_reset_indices[0], agents_reset_indices[1]):
+                    if not is_done[env_idx]:
+                        self.reset_world_at(env_index=env_idx, agent_index=agent_idx)
+                        # print(f"Reset agent {agent_idx} in env {env_idx}")
+                
+            else:
+                is_done = is_max_steps_reached | is_collision_with_agents_occur | is_collision_with_lanelets_occur | is_leaving_entry_segment | is_any_agents_leaving_exit_segment
 
-        assert not (is_collision_with_agents_occur & (self.timer.step == 0)).any()
-        assert not (is_collision_with_lanelets_occur & (self.timer.step == 0)).any()
-        assert not (is_leaving_entry_segment & (self.timer.step == 0)).any()
-        assert not (is_max_steps_reached & (self.timer.step == 0)).any()
-        assert not (is_any_agents_leaving_exit_segment & (self.timer.step == 0)).any()
-        
+            assert not (is_collision_with_agents_occur & (self.timer.step == 0)).any()
+            assert not (is_collision_with_lanelets_occur & (self.timer.step == 0)).any()
+            assert not (is_leaving_entry_segment & (self.timer.step == 0)).any()
+            assert not (is_max_steps_reached & (self.timer.step == 0)).any()
+            assert not (is_any_agents_leaving_exit_segment & (self.timer.step == 0)).any()
+            
         # Logs
         # if is_collision_with_agents_occur.any():
         #     print("Collide with other agents.")
@@ -1247,14 +1258,10 @@ class ScenarioRoadTraffic(BaseScenario):
             print("The number of the maximum steps is reached.")
         # if is_any_agents_leaving_exit_segment.any():
         #     print("At least one agent is leaving its exit segment.")            
-        if self.parameters.is_testing_mode:
-            is_done = torch.zeros(is_done.shape, device=self.world.device, dtype=torch.bool)
-            if self.timer.step[0] % 20 == 0:
-                print("You are in testing mode. Collisions do not terminate the simulation.")
 
         return is_done
-
-
+    
+    
     def info(self, agent: Agent) -> Dict[str, Tensor]:
         """
         This function computes the info dict for 'agent' in a vectorized way
