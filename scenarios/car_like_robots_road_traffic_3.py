@@ -24,7 +24,7 @@ import matplotlib.pyplot as plt
 from utilities.helper_training import Parameters
 
 
-from utilities.helper_scenario import Distances, Normalizers, Observations, Penalties, ReferencePathsAgentRelated, ReferencePathsMapRelated, Rewards, Thresholds, Collisions, Timer, Constants, Prioritization, Noise, exponential_decreasing_fcn, get_distances_between_agents, get_perpendicular_distances, get_rectangle_corners, get_short_term_reference_path, interX, angle_eliminate_two_pi, transform_from_global_to_local_coordinate
+from utilities.helper_scenario import Distances, Normalizers, Observations, Penalties, ReferencePathsAgentRelated, ReferencePathsMapRelated, Rewards, Thresholds, Collisions, Timer, Constants, StateBuffer, InitialStateBuffer, Prioritization, Noise, exponential_decreasing_fcn, get_distances_between_agents, get_perpendicular_distances, get_rectangle_corners, get_short_term_reference_path, interX, angle_eliminate_two_pi, transform_from_global_to_local_coordinate
 
 from utilities.kinematic_bicycle import KinematicBicycle
 
@@ -33,7 +33,7 @@ from utilities.get_cpm_lab_map import get_map_data
 from utilities.get_reference_paths import get_reference_paths
 
 ## Simulation parameters 
-n_agents = 5                    # The number of agents
+n_agents = 10                    # The number of agents
 dt = 0.05                        # Sample time in [s]
 max_steps = 1000                # Maximum simulation steps
 is_real_time_rendering = True   # Simulation will be paused at each time step for real-time rendering
@@ -112,11 +112,17 @@ n_stored_steps = 5      # The number of steps to store (include the current step
 n_observed_steps = 1    # The number of steps to observe (include the current step). At least one, and at most `n_stored_steps`
 
 # Training parameters
-training_strategy = '4' # One of {'1', '2', '3', '4'}
-                        # '1': Train in a single, comprehensive scenario
-                        # '2': Train in a single, comprehensive scenario with prioritized experience replay
-                        # '3': Train in a single, comprehensive scenario with milestones
-                        # '4': Training in mixed scenarios
+training_strategy = "3" # One of {"1", "2", "3", "4"}
+                        # "1": Train in a single, comprehensive scenario
+                        # "2": Train in a single, comprehensive scenario with prioritized experience replay
+                        # "3": Train in a single, comprehensive scenario with challenging initial state buffer
+                        # "4": Training in mixed scenarios
+buffer_size = 100 # Used only when training_strategy == "3"
+n_steps_before_recording = 10 # The states of agents at time step `current_time_step - n_steps_before_recording` before collisions will be recorded and used later when resetting the envs
+n_steps_stored = n_steps_before_recording # Store previous `n_steps_stored` steps of states
+probability_record = 1.0 # Probability of recording a collision-event into the buffer
+print("not forget to set probability_record to 0.1")
+probability_use_recording = 0.1 # Probability of using an recording when resetting an env
 
 colors = [
     Color.blue100, Color.purple100, Color.violet100, Color.bordeaux100, Color.red100, Color.orange100, Color.maygreen100, Color.green100, Color.turquoise100, Color.petrol100, Color.yellow100, Color.magenta100, Color.black100,
@@ -164,7 +170,7 @@ class ScenarioRoadTraffic(BaseScenario):
         # Parameter adjustment to meet simulation requirements
         if self.parameters.training_strategy == "4":
             self.parameters.n_agents = 4
-            print(f"\033[91mChange the number of agents to {self.parameters.n_agents}, as the training strategy is 'train in mixed scenarios'.\033[0m")
+            print(f"\033[91mChange the number of agents to {self.parameters.n_agents}, as the training strategy is 'train in mixed scenarios'.\033[0m") # Print in red
 
         self.parameters.n_nearing_agents_observed = min(self.parameters.n_nearing_agents_observed, self.parameters.n_agents - 1)
         
@@ -174,7 +180,7 @@ class ScenarioRoadTraffic(BaseScenario):
         self.timer = Timer(
             start=time.time(),
             end=0,
-            step=torch.zeros(batch_dim, device=device, dtype=torch.int), # Each environment has its own time step
+            step=torch.zeros(batch_dim, device=device, dtype=torch.int32), # Each environment has its own time step
             step_duration=torch.zeros(self.parameters.max_steps, device=device, dtype=torch.float32),
             step_begin=time.time(),
             render_begin=0,
@@ -216,12 +222,12 @@ class ScenarioRoadTraffic(BaseScenario):
             point_extended_intersection=torch.zeros((len(reference_paths_intersection), self.parameters.n_points_short_term * sample_interval, 2), device=device, dtype=torch.float32),
             point_extended_merge_in=torch.zeros((len(reference_paths_merge_in), self.parameters.n_points_short_term * sample_interval, 2), device=device, dtype=torch.float32),
             point_extended_merge_out=torch.zeros((len(reference_paths_merge_out), self.parameters.n_points_short_term * sample_interval, 2), device=device, dtype=torch.float32),
-            sample_interval=torch.tensor(sample_interval, device=device, dtype=torch.int),
+            sample_interval=torch.tensor(sample_interval, device=device, dtype=torch.int32),
         )
         
         # Extended the reference path by several points along the last vector of the center line 
         # TODO Check is this is necessary
-        idx_broadcasting_entend = torch.arange(1, self.parameters.n_points_short_term * sample_interval + 1, device=device, dtype=torch.int).unsqueeze(1)
+        idx_broadcasting_entend = torch.arange(1, self.parameters.n_points_short_term * sample_interval + 1, device=device, dtype=torch.int32).unsqueeze(1)
         for idx, i_path in enumerate(reference_paths_all):
             center_line_i = i_path["center_line"]
             direction = center_line_i[-1] - center_line_i[-2]
@@ -248,13 +254,15 @@ class ScenarioRoadTraffic(BaseScenario):
             entry=torch.zeros((batch_dim, self.n_agents, 2, 2), device=device, dtype=torch.float32),
             exit=torch.zeros((batch_dim, self.n_agents, 2, 2), device=device, dtype=torch.float32),
             is_loop=torch.zeros((batch_dim, self.n_agents), device=device, dtype=torch.bool),
-            n_points_long_term=torch.zeros((batch_dim, self.n_agents), device=device, dtype=torch.int),
-            n_points_left_b=torch.zeros((batch_dim, self.n_agents), device=device, dtype=torch.int),
-            n_points_right_b=torch.zeros((batch_dim, self.n_agents), device=device, dtype=torch.int),
+            n_points_long_term=torch.zeros((batch_dim, self.n_agents), device=device, dtype=torch.int32),
+            n_points_left_b=torch.zeros((batch_dim, self.n_agents), device=device, dtype=torch.int32),
+            n_points_right_b=torch.zeros((batch_dim, self.n_agents), device=device, dtype=torch.int32),
             short_term=torch.zeros((batch_dim, self.n_agents, self.parameters.n_points_short_term, 2), device=device, dtype=torch.float32), # Short-term reference path
-            short_term_indices = torch.zeros((batch_dim, self.n_agents, self.parameters.n_points_short_term), device=device, dtype=torch.int),
-            n_points_short_term=torch.tensor(self.parameters.n_points_short_term, device=device, dtype=torch.int),
-            scenario=torch.zeros((batch_dim, self.n_agents), device=device, dtype=torch.int), # Which scenarios agents are (1 for intersection, 2 for merge-in, 3 for merge-out)
+            short_term_indices = torch.zeros((batch_dim, self.n_agents, self.parameters.n_points_short_term), device=device, dtype=torch.int32),
+            n_points_short_term=torch.tensor(self.parameters.n_points_short_term, device=device, dtype=torch.int32),
+            scenario_id=torch.zeros((batch_dim, self.n_agents), device=device, dtype=torch.int32), # Which scenarios agents are (1 for intersection, 2 for merge-in, 3 for merge-out)
+            path_id=torch.zeros((batch_dim, self.n_agents), device=device, dtype=torch.int32), # Which paths agents are
+            point_id=torch.zeros((batch_dim, self.n_agents), device=device, dtype=torch.int32), # Which points agents are
         )
         
         # The shape of each car-like robots is considered a rectangle with 4 corners. 
@@ -285,12 +293,12 @@ class ScenarioRoadTraffic(BaseScenario):
         self.observations = Observations(
             is_partial=torch.tensor(self.parameters.is_partial_observation, device=device, dtype=torch.bool),
             is_global_coordinate_sys=torch.tensor(self.parameters.is_global_coordinate_sys, device=device, dtype=torch.bool),
-            n_nearing_agents=torch.tensor(self.parameters.n_nearing_agents_observed, device=device, dtype=torch.int),
+            n_nearing_agents=torch.tensor(self.parameters.n_nearing_agents_observed, device=device, dtype=torch.int32),
             is_add_noise=torch.tensor(is_add_noise, device=device, dtype=torch.bool),
             noise_level=torch.tensor(noise_level, device=device, dtype=torch.float32),
-            n_stored_steps=torch.tensor(n_stored_steps, device=device, dtype=torch.int),
-            n_observed_steps=torch.tensor(n_observed_steps, device=device, dtype=torch.int),
-            nearing_agents_indices=torch.zeros((batch_dim, self.n_agents, self.parameters.n_nearing_agents_observed), device=device, dtype=torch.int)
+            n_stored_steps=torch.tensor(n_stored_steps, device=device, dtype=torch.int32),
+            n_observed_steps=torch.tensor(n_observed_steps, device=device, dtype=torch.int32),
+            nearing_agents_indices=torch.zeros((batch_dim, self.n_agents, self.parameters.n_nearing_agents_observed), device=device, dtype=torch.int32)
         )
         assert self.observations.n_stored_steps >= 1, "The number of stored steps should be at least 1."
         assert self.observations.n_observed_steps >= 1, "The number of observed steps should be at least 1."
@@ -335,15 +343,15 @@ class ScenarioRoadTraffic(BaseScenario):
         )
         
         # Distances to boundaries and reference path, and also the closest point on the reference paths of agents
-        distance_type = 'MTV' # One of {'c2c', 'MTV'}
+        distance_type = "MTV" # One of {"c2c", "MTV"}
         self.distances = Distances(
-            type = distance_type, # Type of distances between agents. One of {'c2c', 'MTV'}
+            type = distance_type, # Type of distances between agents. One of {"c2c", "MTV"}
             agents=torch.zeros(world.batch_dim, self.n_agents, self.n_agents, dtype=torch.float32),
             left_boundaries=torch.zeros((batch_dim, self.n_agents, 1 + 4), device=device, dtype=torch.float32), # The first entry for the center, the last 4 entries for the four corners
             right_boundaries=torch.zeros((batch_dim, self.n_agents, 1 + 4), device=device, dtype=torch.float32),
             boundaries=torch.zeros((batch_dim, self.n_agents), device=device, dtype=torch.float32),
             ref_paths=torch.zeros((batch_dim, self.n_agents), device=device, dtype=torch.float32),
-            closest_point_on_ref_path=torch.zeros((batch_dim, self.n_agents), device=device, dtype=torch.int)
+            closest_point_on_ref_path=torch.zeros((batch_dim, self.n_agents), device=device, dtype=torch.int32)
         )
 
         self.thresholds = Thresholds(
@@ -352,12 +360,12 @@ class ScenarioRoadTraffic(BaseScenario):
             near_boundary_low=torch.tensor(threshold_near_boundary_low, device=device, dtype=torch.float32),
             near_boundary_high=torch.tensor(threshold_near_boundary_high, device=device, dtype=torch.float32),
             near_other_agents_low=torch.tensor(
-                threshold_near_other_agents_c2c_low if self.distances.type == 'c2c' else threshold_near_other_agents_MTV_low, 
+                threshold_near_other_agents_c2c_low if self.distances.type == "c2c" else threshold_near_other_agents_MTV_low, 
                 device=device,
                 dtype=torch.float32
             ),
             near_other_agents_high=torch.tensor(
-                threshold_near_other_agents_c2c_high if self.distances.type == 'c2c' else threshold_near_other_agents_MTV_high, 
+                threshold_near_other_agents_c2c_high if self.distances.type == "c2c" else threshold_near_other_agents_MTV_high, 
                 device=device,
                 dtype=torch.float32
             ),
@@ -387,21 +395,17 @@ class ScenarioRoadTraffic(BaseScenario):
                     max_steering_angle=max_steering_angle, 
                     integration="rk4"                       # one of {"euler", "rk4"}
                 )
-            )
-            # Create a variable to store the position of the agent at the previous time step 
-            agent.state.pos_previous = torch.zeros((batch_dim, 2), device=device, dtype=torch.float32)
-            agent.state.vel_previous = torch.zeros((batch_dim, 2), device=device, dtype=torch.float32)
-                            
+            )                            
             world.add_agent(agent)
-
+        
         self.constants = Constants(
-            env_idx_broadcasting=torch.arange(batch_dim, device=device, dtype=torch.int).unsqueeze(-1),
+            env_idx_broadcasting=torch.arange(batch_dim, device=device, dtype=torch.int32).unsqueeze(-1),
             empty_actions=torch.zeros((batch_dim, agent.action.action_size), device=device, dtype=torch.float32),
             mask_pos=torch.tensor(1, device=device, dtype=torch.float32),
             mask_zero=torch.tensor(0, device=device, dtype=torch.float32),
             mask_one=torch.tensor(1, device=device, dtype=torch.float32),
             reset_agent_min_distance=torch.tensor((l_f+l_r) ** 2 + width ** 2, device=device, dtype=torch.float32).sqrt() * 1.2,
-            reset_scenario_probabilities=torch.tensor([0.8, 0.2, 0.0], device=device, dtype=torch.float32), # 1 for intersection, 2 for merge-in, 3 for merge-out scenario
+            reset_scenario_probabilities=torch.tensor([0.8, 0.1, 0.1], device=device, dtype=torch.float32), # 1 for intersection, 2 for merge-in, 3 for merge-out scenario
             # reset_scenario_probabilities=torch.tensor([0.7, 0.15, 0.15], device=device, dtype=torch.float32), # 1 for intersection, 2 for merge-in, 3 for merge-out scenario TODO Check if nevessary
         )
         
@@ -414,7 +418,20 @@ class ScenarioRoadTraffic(BaseScenario):
         )
         
         self.prioritization = Prioritization(
-            values=torch.arange(1, self.n_agents + 1, device=device, dtype=torch.int).repeat(batch_dim, 1),
+            values=torch.arange(1, self.n_agents + 1, device=device, dtype=torch.int32).repeat(batch_dim, 1),
+        )
+        
+        self.initial_state_buffer = InitialStateBuffer( # Used only when "training_strategy == '4'"
+            buffer_size=torch.tensor(buffer_size, device=device, dtype=torch.int32),
+            probability_record=torch.tensor(probability_record, device=device, dtype=torch.float32),
+            probability_use_recording=torch.tensor(probability_use_recording, device=device, dtype=torch.float32),
+            buffer=torch.zeros((buffer_size, self.n_agents, 8), device=device, dtype=torch.float32), # [pos_x, pos_y, rot, vel_x, vel_y, scenario_id, path_id, point_id]
+        )
+
+        # Store the states of agents at previous several time steps
+        self.state_buffer = StateBuffer(
+            buffer_size=torch.tensor(n_steps_stored, device=device, dtype=torch.int32),
+            buffer=torch.zeros((n_steps_stored, batch_dim, self.n_agents, 8), device=device, dtype=torch.float32), # [pos_x, pos_y, rot, vel_x, vel_y, scenario_id, path_id, point_id],
         )
         
         noise_pri_level = 1 / self.n_agents * 0.2 if self.observations.is_global_coordinate_sys else 0.1
@@ -450,7 +467,7 @@ class ScenarioRoadTraffic(BaseScenario):
         """
         agents = self.world.agents
 
-        # if hasattr(self, 'training_info'):
+        # if hasattr(self, "training_info"):
         #     print(self.training_info["agents"]["episode_reward"].mean())
         is_reset_single_agent = agent_index is not None
         
@@ -480,13 +497,13 @@ class ScenarioRoadTraffic(BaseScenario):
             if self.parameters.training_strategy in {"1", "2", "3"}:
                 ref_paths_scenario = self.ref_paths_map_related.long_term_all
                 extended_points = self.ref_paths_map_related.point_extended_all
+                self.ref_paths_agent_related.scenario_id[env_index, :] = 0 # 0 for the whole map, 1 for intersection, 2 for merge-in, 3 for merge-out scenario
             else:
                 if is_reset_single_agent:
-                    scenario_id = self.ref_paths_agent_related.scenario[env_index, agent_index] # Keep the same scenario
+                    scenario_id = self.ref_paths_agent_related.scenario_id[env_index, agent_index] # Keep the same scenario
                 else:
-                    scenario_id = torch.multinomial(self.constants.reset_scenario_probabilities, 1, replacement=True).item() + 1 # 1 for intersection, 2 for merge-in, 3 for merge-out scenario
-                    self.ref_paths_agent_related.scenario[env_index, :] = scenario_id
-                
+                    scenario_id = torch.multinomial(self.constants.reset_scenario_probabilities, 1, replacement=True).item() + 1 # A random interger {1, 2, 3}
+                    self.ref_paths_agent_related.scenario_id[env_index, :] = scenario_id
                 if scenario_id == 1:
                     # Intersection scenario
                     ref_paths_scenario = self.ref_paths_map_related.long_term_intersection
@@ -500,22 +517,43 @@ class ScenarioRoadTraffic(BaseScenario):
                     ref_paths_scenario = self.ref_paths_map_related.long_term_merge_out
                     extended_points = self.ref_paths_map_related.point_extended_merge_out
             
-            for i_agent in range(self.n_agents) if not is_reset_single_agent else agent_index.unsqueeze(0):
-                is_feasible_initial_position_found = False
-                random_count = 0
+            if ((self.parameters.training_strategy == "3") and 
+                (torch.rand(1) < self.initial_state_buffer.probability_use_recording) and 
+                (self.initial_state_buffer.valid_size >= 1)):
+                # Use initial state buffer
+                is_use_state_buffer = True
+                initial_state = self.initial_state_buffer.get_random()
+                self.ref_paths_agent_related.scenario_id[env_index] = initial_state[:, self.initial_state_buffer.idx_scenario] # Update
+                self.ref_paths_agent_related.path_id[env_index] = initial_state[:, self.initial_state_buffer.idx_path] # Update
+                self.ref_paths_agent_related.point_id[env_index] = initial_state[:, self.initial_state_buffer.idx_point] # Update
+                print(f"\033[91mReset with path ids: {initial_state[:, -2]}'.\033[0m") # Print in red
+            else:
+                is_use_state_buffer = False
                 
-                # Ramdomly generate initial states for each agent
-                if self.parameters.training_strategy in ("1", "2", "4"):
+            for i_agent in range(self.n_agents) if not is_reset_single_agent else agent_index.unsqueeze(0):
+                if is_use_state_buffer:
+                    path_id = initial_state[i_agent, self.initial_state_buffer.idx_path].int()
+                    ref_path = ref_paths_scenario[path_id]
+                
+                    agents[i_agent].set_pos(initial_state[i_agent, 0:2], batch_index=env_index)
+                    agents[i_agent].set_rot(initial_state[i_agent, 2], batch_index=env_index)
+                    agents[i_agent].set_vel(initial_state[i_agent, 3:5], batch_index=env_index)
+                    
+                else:
+                    is_feasible_initial_position_found = False
+                    random_count = 0
+                    # Ramdomly generate initial states for each agent
                     while not is_feasible_initial_position_found:
                         # if random_count >= 1:
                         #     print(f"Resetting agent(s): random_count = {random_count}.")
                         # random_count += 1
-                        
-                        random_path_id = torch.randint(0, len(ref_paths_scenario), (1,)).item() # Select randomly a path
-                        ref_path = ref_paths_scenario[random_path_id]
+                        path_id = torch.randint(0, len(ref_paths_scenario), (1,)).item() # Select randomly a path
+                        self.ref_paths_agent_related.path_id[env_index, i_agent] = path_id # Update
+                        ref_path = ref_paths_scenario[path_id]
                         
                         num_points = ref_path["center_line"].shape[0]
                         random_point_id = torch.randint(3, num_points-5, (1,)).item() # Random point on the center as initial position TODO Find the suitable range
+                        self.ref_paths_agent_related.point_id[env_index, i_agent] = random_point_id # Update
                         position_start = ref_path["center_line"][random_point_id]
                         agents[i_agent].set_pos(position_start, batch_index=env_index)
 
@@ -544,16 +582,13 @@ class ScenarioRoadTraffic(BaseScenario):
 
                     agents[i_agent].set_rot(rot_start, batch_index=env_index)
                     agents[i_agent].set_vel(vel_start, batch_index=env_index)
-                else:
-                    # TODO Vanilla model with milestones
-                    raise NotImplementedError
                 
                 # Long-term reference paths for agents
                 n_points_long_term = ref_path["center_line"].shape[0]
                 
                 self.ref_paths_agent_related.long_term[env_index, i_agent, 0:n_points_long_term, :] = ref_path["center_line"]
-                self.ref_paths_agent_related.long_term[env_index, i_agent, n_points_long_term:(n_points_long_term+self.ref_paths_agent_related.n_points_short_term * self.ref_paths_map_related.sample_interval), :] = extended_points[random_path_id, :, :]
-                self.ref_paths_agent_related.long_term[env_index, i_agent, (n_points_long_term+self.ref_paths_agent_related.n_points_short_term * self.ref_paths_map_related.sample_interval):, :] = extended_points[random_path_id, -1, :]
+                self.ref_paths_agent_related.long_term[env_index, i_agent, n_points_long_term:(n_points_long_term+self.ref_paths_agent_related.n_points_short_term * self.ref_paths_map_related.sample_interval), :] = extended_points[path_id, :, :]
+                self.ref_paths_agent_related.long_term[env_index, i_agent, (n_points_long_term+self.ref_paths_agent_related.n_points_short_term * self.ref_paths_map_related.sample_interval):, :] = extended_points[path_id, -1, :]
                 self.ref_paths_agent_related.n_points_long_term[env_index, i_agent] = n_points_long_term
                 
                 self.ref_paths_agent_related.long_term_vec_normalized[env_index, i_agent, 0:n_points_long_term-1, :] = ref_path["center_line_vec_normalized"]
@@ -576,9 +611,10 @@ class ScenarioRoadTraffic(BaseScenario):
                 self.ref_paths_agent_related.exit[env_index, i_agent, 1, :] = ref_path["right_boundary_shared"][-1, :]
                 
                 self.ref_paths_agent_related.is_loop[env_index, i_agent] = ref_path["is_loop"]
-                
 
-            for i_agent in range(self.n_agents) if not is_reset_single_agent else agent_index.unsqueeze(0):       
+
+            for i_agent in range(self.n_agents) if not is_reset_single_agent else agent_index.unsqueeze(0):
+                
                 # Distances to reference paths
                 self.distances.ref_paths[env_index, i_agent], self.distances.closest_point_on_ref_path[env_index, i_agent] = get_perpendicular_distances(
                     point=agents[i_agent].state.pos[env_index, :], 
@@ -643,11 +679,6 @@ class ScenarioRoadTraffic(BaseScenario):
                     sample_interval=self.ref_paths_map_related.sample_interval,
                 )
 
-                # Reset the previous position and velocity
-                agents[i_agent].state.pos_previous[env_index, :] = agents[i_agent].state.pos[env_index, :]
-                agents[i_agent].state.vel_previous[env_index, :] = agents[i_agent].state.vel[env_index, :]
-
-
             # Compute mutual distances between agents 
             # TODO Add the possibility of computing the mutual distances of agents in env `env_index`
             mutual_distances = get_distances_between_agents(self=self, distance_type=self.distances.type, is_set_diagonal=True)
@@ -660,11 +691,26 @@ class ScenarioRoadTraffic(BaseScenario):
             self.collisions.with_entry_segments[env_index, :] = False
             self.collisions.with_exit_segments[env_index, :] = False
             
-        # print(self.ref_paths_agent_related.scenario)
+        # Reset the state buffer
+        self.state_buffer.reset() 
+        state_add = torch.cat(
+            (
+                torch.stack([a.state.pos for a in agents], dim=1),
+                torch.stack([a.state.rot for a in agents], dim=1),
+                torch.stack([a.state.vel for a in agents], dim=1),
+                self.ref_paths_agent_related.scenario_id[:].unsqueeze(-1),
+                self.ref_paths_agent_related.path_id[:].unsqueeze(-1),
+                self.ref_paths_agent_related.point_id[:].unsqueeze(-1),
+            ),
+            dim=-1
+        )
+        self.state_buffer.add(state_add) # Add new state
+        
+        # print(self.ref_paths_agent_related.scenario_id)
 
     def process_action(self, agent: Agent):
         # print("[DEBUG] process_action()")
-        if hasattr(agent, 'dynamics') and hasattr(agent.dynamics, 'process_force'):
+        if hasattr(agent, "dynamics") and hasattr(agent.dynamics, "process_force"):
             agent.dynamics.process_force()
             assert not agent.action.u.isnan().any()
             assert not agent.action.u.isinf().any()
@@ -709,13 +755,13 @@ class ScenarioRoadTraffic(BaseScenario):
                     is_close_shape=True,
                 )
                 # Update the collision matrices
-                if self.distances.type == 'c2c':
+                if self.distances.type == "c2c":
                     for a_j in range(a_i+1, self.n_agents):
                         # Check for intersection using the interX function
                         collision_batch_index = interX(self.corners[:, a_i], self.corners[:, a_j], False)
                         self.collisions.with_agents[torch.nonzero(collision_batch_index), a_i, a_j] = True
                         self.collisions.with_agents[torch.nonzero(collision_batch_index), a_j, a_i] = True
-                elif self.distances.type == 'MTV':
+                elif self.distances.type == "MTV":
                     # If two agents collide, their MTV-based distance is zero 
                     self.collisions.with_agents[:] = self.distances.agents == 0
                     
@@ -798,8 +844,10 @@ class ScenarioRoadTraffic(BaseScenario):
         ##################################################
         ## [reward] forward movement
         ##################################################
-        move_vec = (agent.state.pos - agent.state.pos_previous).unsqueeze(1) # Vector of the current movement
-        ref_points_vecs = self.ref_paths_agent_related.short_term[:, agent_index] - agent.state.pos_previous.unsqueeze(1) # Vectors from the previous position to the points on the short-term reference path
+        latest_state = self.state_buffer.get_latest(n=1)
+        move_vec = (agent.state.pos - latest_state[:, agent_index, 0:2]).unsqueeze(1) # Vector of the current movement
+        
+        ref_points_vecs = self.ref_paths_agent_related.short_term[:, agent_index] - latest_state[:, agent_index, 0:2].unsqueeze(1) # Vectors from the previous position to the points on the short-term reference path
         move_projected = torch.sum(move_vec * ref_points_vecs, dim=-1)
         move_projected_weighted = torch.matmul(move_projected, self.rewards.weighting_ref_directions) # Put more weights on nearing reference points
 
@@ -810,10 +858,8 @@ class ScenarioRoadTraffic(BaseScenario):
         ##################################################
         ## [reward] high velocity
         ##################################################
-        # TODO Check if this reward is necessary
-        v_previous_proj = torch.sum(agent.state.vel_previous.unsqueeze(1) * ref_points_vecs, dim=-1).mean(-1)
+        # TODO Check if this reward is necessary        
         v_proj = torch.sum(agent.state.vel.unsqueeze(1) * ref_points_vecs, dim=-1).mean(-1)
-        v_proj_diff = v_proj - v_previous_proj
         
         v_proj_clamped = torch.where(agents_no_reward_indices, torch.clamp(v_proj, max=0), v_proj)
         reward_vel = v_proj_clamped / agent.max_speed * self.rewards.higth_v
@@ -889,8 +935,20 @@ class ScenarioRoadTraffic(BaseScenario):
         self.rew += time_reward
 
         # [update] previous positions and short-term reference paths
-        agent.state.pos_previous[:] = agent.state.pos[:]
-        agent.state.vel_previous[:] = agent.state.vel[:]
+        if agent_index == (self.n_agents - 1): # Avoid repeated updating
+            state_add = torch.cat(
+                (
+                    torch.stack([a.state.pos for a in self.world.agents], dim=1),
+                    torch.stack([a.state.rot for a in self.world.agents], dim=1),
+                    torch.stack([a.state.vel for a in self.world.agents], dim=1),
+                    self.ref_paths_agent_related.scenario_id[:].unsqueeze(-1),
+                    self.ref_paths_agent_related.path_id[:].unsqueeze(-1),
+                    self.ref_paths_agent_related.point_id[:].unsqueeze(-1),
+                ),
+                dim=-1
+            )
+            self.state_buffer.add(state_add)
+        
         self.ref_paths_agent_related.short_term[:, agent_index], self.ref_paths_agent_related.short_term_indices[:, agent_index] = get_short_term_reference_path(
             reference_path=self.ref_paths_agent_related.long_term[:, agent_index], 
             closest_point_on_ref_path=self.distances.closest_point_on_ref_path[:, agent_index],
@@ -919,7 +977,7 @@ class ScenarioRoadTraffic(BaseScenario):
         #     ]
         # )
         # if agent_index == 0:
-        #     print(' '.join(f"{v:.1f}" for v in reward_all[:, 0].view(-1)))
+        #     print(" ".join(f"{v:.1f}" for v in reward_all[:, 0].view(-1)))
 
         return rew_clamed
 
@@ -1148,7 +1206,7 @@ class ScenarioRoadTraffic(BaseScenario):
         
         # Concatenate along the last dimension to combine all observations
         obs_other_agents = torch.cat([
-            obs_pri_other_agents_flat,
+            # obs_pri_other_agents_flat,
             obs_pos_other_agents_flat,                # [others] positions
             obs_rot_other_agents_flat,                      # [others] rotations
             obs_vel_other_agents_flat,                      # [others] velocities
@@ -1206,6 +1264,14 @@ class ScenarioRoadTraffic(BaseScenario):
         is_any_agents_leaving_exit_segment = self.collisions.with_exit_segments.any(dim=-1)
         is_max_steps_reached = self.timer.step == (self.parameters.max_steps - 1)
         
+        if self.parameters.training_strategy == "3": # Record into the initial state buffer
+            if torch.rand(1) > (1 - self.initial_state_buffer.probability_record): # Only a certain probability to record
+                for env_collide in torch.where(is_collision_with_agents_occur)[0]:
+                    self.initial_state_buffer.add(self.state_buffer.get_latest(n=n_steps_stored)[env_collide])
+                    print(f"\033[94mRecord states with path ids: {self.ref_paths_agent_related.path_id[env_collide]}'.\033[0m") # Print in red
+                    
+                    print(f"Valid size: {self.initial_state_buffer.valid_size}")
+        
         if self.parameters.is_testing_mode:
             is_done = is_max_steps_reached # In test mode, we only reset the whole env if the maximum time steps are reached
             
@@ -1260,15 +1326,15 @@ class ScenarioRoadTraffic(BaseScenario):
         #     print("At least one agent is leaving its exit segment.")            
 
         return is_done
-    
-    
+
+
     def info(self, agent: Agent) -> Dict[str, Tensor]:
         """
-        This function computes the info dict for 'agent' in a vectorized way
+        This function computes the info dict for "agent" in a vectorized way
         The returned dict should have a key for each info of interest and the corresponding value should
         be a tensor of shape (n_envs, info_size)
 
-        Implementors can access the world at 'self.world'
+        Implementors can access the world at "self.world"
 
         To increase performance, tensors created should have the device set, like:
         torch.tensor(..., device=self.world.device)
@@ -1382,7 +1448,7 @@ class ScenarioRoadTraffic(BaseScenario):
             geom.add_attr(xform)  
             geoms.append(geom)
                 
-            # Visualize the lanelet boundaries of agents' reference path
+            # Visualize the lanelet boundaries of agents" reference path
             # agent_i = 0
             # Left boundary
             geom = rendering.PolyLine(
