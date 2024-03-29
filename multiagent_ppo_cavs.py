@@ -70,7 +70,7 @@ def multiagent_ppo_cavs(parameters: Parameters):
     scenario.parameters = parameters
 
     # Using multi-threads to handle file writing
-    pool = ThreadPoolExecutor(128)
+    # pool = ThreadPoolExecutor(128)
 
     env = VmasEnvCustom(
         scenario=scenario,
@@ -248,21 +248,21 @@ def multiagent_ppo_cavs(parameters: Parameters):
         total_frames=parameters.total_frames,
     )
 
-    replay_buffer = ReplayBuffer(
-        storage=LazyTensorStorage(
-            parameters.frames_per_batch, device=parameters.device
-        ),  # We store the frames_per_batch collected at each iteration
-        sampler=SamplerWithoutReplacement(),
-        batch_size=parameters.minibatch_size,  # We will sample minibatches of this size
-    )
-
     if parameters.is_prb:
-        print(f"Enabled Prioritized Replay Buffer")
+        print("\033[91mPrioritized Replay Buffer enabled.\033[0m") # Print in red
         replay_buffer = TensorDictReplayBuffer(
             storage=ListStorage(parameters.frames_per_batch),
             sampler=PrioritizedSampler(parameters.frames_per_batch, alpha=0.8, beta=1.1),
             # priority_key="td_error",
             batch_size=parameters.minibatch_size,
+        )
+    else:
+        replay_buffer = ReplayBuffer(
+            storage=LazyTensorStorage(
+                parameters.frames_per_batch, device=parameters.device
+            ),  # We store the frames_per_batch collected at each iteration
+            sampler=SamplerWithoutReplacement(),
+            batch_size=parameters.minibatch_size,  # We will sample minibatches of this size
         )
 
     loss_module = ClipPPOLoss(
@@ -295,6 +295,7 @@ def multiagent_ppo_cavs(parameters: Parameters):
     pbar = tqdm(total=parameters.n_iters, desc="episode_reward_mean = 0")
 
     episode_reward_mean_list = []
+
     for tensordict_data in collector:
         tensordict_data.set(
             ("next", "agents", "done"),
@@ -370,15 +371,15 @@ def multiagent_ppo_cavs(parameters: Parameters):
 
             if episode_reward_mean > parameters.episode_reward_intermidiate:
                 # Save the model if it improves the mean episode reward sufficiently enough
-                # save(parameters=parameters, save_data=save_data, policy=policy, critic=critic)
-                pool.submit(save, parameters, save_data, policy, critic)
+                save(parameters=parameters, save_data=save_data, policy=policy, critic=critic)
+                # pool.submit(save, parameters, save_data, policy, critic)
                 # Update the episode reward of the saved model
                 parameters.episode_reward_intermidiate = episode_reward_mean
             else:
                 # Save only the mean episode reward list and parameters
                 parameters.episode_reward_mean_current = parameters.episode_reward_intermidiate
-                # save(parameters=parameters, save_data=save_data, policy=None, critic=None)
-                pool.submit(save, parameters, save_data, policy, critic)
+                save(parameters=parameters, save_data=save_data, policy=None, critic=None)
+                # pool.submit(save, parameters, save_data, policy, critic)
 
             # print("Fig saved.")
 
@@ -411,7 +412,7 @@ if __name__ == "__main__":
     scenario_name = "car_like_robots_road_traffic" # car_like_robots_road_traffic, car_like_robots_path_tracking, car_like_robots_obstacle_avoidance
     
     parameters = Parameters(
-        n_agents=8,
+        n_agents=10,
         dt=0.05, # [s] sample time 
         device="cpu" if not torch.backends.cuda.is_built() else "cuda:0",  # The divice where learning is run
         scenario_name=scenario_name,
@@ -432,7 +433,7 @@ if __name__ == "__main__":
         lmbda=0.9, # lambda for generalised advantage estimation,
         entropy_eps=1e-4, # coefficient of the entropy term in the PPO loss,
         max_steps=2**7, # Episode steps before done
-        training_strategy='3', # One of {'1', '2', '3', '4'}
+        training_strategy='4', # One of {'1', '2', '3', '4'}. 1 for vanilla, 2 for vanilla with prioritized replay buffer, 3 for vanilla with challenging initial state buffer, 4 for mixed training
         
         is_save_intermidiate_model=True, # Is this is true, the model with the hightest mean episode reward will be saved,
         
@@ -443,7 +444,7 @@ if __name__ == "__main__":
         mode_name=None, 
         episode_reward_intermidiate=-1e3, # The initial value should be samll enough
         
-        where_to_save=f"outputs/{scenario_name}_ppo/mixed_training_0326_mixed_scenarios_intersection/", # folder where to save the trained models, fig, data, etc.
+        where_to_save=f"outputs/{scenario_name}_ppo/0329_strategy_4/", # folder where to save the trained models, fig, data, etc.
 
         # Scenario parameters
         is_partial_observation=True,
@@ -472,8 +473,11 @@ if __name__ == "__main__":
         is_observe_corners=False,
 
         # Whether to enable prioritized replay buffer
-        is_prb=True
+        is_prb=False
     )
+    
+    if parameters.training_strategy == "2":
+        parameters.is_prb=True
         
     env, policy, parameters = multiagent_ppo_cavs(parameters=parameters)
 

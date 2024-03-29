@@ -112,7 +112,7 @@ n_stored_steps = 5      # The number of steps to store (include the current step
 n_observed_steps = 1    # The number of steps to observe (include the current step). At least one, and at most `n_stored_steps`
 
 # Training parameters
-training_strategy = "3" # One of {"1", "2", "3", "4"}
+training_strategy = "2" # One of {"1", "2", "3", "4"}
                         # "1": Train in a single, comprehensive scenario
                         # "2": Train in a single, comprehensive scenario with prioritized replay buffer
                         # "3": Train in a single, comprehensive scenario with challenging initial state buffer
@@ -121,7 +121,6 @@ buffer_size = 100 # Used only when training_strategy == "3"
 n_steps_before_recording = 10 # The states of agents at time step `current_time_step - n_steps_before_recording` before collisions will be recorded and used later when resetting the envs
 n_steps_stored = n_steps_before_recording # Store previous `n_steps_stored` steps of states
 probability_record = 1.0 # Probability of recording a collision-event into the buffer
-print("not forget to set probability_record to 0.1")
 probability_use_recording = 0.1 # Probability of using an recording when resetting an env
 
 colors = [
@@ -962,6 +961,7 @@ class ScenarioRoadTraffic(BaseScenario):
         assert not self.rew.isnan().any(), "Rewards contain nan."
         assert not self.rew.isinf().any(), "Rewards contain inf."
         
+        
         # Clamed the reward to avoid abs(reward) being too large values
         rew_clamed = torch.clamp(self.rew, min=-1, max=1)
         
@@ -1414,7 +1414,8 @@ class ScenarioRoadTraffic(BaseScenario):
             #     geoms.append(circle)
 
             # Visualize short-term reference paths of agents
-            if self.parameters.is_visualize_short_term_path & (agent_i == 0):
+            # if self.parameters.is_visualize_short_term_path & (agent_i == 0):
+            if self.parameters.is_visualize_short_term_path:
                 geom = rendering.PolyLine(
                     v = self.ref_paths_agent_related.short_term[env_index, agent_i],
                     close=False,
@@ -1449,43 +1450,43 @@ class ScenarioRoadTraffic(BaseScenario):
             geoms.append(geom)
                 
             # Visualize the lanelet boundaries of agents" reference path
-            # agent_i = 0
-            # Left boundary
-            geom = rendering.PolyLine(
-                v = self.ref_paths_agent_related.left_boundary[env_index, agent_i],
-                close=False,
-            )
-            xform = rendering.Transform()
-            geom.add_attr(xform)            
-            geom.set_color(*colors[agent_i])
-            geoms.append(geom)
-            # Right boundary
-            geom = rendering.PolyLine(
-                v = self.ref_paths_agent_related.right_boundary[env_index, agent_i],
-                close=False,
-            )
-            xform = rendering.Transform()
-            geom.add_attr(xform)            
-            geom.set_color(*colors[agent_i])
-            geoms.append(geom)
-            # Entry
-            geom = rendering.PolyLine(
-                v = self.ref_paths_agent_related.entry[env_index, agent_i],
-                close=False,
-            )
-            xform = rendering.Transform()
-            geom.add_attr(xform)
-            geom.set_color(*colors[agent_i])
-            geoms.append(geom)
-            # Exit
-            geom = rendering.PolyLine(
-                v = self.ref_paths_agent_related.exit[env_index, agent_i],
-                close=False,
-            )
-            xform = rendering.Transform()
-            geom.add_attr(xform)
-            geom.set_color(*colors[agent_i])
-            geoms.append(geom)
+            if agent_i == 0:
+                # Left boundary
+                geom = rendering.PolyLine(
+                    v = self.ref_paths_agent_related.left_boundary[env_index, agent_i],
+                    close=False,
+                )
+                xform = rendering.Transform()
+                geom.add_attr(xform)            
+                geom.set_color(*colors[agent_i])
+                geoms.append(geom)
+                # Right boundary
+                geom = rendering.PolyLine(
+                    v = self.ref_paths_agent_related.right_boundary[env_index, agent_i],
+                    close=False,
+                )
+                xform = rendering.Transform()
+                geom.add_attr(xform)            
+                geom.set_color(*colors[agent_i])
+                geoms.append(geom)
+                # Entry
+                geom = rendering.PolyLine(
+                    v = self.ref_paths_agent_related.entry[env_index, agent_i],
+                    close=False,
+                )
+                xform = rendering.Transform()
+                geom.add_attr(xform)
+                geom.set_color(*colors[agent_i])
+                geoms.append(geom)
+                # Exit
+                geom = rendering.PolyLine(
+                    v = self.ref_paths_agent_related.exit[env_index, agent_i],
+                    close=False,
+                )
+                xform = rendering.Transform()
+                geom.add_attr(xform)
+                geom.set_color(*colors[agent_i])
+                geoms.append(geom)
             
         return geoms
 
