@@ -215,12 +215,6 @@ def get_reference_paths(n_agents, map_data, IS_VISUALIZE: bool = False):
         plt.xlim((0, x_lim))
         plt.ylim((0, y_lim))
         plt.title("Map Visualization")
-
-
-        
-    # Randomly generate IDs of reference paths for the given number of agents
-    random_path_ids = random.sample(range(1, len(path_to_loop)+1), n_agents)
-    print(f"Reset long-term reference path: {random_path_ids}")
     
     num_paths_all = len(path_to_loop)
     for ref_path_id in range(num_paths_all):

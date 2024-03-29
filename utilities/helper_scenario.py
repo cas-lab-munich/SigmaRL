@@ -75,7 +75,7 @@ class ReferencePathsMapRelated:
 
         
 class ReferencePathsAgentRelated:
-    def __init__(self, long_term: torch.Tensor = None, long_term_vec_normalized: torch.Tensor = None, point_extended: torch.Tensor = None, left_boundary: torch.Tensor = None, right_boundary: torch.Tensor = None, entry: torch.Tensor = None, exit: torch.Tensor = None, n_points_long_term: torch.Tensor = None, n_points_left_b: torch.Tensor = None, n_points_right_b: torch.Tensor = None, is_loop: torch.Tensor = None, n_points_short_term: torch.Tensor = None, short_term: torch.Tensor = None, short_term_indices: torch.Tensor = None, scenario: torch.Tensor = None):
+    def __init__(self, long_term: torch.Tensor = None, long_term_vec_normalized: torch.Tensor = None, point_extended: torch.Tensor = None, left_boundary: torch.Tensor = None, right_boundary: torch.Tensor = None, entry: torch.Tensor = None, exit: torch.Tensor = None, n_points_long_term: torch.Tensor = None, n_points_left_b: torch.Tensor = None, n_points_right_b: torch.Tensor = None, is_loop: torch.Tensor = None, n_points_short_term: torch.Tensor = None, short_term: torch.Tensor = None, short_term_indices: torch.Tensor = None, scenario_id: torch.Tensor = None, path_id: torch.Tensor = None, point_id: torch.Tensor = None):
         self.long_term = long_term                # Actual long-term reference paths of agents
         self.long_term_vec_normalized = long_term_vec_normalized # Normalized vectories on the long-term trajectory
         self.point_extended = point_extended
@@ -90,7 +90,9 @@ class ReferencePathsAgentRelated:
         self.short_term = short_term                            # Short-term reference path
         self.short_term_indices = short_term_indices            # Indices that indicate which part of the long-term reference path is used to build the short-term reference path
         self.n_points_short_term = n_points_short_term          # Number of points used to build a short-term reference path
-        self.scenario = scenario          # Which scenarios agents are (current implementation includes (1) intersection, (2) merge-in, and (3) merge-out)
+        self.scenario_id = scenario_id          # Which scenarios agents are (current implementation includes (1) intersection, (2) merge-in, and (3) merge-out)
+        self.path_id = path_id          # Which paths agents are
+        self.point_id = point_id          # Which points agents are
 
 class Observations:
     def __init__(self, is_partial = None, is_global_coordinate_sys = None, n_nearing_agents = None, nearing_agents_indices = None, n_nearing_obstacles_observed = None, is_add_noise = None, noise_level = None, n_stored_steps = None, n_observed_steps = None, is_observe_corners = None, past_pri: torch.Tensor = None, past_pos: torch.Tensor = None, past_rot: torch.Tensor = None, past_corners: torch.Tensor = None, past_vel: torch.Tensor = None, past_short_term_ref_points: torch.Tensor = None, past_action_vel: torch.Tensor = None, past_action_steering: torch.Tensor = None, past_distance_to_ref_path: torch.Tensor = None, past_distance_to_boundaries: torch.Tensor = None, past_distance_to_left_boundary: torch.Tensor = None, past_distance_to_right_boundary: torch.Tensor = None, past_distance_to_agents: torch.Tensor = None):
@@ -187,6 +189,80 @@ class Constants:
 class Prioritization:
     def __init__(self, values: torch.Tensor = None,):
         self.values = values
+
+class CircularBuffer:
+    def __init__(self, buffer_size: torch.Tensor = None, buffer: torch.Tensor = None,):
+        """Initializes a circular buffer to store initial states. """
+        self.buffer_size = buffer_size # Number of entries to be recorded
+        self.buffer = buffer # Buffer
+        self.pointer = 0  # Point to the index where the new recording should be stored
+        self.valid_size = 0 # Valid size of the buffer, maximum being `buffer_size`
+
+    def add(self, recording: torch.Tensor = None):
+        """Adds a new recording to the buffer, overwriting the oldest recording if the buffer is full.
+
+        Args:
+            recording: A recording tensor to add to the buffer.
+        """
+        self.buffer[self.pointer] = recording
+        self.pointer = (self.pointer + 1) % self.buffer_size # Increment, loop back to 0 if full
+        self.valid_size = min(self.valid_size + 1, self.buffer_size) # Increment up to the maximum size
+
+    def get_latest(self, n=1):
+        """Returns the n-th latest recording from the buffer.
+
+        Args:
+            n: Specifies which latest recording to retrieve (1-based index: 1 is the most recent).
+
+        Return:
+            The n-th latest recording. If n is larger than valid_size, returns the first recording.
+        """
+        if n > self.valid_size:
+            index = 0
+        else:
+            index = (self.pointer - n + 1) % self.buffer_size
+
+        return self.buffer[index]
+    
+    def reset(self):
+        """Reset the buffer.
+        """
+        self.buffer[:] = 0
+        self.pointer = 0
+        self.valid_size = 0
+
+class StateBuffer(CircularBuffer):
+    def __init__(self, buffer_size: torch.Tensor = None, buffer: torch.Tensor = None):
+        """ Initializes a circular buffer to store initial states. """
+        super().__init__(buffer_size=buffer_size, buffer=buffer)  # Properly initialize the parent class
+        self.idx_scenario = 5
+        self.idx_path = 6
+        self.idx_point = 7
+        
+class InitialStateBuffer(CircularBuffer):
+    def __init__(self, buffer_size: torch.Tensor = None, buffer: torch.Tensor = None, probability_record: torch.Tensor = None, probability_use_recording: torch.Tensor = None,):
+        """ Initializes a circular buffer to store initial states. """
+        super().__init__(buffer_size=buffer_size, buffer=buffer)  # Properly initialize the parent class
+        self.probability_record = probability_record
+        self.probability_use_recording = probability_use_recording
+        self.idx_scenario = 5
+        self.idx_path = 6
+        self.idx_point = 7
+
+    def get_random(self):
+        """ Returns a randomly selected recording from the buffer.
+
+        Return: 
+            A randomly selected recording tensor. If the buffer is empty, returns None.
+        """
+        if self.valid_size == 0:
+            return None
+        else:
+            # Random index based on the current size of the buffer
+            random_index = torch.randint(0, self.valid_size, ())
+            print(f"Random buffer: {random_index}")
+
+            return self.buffer[random_index]
 
 class Noise:
     def __init__(self, vel: torch.Tensor = None, ref: torch.Tensor = None, dis_ref: torch.Tensor = None, dis_lanelets: torch.Tensor = None, other_agents_pri: torch.Tensor = None, other_agents_pos: torch.Tensor = None, other_agents_rot: torch.Tensor = None, other_agents_vel: torch.Tensor = None, other_agents_dis: torch.Tensor = None, level_vel: torch.Tensor = None, level_pos: torch.Tensor = None, level_rot: torch.Tensor = None, level_dis: torch.Tensor = None, level_pri: torch.Tensor = None):

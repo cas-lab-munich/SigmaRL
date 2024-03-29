@@ -45,7 +45,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
 from utilities.helper_training import Parameters, SaveData, VmasEnvCustom, SyncDataCollectorCustom, TransformedEnvCustom, get_path_to_save_model, find_the_hightest_reward_among_all_models, save
 from utilities.evaluation import evaluate_outputs
 
-from scenarios.car_like_robots_road_traffic_2 import ScenarioRoadTraffic
+from scenarios.car_like_robots_road_traffic_1 import ScenarioRoadTraffic
 from scenarios.car_like_robots_path_tracking import ScenarioPathTracking
 from scenarios.car_like_robots_obstacle_avoidance import ScenarioObstacleAvoidance 
 
@@ -392,13 +392,13 @@ if __name__ == "__main__":
     scenario_name = "car_like_robots_road_traffic" # car_like_robots_road_traffic, car_like_robots_path_tracking, car_like_robots_obstacle_avoidance
     
     parameters = Parameters(
-        n_agents=5,
+        n_agents=10,
         dt=0.05, # [s] sample time 
         device="cpu" if not torch.backends.cuda.is_built() else "cuda:0",  # The divice where learning is run
         scenario_name=scenario_name,
         
         # Training parameters
-        n_iters=200, # Number of sampling and training iterations (on-policy: rollouts are collected during sampling phase, which will be immediately used in the training phase of the same iteration),
+        n_iters=500, # Number of sampling and training iterations (on-policy: rollouts are collected during sampling phase, which will be immediately used in the training phase of the same iteration),
         frames_per_batch=2**12, # Number of team frames collected per training iteration 
                                 # num_envs = frames_per_batch / max_steps
                                 # total_frames = frames_per_batch * n_iters
@@ -413,7 +413,7 @@ if __name__ == "__main__":
         lmbda=0.9, # lambda for generalised advantage estimation,
         entropy_eps=1e-4, # coefficient of the entropy term in the PPO loss,
         max_steps=2**7, # Episode steps before done
-        training_strategy='4', # One of {'1', '2', '3', '4'}
+        training_strategy='1', # One of {'1', '2', '3', '4'}
         
         is_save_intermidiate_model=True, # Is this is true, the model with the hightest mean episode reward will be saved,
         
@@ -424,7 +424,7 @@ if __name__ == "__main__":
         mode_name=None, 
         episode_reward_intermidiate=-1e3, # The initial value should be samll enough
         
-        where_to_save=f"outputs/{scenario_name}_ppo/mixed_training_0327_intersection_and_merge_in_without_pri/", # folder where to save the trained models, fig, data, etc.
+        where_to_save=f"outputs/{scenario_name}_ppo/0329_strategy_1/", # folder where to save the trained models, fig, data, etc.
 
         # Scenario parameters
         is_partial_observation=True,
