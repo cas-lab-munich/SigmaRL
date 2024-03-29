@@ -48,7 +48,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
 from utilities.helper_training import Parameters, SaveData, VmasEnvCustom, SyncDataCollectorCustom, TransformedEnvCustom, get_path_to_save_model, find_the_hightest_reward_among_all_models, save
 from utilities.evaluation import evaluate_outputs
 
-from scenarios.car_like_robots_road_traffic_2 import ScenarioRoadTraffic
+from scenarios.car_like_robots_road_traffic_4 import ScenarioRoadTraffic
 from scenarios.car_like_robots_path_tracking import ScenarioPathTracking
 from scenarios.car_like_robots_obstacle_avoidance import ScenarioObstacleAvoidance 
 
@@ -433,7 +433,7 @@ if __name__ == "__main__":
         lmbda=0.9, # lambda for generalised advantage estimation,
         entropy_eps=1e-4, # coefficient of the entropy term in the PPO loss,
         max_steps=2**7, # Episode steps before done
-        training_strategy='2', # One of {'1', '2', '3', '4'}. 1 for vanilla, 2 for vanilla with prioritized replay buffer, 3 for vanilla with challenging initial state buffer, 4 for mixed training
+        training_strategy='4', # One of {'1', '2', '3', '4'}. 1 for vanilla, 2 for vanilla with prioritized replay buffer, 3 for vanilla with challenging initial state buffer, 4 for mixed training
         
         is_save_intermidiate_model=True, # Is this is true, the model with the hightest mean episode reward will be saved,
         
@@ -444,7 +444,7 @@ if __name__ == "__main__":
         mode_name=None, 
         episode_reward_intermidiate=-1e3, # The initial value should be samll enough
         
-        where_to_save=f"outputs/{scenario_name}_ppo/0329_strategy_2/", # folder where to save the trained models, fig, data, etc.
+        where_to_save=f"outputs/{scenario_name}_ppo/0329_strategy_4/", # folder where to save the trained models, fig, data, etc.
 
         # Scenario parameters
         is_partial_observation=True,

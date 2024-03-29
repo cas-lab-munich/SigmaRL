@@ -220,7 +220,7 @@ class CircularBuffer:
         if n > self.valid_size:
             index = 0
         else:
-            index = (self.pointer - n + 1) % self.buffer_size
+            index = (self.pointer - n) % self.buffer_size
 
         return self.buffer[index]
     
