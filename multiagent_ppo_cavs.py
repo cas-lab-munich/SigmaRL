@@ -1,4 +1,6 @@
 # Adapted from https://pytorch.org/rl/tutorials/multiagent_ppo.html
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 # Torch
 import torch
@@ -12,8 +14,9 @@ from tensordict.nn.distributions import NormalParamExtractor
 
 # Data collection
 from torchrl.data.replay_buffers import ReplayBuffer
-from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
-from torchrl.data.replay_buffers.storages import LazyTensorStorage
+from torchrl.data import PrioritizedReplayBuffer, TensorDictReplayBuffer
+from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement, PrioritizedSampler
+from torchrl.data.replay_buffers.storages import LazyTensorStorage, ListStorage
 
 # Env
 from torchrl.envs import RewardSum
@@ -65,7 +68,10 @@ def multiagent_ppo_cavs(parameters: Parameters):
         raise ValueError(f"The given scenario '{parameters.scenario_name}' is not found. Current implementation includes 'car_like_robots_road_traffic' and 'car_like_robots_path_tracking'.")
     
     scenario.parameters = parameters
-    
+
+    # Using multi-threads to handle file writing
+    pool = ThreadPoolExecutor(128)
+
     env = VmasEnvCustom(
         scenario=scenario,
         num_envs=parameters.num_vmas_envs,
@@ -250,6 +256,14 @@ def multiagent_ppo_cavs(parameters: Parameters):
         batch_size=parameters.minibatch_size,  # We will sample minibatches of this size
     )
 
+    if parameters.is_prb:
+        print(f"Enabled Prioritized Replay Buffer")
+        replay_buffer = TensorDictReplayBuffer(
+            storage=ListStorage(parameters.frames_per_batch),
+            sampler=PrioritizedSampler(parameters.frames_per_batch, alpha=0.8, beta=1.1),
+            # priority_key="td_error",
+            batch_size=parameters.minibatch_size,
+        )
 
     loss_module = ClipPPOLoss(
         actor=policy,
@@ -312,6 +326,9 @@ def multiagent_ppo_cavs(parameters: Parameters):
                 subdata = replay_buffer.sample()
                 loss_vals = loss_module(subdata)
 
+                if parameters.is_prb:
+                    replay_buffer.update_tensordict_priority(subdata)
+
                 loss_value = (
                     loss_vals["loss_objective"]
                     + loss_vals["loss_critic"]
@@ -353,13 +370,15 @@ def multiagent_ppo_cavs(parameters: Parameters):
 
             if episode_reward_mean > parameters.episode_reward_intermidiate:
                 # Save the model if it improves the mean episode reward sufficiently enough
-                save(parameters=parameters, save_data=save_data, policy=policy, critic=critic)
+                # save(parameters=parameters, save_data=save_data, policy=policy, critic=critic)
+                pool.submit(save, parameters, save_data, policy, critic)
                 # Update the episode reward of the saved model
                 parameters.episode_reward_intermidiate = episode_reward_mean
             else:
                 # Save only the mean episode reward list and parameters
                 parameters.episode_reward_mean_current = parameters.episode_reward_intermidiate
-                save(parameters=parameters, save_data=save_data, policy=None, critic=None)
+                # save(parameters=parameters, save_data=save_data, policy=None, critic=None)
+                pool.submit(save, parameters, save_data, policy, critic)
 
             # print("Fig saved.")
 
@@ -451,6 +470,9 @@ if __name__ == "__main__":
         # For car_like_robots_obstacle_avoidance only
         ############################################
         is_observe_corners=False,
+
+        # Whether to enable prioritized replay buffer
+        is_prb=True
     )
         
     env, policy, parameters = multiagent_ppo_cavs(parameters=parameters)

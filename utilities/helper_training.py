@@ -311,6 +311,8 @@ class Parameters():
                 is_dynamic_goal_reward: bool = None,        # TODO Adjust the goal reward based on how well agents achieve their goals
 
                 obstacle_type: str = None,                  # For obstacle-avoidance scenarios
+
+                is_prb: bool = None
                 ):
         
         self.n_agents = n_agents
@@ -374,6 +376,8 @@ class Parameters():
         self.is_load_out_td = is_load_out_td
             
         self.is_real_time_rendering = is_real_time_rendering
+
+        self.is_prb = is_prb
         
         if (mode_name is None) and (scenario_name is not None):
             self.mode_name = get_model_name(self)
@@ -441,7 +445,6 @@ def find_the_hightest_reward_among_all_models(parameters:Parameters):
     # else:
     #     pattern = r'reward(-?[0-9]*\.?[0-9]+)_'
     pattern = r'reward(-?[0-9]*\.?[0-9]+)_'
-
     # Iterate through the files in the directory
     for filename in os.listdir(parameters.where_to_save):
         match = re.search(pattern, filename)
