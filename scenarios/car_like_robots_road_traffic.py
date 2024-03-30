@@ -78,7 +78,7 @@ threshold_near_boundary_low = 0 # Threshold above which agents will be penalized
 threshold_near_other_agents_c2c_high = agent_length     # Threshold beneath which agents will started be 
                                                         # penalized for being too close to other agents (for center-to-center distance)
 threshold_near_other_agents_c2c_low = agent_width / 2   # Threshold above which agents will be penalized (for center-to-center distance, 
-                                                        # if a c2c distance is less than the half of the agent width, they are colliding, which will be penalized by another penalty)
+                                                          # if a c2c distance is less than the half of the agent width, they are colliding, which will be penalized by another penalty)
 
 threshold_near_other_agents_MTV_high = agent_length  # Threshold beneath which agents will be penalized for 
                                                     # being too close to other agents (for MTV-based distance)

@@ -1,6 +1,6 @@
 # Adapted from https://pytorch.org/rl/tutorials/multiagent_ppo.html
 import time
-from concurrent.futures import ThreadPoolExecutor
+import multiprocessing
 
 # Torch
 import torch
@@ -37,20 +37,23 @@ import os, sys
 import matplotlib.pyplot as plt
 
 # Scientific plotting
-import scienceplots # Do not remove (https://github.com/garrettj403/SciencePlots)
-plt.rcParams.update({'figure.dpi': '100'}) # Avoid DPI problem (https://github.com/garrettj403/SciencePlots/issues/60)
-plt.style.use(['science','ieee']) # The science + ieee styles for IEEE papers (can also be one of 'ieee' and 'science' )
+import scienceplots  # Do not remove (https://github.com/garrettj403/SciencePlots)
+
+plt.rcParams.update({'figure.dpi': '100'})  # Avoid DPI problem (https://github.com/garrettj403/SciencePlots/issues/60)
+plt.style.use(
+    ['science', 'ieee'])  # The science + ieee styles for IEEE papers (can also be one of 'ieee' and 'science' )
 # print(plt.style.available) # List all available style
 
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
 
 # Import custom classes
-from utilities.helper_training import Parameters, SaveData, VmasEnvCustom, SyncDataCollectorCustom, TransformedEnvCustom, get_path_to_save_model, find_the_hightest_reward_among_all_models, save
+from utilities.helper_training import Parameters, SaveData, VmasEnvCustom, SyncDataCollectorCustom, \
+    TransformedEnvCustom, get_path_to_save_model, find_the_hightest_reward_among_all_models, save
 from utilities.evaluation import evaluate_outputs
 
 from scenarios.car_like_robots_road_traffic import ScenarioRoadTraffic
 from scenarios.car_like_robots_path_tracking import ScenarioPathTracking
-from scenarios.car_like_robots_obstacle_avoidance import ScenarioObstacleAvoidance 
+from scenarios.car_like_robots_obstacle_avoidance import ScenarioObstacleAvoidance
 
 
 # Reproducibility
@@ -65,12 +68,10 @@ def multiagent_ppo_cavs(parameters: Parameters):
     elif "obstacle_avoidance" in parameters.scenario_name:
         scenario = ScenarioObstacleAvoidance()
     else:
-        raise ValueError(f"The given scenario '{parameters.scenario_name}' is not found. Current implementation includes 'car_like_robots_road_traffic' and 'car_like_robots_path_tracking'.")
-    
-    scenario.parameters = parameters
+        raise ValueError(
+            f"The given scenario '{parameters.scenario_name}' is not found. Current implementation includes 'car_like_robots_road_traffic' and 'car_like_robots_path_tracking'.")
 
-    # Using multi-threads to handle file writing
-    pool = ThreadPoolExecutor(128)
+    scenario.parameters = parameters
 
     env = VmasEnvCustom(
         scenario=scenario,
@@ -79,7 +80,8 @@ def multiagent_ppo_cavs(parameters: Parameters):
         max_steps=parameters.max_steps,
         device=parameters.device,
         # Scenario kwargs
-        n_agents=parameters.n_agents,  # These are custom kwargs that change for each VMAS scenario, see the VMAS repo to know more.
+        n_agents=parameters.n_agents,
+        # These are custom kwargs that change for each VMAS scenario, see the VMAS repo to know more.
     )
 
 
@@ -119,13 +121,15 @@ def multiagent_ppo_cavs(parameters: Parameters):
             n_agent_outputs=(2 * env.action_spec.shape[-1]),  # 2 * n_actions_per_agents
             n_agents=env.n_agents,
             centralised=False,  # the policies are decentralised (ie each agent will act from its observation)
-            share_params=True, # sharing parameters means that agents will all share the same policy, which will allow them to benefit from each other’s experiences, resulting in faster training. On the other hand, it will make them behaviorally homogenous, as they will share the same model
+            share_params=True,
+            # sharing parameters means that agents will all share the same policy, which will allow them to benefit from each other’s experiences, resulting in faster training. On the other hand, it will make them behaviorally homogenous, as they will share the same model
             device=parameters.device,
             depth=2,
             num_cells=256,
             activation_class=torch.nn.Tanh,
         ),
-        NormalParamExtractor(),  # this will just separate the last dimension into two outputs: a `loc` and a non-negative `scale``, used as parameters for a normal distribution (mean and standard deviation)
+        NormalParamExtractor(),
+        # this will just separate the last dimension into two outputs: a `loc` and a non-negative `scale``, used as parameters for a normal distribution (mean and standard deviation)
     )
 
 
@@ -134,7 +138,8 @@ def multiagent_ppo_cavs(parameters: Parameters):
     policy_module = TensorDictModule(
         policy_net,
         in_keys=[("agents", "observation")],
-        out_keys=[("agents", "loc"), ("agents", "scale")], # represents the parameters of the policy distribution for each agent
+        out_keys=[("agents", "loc"), ("agents", "scale")],
+        # represents the parameters of the policy distribution for each agent
     )
 
     # Use a probabilistic actor allows for exploration
@@ -149,7 +154,8 @@ def multiagent_ppo_cavs(parameters: Parameters):
             "max": env.unbatched_action_spec[env.action_key].space.high,
         },
         return_log_prob=True,
-        log_prob_key=("agents", "sample_log_prob"), # log probability favors numerical stability and gradient calculation
+        log_prob_key=("agents", "sample_log_prob"),
+        # log probability favors numerical stability and gradient calculation
     )  # we'll need the log-prob for the PPO loss
 
     mappo = True  # IPPO (Independent PPO) if False
@@ -258,11 +264,13 @@ def multiagent_ppo_cavs(parameters: Parameters):
 
     if parameters.is_prb:
         print(f"Enabled Prioritized Replay Buffer")
-        replay_buffer = TensorDictReplayBuffer(
-            storage=ListStorage(parameters.frames_per_batch),
-            sampler=PrioritizedSampler(parameters.frames_per_batch, alpha=0.8, beta=1.1),
-            # priority_key="td_error",
-            batch_size=parameters.minibatch_size,
+        replay_buffer = PrioritizedReplayBuffer(
+            alpha=0.7,
+            beta=0.9,
+            storage=LazyTensorStorage(
+                parameters.frames_per_batch, device=parameters.device
+            ),
+            batch_size=parameters.minibatch_size
         )
 
     loss_module = ClipPPOLoss(
@@ -319,23 +327,31 @@ def multiagent_ppo_cavs(parameters: Parameters):
 
         data_view = tensordict_data.reshape(-1)  # Flatten the batch size to shuffle data
         replay_buffer.extend(data_view)
+        # print(f"tensordict shape:{tensordict_data.shape}")
+        # print(f"data view shape:{data_view.shape}")
+        # print(data_view)
 
         for _ in range(parameters.num_epochs):
             # print("[DEBUG] for _ in range(parameters.num_epochs):")
             for _ in range(parameters.frames_per_batch // parameters.minibatch_size):
-                subdata = replay_buffer.sample()
-                loss_vals = loss_module(subdata)
+                # sample a batch of data
+                data,  info = replay_buffer.sample(return_info=True)
+                # print(f"indices: {info.get('index')}")
+                # print(f"size of indices: {len(info.get('index'))}")
+
+                loss_vals = loss_module(data)
 
                 if parameters.is_prb:
-                    replay_buffer.update_tensordict_priority(subdata)
+                    updated_priority = loss_vals["loss_critic"] * torch.ones(len(info.get('index')))
+                    # print(f"size of updated_priority: {len(updated_priority)}")
+                    # print(torch.asarray(updated_priority))
+                    replay_buffer.update_priority(index=info.get('index'), priority=updated_priority)
 
                 loss_value = (
                     loss_vals["loss_objective"]
                     + loss_vals["loss_critic"]
                     + loss_vals["loss_entropy"]
                 )
-                
-                # print(loss_value)
                 
                 assert not loss_value.isnan().any()
                 assert not loss_value.isinf().any()
@@ -371,14 +387,16 @@ def multiagent_ppo_cavs(parameters: Parameters):
             if episode_reward_mean > parameters.episode_reward_intermidiate:
                 # Save the model if it improves the mean episode reward sufficiently enough
                 # save(parameters=parameters, save_data=save_data, policy=policy, critic=critic)
-                pool.submit(save, parameters, save_data, policy, critic)
+                multiprocessing.Process(target=save, args=(parameters, save_data, policy, critic)).start()
+                # pool.submit(save, parameters, save_data, policy, critic)
                 # Update the episode reward of the saved model
                 parameters.episode_reward_intermidiate = episode_reward_mean
             else:
                 # Save only the mean episode reward list and parameters
-                parameters.episode_reward_mean_current = parameters.episode_reward_intermidiate
+                # parameters.episode_reward_mean_current = parameters.episode_reward_intermidiate
                 # save(parameters=parameters, save_data=save_data, policy=None, critic=None)
-                pool.submit(save, parameters, save_data, policy, critic)
+                multiprocessing.Process(target=save, args=(parameters, save_data, policy, critic)).start()
+                # pool.submit(save, parameters, save_data, policy, critic)
 
             # print("Fig saved.")
 

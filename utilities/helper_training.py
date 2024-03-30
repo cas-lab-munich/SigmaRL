@@ -477,9 +477,10 @@ def save(parameters: Parameters, save_data: SaveData, policy=None, critic=None):
     plt.plot(save_data.episode_reward_mean_list)
     plt.xlabel("Training iterations")
     plt.ylabel("Episode reward mean")
-    plt.tight_layout() # Set the layout to be tight to minimize white space
+    plt.tight_layout() # Set the layout to be tight to minimize white space !!! deprecated
     plt.savefig(PATH_FIG, format="pdf", bbox_inches="tight")
-    
+    # plt.savefig(PATH_FIG, format="pdf")
+
     # Save models
     if (policy != None) & (critic != None): 
         # Delete models with lower mean episode reward
