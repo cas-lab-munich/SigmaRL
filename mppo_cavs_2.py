@@ -46,18 +46,18 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
 
 # Import custom classes
 from utilities.helper_training import Parameters, SaveData, VmasEnvCustom, SyncDataCollectorCustom, TransformedEnvCustom, get_path_to_save_model, find_the_hightest_reward_among_all_models, save
-from utilities.evaluation import evaluate_outputs
+from utilities.evaluation_road_traffic import evaluate_outputs
 
-from scenarios.car_like_robots_road_traffic_3 import ScenarioRoadTraffic
-from scenarios.car_like_robots_path_tracking import ScenarioPathTracking
-from scenarios.car_like_robots_obstacle_avoidance import ScenarioObstacleAvoidance 
+from scenarios.road_traffic_2 import ScenarioRoadTraffic
+from scenarios.path_tracking import ScenarioPathTracking
+from scenarios.obstacle_avoidance import ScenarioObstacleAvoidance 
 
 
 # Reproducibility
 torch.manual_seed(0)
 
 
-def multiagent_ppo_cavs(parameters: Parameters):
+def mppo_cavs(parameters: Parameters):
     if "road_traffic" in parameters.scenario_name:
         scenario = ScenarioRoadTraffic()
     elif "path_tracking" in parameters.scenario_name:
@@ -65,7 +65,7 @@ def multiagent_ppo_cavs(parameters: Parameters):
     elif "obstacle_avoidance" in parameters.scenario_name:
         scenario = ScenarioObstacleAvoidance()
     else:
-        raise ValueError(f"The given scenario '{parameters.scenario_name}' is not found. Current implementation includes 'car_like_robots_road_traffic' and 'car_like_robots_path_tracking'.")
+        raise ValueError(f"The given scenario '{parameters.scenario_name}' is not found. Current implementation includes 'road_traffic' and 'path_tracking'.")
     
     scenario.parameters = parameters
 
@@ -213,7 +213,7 @@ def multiagent_ppo_cavs(parameters: Parameters):
     # Load an existing model or train a new model?
     if parameters.is_load_model:
         # Load the model with the hightest reward in the folder `parameters.where_to_save`
-        highest_reward = find_the_hightest_reward_among_all_models(parameters=parameters)
+        highest_reward = find_the_hightest_reward_among_all_models(parameters.where_to_save)
         parameters.episode_reward_mean_current = highest_reward # Update the parameter so that the right filename will be returned later on 
         if highest_reward is not float('-inf'):
             print("Offline model exists and will be loaded.")
@@ -409,23 +409,23 @@ def multiagent_ppo_cavs(parameters: Parameters):
 
 
 if __name__ == "__main__":
-    scenario_name = "car_like_robots_road_traffic" # car_like_robots_road_traffic, car_like_robots_path_tracking, car_like_robots_obstacle_avoidance
+    scenario_name = "road_traffic" # road_traffic, path_tracking, obstacle_avoidance
     
     parameters = Parameters(
-        n_agents=10,
+        n_agents=4,
         dt=0.05, # [s] sample time 
         device="cpu" if not torch.backends.cuda.is_built() else "cuda:0",  # The divice where learning is run
         scenario_name=scenario_name,
         
         # Training parameters
-        n_iters=500, # Number of sampling and training iterations (on-policy: rollouts are collected during sampling phase, which will be immediately used in the training phase of the same iteration),
+        n_iters=250, # Number of sampling and training iterations (on-policy: rollouts are collected during sampling phase, which will be immediately used in the training phase of the same iteration),
         frames_per_batch=2**12, # Number of team frames collected per training iteration 
                                 # num_envs = frames_per_batch / max_steps
                                 # total_frames = frames_per_batch * n_iters
                                 # sub_batch_size = frames_per_batch // minibatch_size
         num_epochs=60, # Optimization steps per batch of data collected,
         minibatch_size=2**9, # Size of the mini-batches in each optimization step (2**9 - 2**12?),
-        lr=2e-4, # Learning rate,
+        lr=4e-4, # Learning rate,
         lr_min=1e-5, # Learning rate,
         max_grad_norm=1.0, # Maximum norm for the gradients,
         clip_epsilon=0.2, # clip value for PPO loss,
@@ -433,7 +433,7 @@ if __name__ == "__main__":
         lmbda=0.9, # lambda for generalised advantage estimation,
         entropy_eps=1e-4, # coefficient of the entropy term in the PPO loss,
         max_steps=2**7, # Episode steps before done
-        training_strategy='3', # One of {'1', '2', '3', '4'}. 1 for vanilla, 2 for vanilla with prioritized replay buffer, 3 for vanilla with challenging initial state buffer, 4 for mixed training
+        training_strategy='2', # One of {'1', '2', '3', '4'}. 1 for vanilla, 2 for vanilla with prioritized replay buffer, 3 for vanilla with challenging initial state buffer, 4 for mixed training
         
         is_save_intermidiate_model=True, # Is this is true, the model with the hightest mean episode reward will be saved,
         
@@ -444,7 +444,7 @@ if __name__ == "__main__":
         mode_name=None, 
         episode_reward_intermidiate=-1e3, # The initial value should be samll enough
         
-        where_to_save=f"outputs/{scenario_name}_ppo/0329_strategy_3/", # folder where to save the trained models, fig, data, etc.
+        where_to_save=f"outputs/{scenario_name}_ppo/0330_strategy_2_4/", # folder where to save the trained models, fig, data, etc.
 
         # Scenario parameters
         is_partial_observation=True,
@@ -460,7 +460,7 @@ if __name__ == "__main__":
         is_save_eval_results=True,
         
         ############################################
-        # For car_like_robots_path_tracking only
+        # For path_tracking only
         ############################################
         path_tracking_type='sine', # [relevant to path-tracking scenarios] should be one of 'line', 'turning', 'circle', 'sine', and 'horizontal_8'
         obstacle_type="static", # [relevant for obstacle-avoidance scenarios] should be one of "static" and "dynamic"
@@ -468,7 +468,7 @@ if __name__ == "__main__":
         is_dynamic_goal_reward=False, # set to True if the goal reward is dynamically adjusted based on the performance of agents' history trajectories 
 
         ############################################
-        # For car_like_robots_obstacle_avoidance only
+        # For obstacle_avoidance only
         ############################################
         is_observe_corners=False,
 
@@ -479,7 +479,7 @@ if __name__ == "__main__":
     if parameters.training_strategy == "2":
         parameters.is_prb=True
         
-    env, policy, parameters = multiagent_ppo_cavs(parameters=parameters)
+    env, policy, parameters = mppo_cavs(parameters=parameters)
 
     # Evaluate the model
     with torch.no_grad():

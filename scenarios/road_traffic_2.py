@@ -130,7 +130,7 @@ colors = [
 
 class ScenarioRoadTraffic(BaseScenario):
     def make_world(self, batch_dim: int, device: torch.device, **kwargs):
-        print("[DEBUG] make_world() car_like_robots_road_traffic")
+        print("[DEBUG] make_world() road_traffic")
         # device = torch.device("mps") # For mac with m chip to use GPU acceleration (however, seems not be fully supported by VMAS)
         self.shared_reward = kwargs.get("shared_reward", False)
         
@@ -859,9 +859,10 @@ class ScenarioRoadTraffic(BaseScenario):
         ##################################################
         # TODO Check if this reward is necessary        
         v_proj = torch.sum(agent.state.vel.unsqueeze(1) * ref_points_vecs, dim=-1).mean(-1)
+        factor_moving_direction = torch.where(v_proj>0, 1, 2) # Get penalty if move in negative direction
         
         v_proj_clamped = torch.where(agents_no_reward_indices, torch.clamp(v_proj, max=0), v_proj)
-        reward_vel = v_proj_clamped / agent.max_speed * self.rewards.higth_v
+        reward_vel = factor_moving_direction * v_proj_clamped / agent.max_speed * self.rewards.higth_v
         self.rew += reward_vel
 
         ##################################################
@@ -928,11 +929,10 @@ class ScenarioRoadTraffic(BaseScenario):
         ##################################################
         ## [penalty/reward] time
         ##################################################
-        # TODO Check if this is necessary
-        # Get time reward proportional to positive speed
-        time_reward = (v_proj > 0) * agent.state.vel.norm(dim=-1) / agent.max_speed * self.penalties.time
+        # Get time reward if moving in positive direction; otherwise get time penalty
+        time_reward = torch.where(v_proj>0, 1, -1) * agent.state.vel.norm(dim=-1) / agent.max_speed * self.penalties.time
         self.rew += time_reward
-
+        
         # [update] previous positions and short-term reference paths
         if agent_index == (self.n_agents - 1): # Avoid repeated updating
             state_add = torch.cat(

@@ -1195,7 +1195,7 @@ class ScenarioObstacleAvoidance(BaseScenario):
             pass
         
 if __name__ == "__main__":
-    scenario_name = "car_like_robots_path_tracking" # car_like_robots_road_traffic, car_like_robots_go_to_formation, car_like_robots_path_tracking
+    scenario_name = "path_tracking" # road_traffic, go_to_formation, path_tracking
     parameters = Parameters(
         n_agents=4,
         dt=0.1, # [s] sample time 

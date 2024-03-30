@@ -255,64 +255,67 @@ class SyncDataCollectorCustom(SyncDataCollector):
 class Parameters():
     def __init__(self,
                 # General parameters
-                n_agents: int = None,       # Number of agents
-                dt: float = None,           # [s] sample time
-                device: str = None,         # Tensor device
-                scenario_name: str = None,
+                n_agents: int = 4,       # Number of agents
+                dt: float = 0.05,           # [s] sample time
+                device: str = "cpu",         # Tensor device
+                scenario_name: str = "road_traffic",
                 
                 # Training parameters
-                n_iters: int = None,            # Number of iterations
-                frames_per_batch: int = None, 
-                num_epochs: int = None,
-                minibatch_size: int = None,
-                lr: float = None,               # Learning rate
-                lr_min: float = None,           # Minimum learning rate (used for scheduling of learning rate)
-                max_grad_norm: float = None,
-                clip_epsilon: float = None,
-                gamma: float = None,
-                lmbda: float = None,
-                entropy_eps: float = None,
-                max_steps: int = None,
+                n_iters: int = 250,            # Number of iterations
+                frames_per_batch: int = 2**12,
+                num_epochs: int = 60,
+                minibatch_size: int = 2**9,
+                lr: float = 2e-4,               # Learning rate
+                lr_min: float = 1e-5,           # Minimum learning rate (used for scheduling of learning rate)
+                max_grad_norm: float = 1.0,
+                clip_epsilon: float = 0.2,
+                gamma: float = 0.99,
+                lmbda: float = 0.9,
+                entropy_eps: float = 1e-4,
+                max_steps: int = 2**7,
                 total_frames: int = None,
                 num_vmas_envs: int = None,      # Number of vectorized environments
-                training_strategy: str = None,
+                training_strategy: str = "4",
                 
-                # Scenario parameters
-                is_mixed_scenario_training: bool = None,    # Whether to use mixed scenarios durining training
-
-                episode_reward_mean_current: float = None,  # Achieved mean episode reward (total/n_agents)
-                episode_reward_intermidiate: float = None,  
+                episode_reward_mean_current: float = 0.00,  # Achieved mean episode reward (total/n_agents)
+                episode_reward_intermidiate: float = -1e3, # A arbitrary, small initial value
                 
                 # Observation
-                is_partial_observation: bool = None,
-                is_global_coordinate_sys: bool = None,      # Global or local coordinate system
-                n_points_short_term: int = None,            # Number of points that build a short-term reference path
-                is_use_intermediate_goals: bool = None,     # If True, intermediate goals will be used, serving as reward shaping; otherwise, only a final goal will be used
-                n_nearing_agents_observed: int = None,      # Number of nearing agents to be observed (consider limited sensor range)
-                n_nearing_obstacles_observed: int = None,   # Number of nearing obstacles to be observed (consider limited sensor range)
-                is_observe_corners: bool = None,            # If True, corners of agents/obstacles will be observed; otherwise, the center point and rotation angle.
+                is_partial_observation: bool = True,
+                is_global_coordinate_sys: bool = False,      # Global or local coordinate system
+                n_points_short_term: int = 3,            # Number of points that build a short-term reference path
+                n_nearing_agents_observed: int = 2,      # Number of nearing agents to be observed (consider limited sensor range)
+                n_nearing_obstacles_observed: int = 4,   # Number of nearing obstacles to be observed (consider limited sensor range)
+                is_observe_corners: bool = False,            # If True, corners of agents/obstacles will be observed; otherwise, the center point and rotation angle.
 
-                is_testing_mode: bool = None,               # In testing mode, collisions do not terminate the current simulation
-                is_visualize_short_term_path: bool = None,
+                is_testing_mode: bool = False,               # In testing mode, collisions do not terminate the current simulation
+                is_visualize_short_term_path: bool = True,
                 
                 
                 # Save/Load
-                is_save_intermidiate_model: bool = None,
-                is_load_model: bool = None,
+                is_save_intermidiate_model: bool = True,
+                is_load_model: bool = False,
                 mode_name: str = None,
-                where_to_save: str = None,
-                is_continue_train: bool = None,             # Whether to continue training after loading an offline model
-                is_save_eval_results: bool = None,
-                is_load_out_td: bool = None,
+                where_to_save: str = "outputs/",
+                is_continue_train: bool = False,             # Whether to continue training after loading an offline model
+                is_save_eval_results: bool = True,
+                is_load_out_td: bool = False,
                 
-                is_real_time_rendering: bool = None,        # Simulation will be paused at each time step for a certain duration to enable real-time rendering
+                is_real_time_rendering: bool = False,        # Simulation will be paused at each time step for a certain duration to enable real-time rendering
+                is_prb: bool = False,
 
-                path_tracking_type: str = None,             # For path-tracking scenarios
-                is_dynamic_goal_reward: bool = None,        # TODO Adjust the goal reward based on how well agents achieve their goals
-
-                obstacle_type: str = None,                  # For obstacle-avoidance scenarios
-
-                is_prb: bool = None
+                ############################################
+                ## Only for path-tracking scenario
+                ############################################
+                is_mixed_scenario_training: bool = True,    # Whether to use mixed scenarios durining training
+                is_use_intermediate_goals: bool = False,     # If True, intermediate goals will be used, serving as reward shaping; otherwise, only a final goal will be used
+                path_tracking_type: str = "sine",             # For path-tracking scenarios
+                is_dynamic_goal_reward: bool = False,        # TODO Adjust the goal reward based on how well agents achieve their goals
+                
+                ############################################
+                ## Only for obstacle-avoidance scenario
+                ############################################
+                obstacle_type: str = "static",                  # For obstacle-avoidance scenarios
                 ):
         
         self.n_agents = n_agents
@@ -435,18 +438,14 @@ def delete_model_with_lower_mean_reward(parameters:Parameters):
                 # Delete the saved model if its performance is worse
                 os.remove(os.path.join(parameters.where_to_save, file_name))
 
-def find_the_hightest_reward_among_all_models(parameters:Parameters):
+def find_the_hightest_reward_among_all_models(path):
     """This function returns the hightest reward of the models stored in folder `parameters.where_to_save`"""
     # Initialize variables to track the highest reward and corresponding model
     highest_reward = float('-inf')
     
-    # if "path_tracking" in parameters.scenario_name:
-    #     pattern = rf'{parameters.path_tracking_type}_reward(-?[0-9]*\.?[0-9]+)_'
-    # else:
-    #     pattern = r'reward(-?[0-9]*\.?[0-9]+)_'
     pattern = r'reward(-?[0-9]*\.?[0-9]+)_'
     # Iterate through the files in the directory
-    for filename in os.listdir(parameters.where_to_save):
+    for filename in os.listdir(path):
         match = re.search(pattern, filename)
         if match:
             # Extract the reward and convert it to float

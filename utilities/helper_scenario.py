@@ -260,7 +260,6 @@ class InitialStateBuffer(CircularBuffer):
         else:
             # Random index based on the current size of the buffer
             random_index = torch.randint(0, self.valid_size, ())
-            print(f"Random buffer: {random_index}")
 
             return self.buffer[random_index]
 

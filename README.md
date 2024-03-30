@@ -18,11 +18,11 @@ git config --global user.email "you-email-address"
 ```
 
 ## How to Use
-1. Open `multiagent_ppo_cavs.py` (you can find it at the root directory)
+1. Open `mppo_cavs.py` (you can find it at the root directory)
 2. Scroll down to the bottom
 3. Adjust the parameter `scenario_name`. You can find all available scenarios at the folder `scenarios`
-    - Currently I am working on `scenarios/car_like_robots_path_tracking.py`, where multiple simply scenarios are presented. 
-    - Final goal is to have a well-trained MARL model that masters the scenario in `scenarios/car_like_robots_road_traffic.py`.
+    - Currently I am working on `scenarios/path_tracking.py`, where multiple simply scenarios are presented. 
+    - Final goal is to have a well-trained MARL model that masters the scenario in `scenarios/road_traffic.py`.
 
 
 ## Logs
