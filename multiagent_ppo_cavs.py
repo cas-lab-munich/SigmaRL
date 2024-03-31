@@ -17,6 +17,7 @@ from torchrl.data.replay_buffers import ReplayBuffer
 from torchrl.data import PrioritizedReplayBuffer, TensorDictReplayBuffer
 from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement, PrioritizedSampler
 from torchrl.data.replay_buffers.storages import LazyTensorStorage, ListStorage
+from utilities.CustomPERLoss import CustomPERLoss
 
 # Env
 from torchrl.envs import RewardSum
@@ -262,6 +263,15 @@ def multiagent_ppo_cavs(parameters: Parameters):
         batch_size=parameters.minibatch_size,  # We will sample minibatches of this size
     )
 
+    loss_module = ClipPPOLoss(
+        actor=policy,
+        critic=critic,
+        clip_epsilon=parameters.clip_epsilon,
+        entropy_coef=parameters.entropy_eps,
+        normalize_advantage=False,  # Important to avoid normalizing across the agent dimension
+    )
+
+    # Prioritized Experience Replay approach
     if parameters.is_prb:
         print(f"Enabled Prioritized Replay Buffer")
         replay_buffer = PrioritizedReplayBuffer(
@@ -273,13 +283,14 @@ def multiagent_ppo_cavs(parameters: Parameters):
             batch_size=parameters.minibatch_size
         )
 
-    loss_module = ClipPPOLoss(
-        actor=policy,
-        critic=critic,
-        clip_epsilon=parameters.clip_epsilon,
-        entropy_coef=parameters.entropy_eps,
-        normalize_advantage=False,  # Important to avoid normalizing across the agent dimension
-    )
+        loss_module = CustomPERLoss(
+            actor=policy,
+            critic=critic,
+            clip_epsilon=parameters.clip_epsilon,
+            entropy_coef=parameters.entropy_eps,
+            normalize_advantage=False,  # Important to avoid normalizing across the agent dimension
+        )
+
     loss_module.set_keys(  # We have to tell the loss where to find the keys
         reward=env.reward_key,
         action=env.action_key,
@@ -327,25 +338,16 @@ def multiagent_ppo_cavs(parameters: Parameters):
 
         data_view = tensordict_data.reshape(-1)  # Flatten the batch size to shuffle data
         replay_buffer.extend(data_view)
-        # print(f"tensordict shape:{tensordict_data.shape}")
-        # print(f"data view shape:{data_view.shape}")
-        # print(data_view)
 
         for _ in range(parameters.num_epochs):
-            # print("[DEBUG] for _ in range(parameters.num_epochs):")
             for _ in range(parameters.frames_per_batch // parameters.minibatch_size):
                 # sample a batch of data
                 data,  info = replay_buffer.sample(return_info=True)
-                # print(f"indices: {info.get('index')}")
-                # print(f"size of indices: {len(info.get('index'))}")
 
-                loss_vals = loss_module(data)
+                loss_vals, abs_error = loss_module(data)
 
                 if parameters.is_prb:
-                    updated_priority = loss_vals["loss_critic"] * torch.ones(len(info.get('index')))
-                    # print(f"size of updated_priority: {len(updated_priority)}")
-                    # print(torch.asarray(updated_priority))
-                    replay_buffer.update_priority(index=info.get('index'), priority=updated_priority)
+                    replay_buffer.update_priority(index=info.get('index'), priority=abs_error)
 
                 loss_value = (
                     loss_vals["loss_objective"]
@@ -386,19 +388,15 @@ def multiagent_ppo_cavs(parameters: Parameters):
 
             if episode_reward_mean > parameters.episode_reward_intermidiate:
                 # Save the model if it improves the mean episode reward sufficiently enough
-                # save(parameters=parameters, save_data=save_data, policy=policy, critic=critic)
-                multiprocessing.Process(target=save, args=(parameters, save_data, policy, critic)).start()
-                # pool.submit(save, parameters, save_data, policy, critic)
+                save(parameters=parameters, save_data=save_data, policy=policy, critic=critic)
+                # multiprocessing.Process(target=save, args=(parameters, save_data, policy, critic)).start()
                 # Update the episode reward of the saved model
                 parameters.episode_reward_intermidiate = episode_reward_mean
             else:
                 # Save only the mean episode reward list and parameters
                 # parameters.episode_reward_mean_current = parameters.episode_reward_intermidiate
-                # save(parameters=parameters, save_data=save_data, policy=None, critic=None)
-                multiprocessing.Process(target=save, args=(parameters, save_data, policy, critic)).start()
-                # pool.submit(save, parameters, save_data, policy, critic)
-
-            # print("Fig saved.")
+                save(parameters=parameters, save_data=save_data, policy=None, critic=None)
+                # multiprocessing.Process(target=save, args=(parameters, save_data, policy, critic)).start()
 
         # Learning rate schedule
         for param_group in optim.param_groups:
