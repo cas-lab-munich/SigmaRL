@@ -1,6 +1,8 @@
 # Adapted from https://pytorch.org/rl/tutorials/multiagent_ppo.html
 import time
-from concurrent.futures import ThreadPoolExecutor
+import multiprocessing
+
+from termcolor import colored, cprint
 
 # Torch
 import torch
@@ -17,6 +19,7 @@ from torchrl.data.replay_buffers import ReplayBuffer
 from torchrl.data import PrioritizedReplayBuffer, TensorDictReplayBuffer
 from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement, PrioritizedSampler
 from torchrl.data.replay_buffers.storages import LazyTensorStorage, ListStorage
+from utilities.CustomPERLoss import CustomPERLoss
 
 # Env
 from torchrl.envs import RewardSum
@@ -45,8 +48,7 @@ plt.style.use(['science','ieee']) # The science + ieee styles for IEEE papers (c
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
 
 # Import custom classes
-from utilities.helper_training import Parameters, SaveData, VmasEnvCustom, SyncDataCollectorCustom, TransformedEnvCustom, get_path_to_save_model, find_the_hightest_reward_among_all_models, save
-from utilities.evaluation_road_traffic import evaluate_outputs
+from utilities.helper_training import Parameters, SaveData, VmasEnvCustom, SyncDataCollectorCustom, TransformedEnvCustom, get_path_to_save_model, find_the_highest_reward_among_all_models, save
 
 from scenarios.road_traffic import ScenarioRoadTraffic
 from scenarios.path_tracking import ScenarioPathTracking
@@ -129,7 +131,7 @@ def mppo_cavs(parameters: Parameters):
     )
 
 
-    print("policy_net:", policy_net, "\n")
+    # print("policy_net:", policy_net, "\n")
 
     policy_module = TensorDictModule(
         policy_net,
@@ -197,7 +199,7 @@ def mppo_cavs(parameters: Parameters):
         out_keys=[("agents", "state_value")],
     )
 
-    print("critic_net:", critic_net, "\n")
+    # print("critic_net:", critic_net, "\n")
     # print("Running policy:", policy(env.reset()), "\n")
     # print("Running value:", critic(env.reset()), "\n")
 
@@ -205,29 +207,33 @@ def mppo_cavs(parameters: Parameters):
     # Check if the directory defined to store the model exists and create it if not
     if not os.path.exists(parameters.where_to_save):
         os.makedirs(parameters.where_to_save)
-        print(f"A new directory ({parameters.where_to_save}) to save the trained models has been created.")
+        print(colored("[INFO] Created a new directory to save the trained model:", "black"), colored(f"{parameters.where_to_save}", "blue"))
         
     # Specify a path
      
     
     # Load an existing model or train a new model?
     if parameters.is_load_model:
-        # Load the model with the hightest reward in the folder `parameters.where_to_save`
-        highest_reward = find_the_hightest_reward_among_all_models(parameters.where_to_save)
+        # Load the model with the highest reward in the folder `parameters.where_to_save`
+        highest_reward = find_the_highest_reward_among_all_models(parameters.where_to_save)
         parameters.episode_reward_mean_current = highest_reward # Update the parameter so that the right filename will be returned later on 
         if highest_reward is not float('-inf'):
-            print("Offline model exists and will be loaded.")
-            PATH_POLICY, PATH_CRITIC, PATH_FIG, PATH_JSON = get_path_to_save_model(parameters=parameters)
-            # Load the saved model state dictionaries
-            policy.load_state_dict(torch.load(PATH_POLICY))
+            if parameters.is_load_final_model:
+                policy.load_state_dict(torch.load(parameters.where_to_save + "final_policy.pth"))
+                print(colored("[INFO] Loaded the final model (instead of the intermediate model with the highest episode reward)", "red"))
+            else:
+                PATH_POLICY, PATH_CRITIC, PATH_FIG, PATH_JSON = get_path_to_save_model(parameters=parameters)
+                # Load the saved model state dictionaries
+                policy.load_state_dict(torch.load(PATH_POLICY))
+                print(colored("[INFO] Loaded the intermediate model with the highest episode reward", "blue"))
         else:
             raise ValueError("There is no model stored in '{parameters.where_to_save}', or the model names stored here are not following the right pattern.")
 
         if not parameters.is_continue_train:
-            print("Training will not continue.")
+            print(colored("[INFO] Training will not continue.", "blue"))
             return env, policy, parameters
         else:
-            print("Training will continue with the loaded model.")
+            print(colored("[INFO] Training will continue with the loaded model.", "red"))
             critic.load_state_dict(torch.load(PATH_CRITIC))
 
     # collector = SyncDataCollector(
@@ -249,7 +255,7 @@ def mppo_cavs(parameters: Parameters):
     )
 
     if parameters.is_prb:
-        print("\033[91mPrioritized Replay Buffer enabled.\033[0m") # Print in red
+        print(colored("Enable Prioritized Replay Buffer", "red"))
         replay_buffer = TensorDictReplayBuffer(
             storage=ListStorage(parameters.frames_per_batch),
             sampler=PrioritizedSampler(parameters.frames_per_batch, alpha=0.8, beta=1.1),
@@ -368,7 +374,7 @@ def mppo_cavs(parameters: Parameters):
             # Update the current mean episode reward
             parameters.episode_reward_mean_current = episode_reward_mean
             save_data.episode_reward_mean_list = episode_reward_mean_list
-
+            
             if episode_reward_mean > parameters.episode_reward_intermidiate:
                 # Save the model if it improves the mean episode reward sufficiently enough
                 save(parameters=parameters, save_data=save_data, policy=policy, critic=critic)
@@ -381,8 +387,6 @@ def mppo_cavs(parameters: Parameters):
                 save(parameters=parameters, save_data=save_data, policy=None, critic=None)
                 # pool.submit(save, parameters, save_data, policy, critic)
 
-            # print("Fig saved.")
-
         # Learning rate schedule
         for param_group in optim.param_groups:
             # Linear decay to lr_min
@@ -394,38 +398,31 @@ def mppo_cavs(parameters: Parameters):
         pbar.update()
         
     # Save the final model
-    if not parameters.is_save_intermidiate_model:
-        # Update the current mean episode reward
-        parameters.episode_reward_mean_current = episode_reward_mean
-        save_data.episode_reward_mean_list = episode_reward_mean_list
-
-        save(parameters=parameters, save_data=save_data, policy=policy, critic=critic)
-        print("Final model saved.")
-        
-    print(f"All files have been saved under {parameters.where_to_save + parameters.mode_name}.")
+    torch.save(policy.state_dict(), parameters.where_to_save + "final_policy.pth")
+    torch.save(critic.state_dict(), parameters.where_to_save + "final_critic.pth")
+    print(colored("[INFO] All files have been saved under:", "black"), colored(f"{parameters.where_to_save}", "red"))
     # plt.show()
     
     return env, policy, parameters
-
 
 if __name__ == "__main__":
     scenario_name = "road_traffic" # road_traffic, path_tracking, obstacle_avoidance
     
     parameters = Parameters(
-        n_agents=10,
+        n_agents=4,
         dt=0.05, # [s] sample time 
         device="cpu" if not torch.backends.cuda.is_built() else "cuda:0",  # The divice where learning is run
         scenario_name=scenario_name,
         
         # Training parameters
-        n_iters=500, # Number of sampling and training iterations (on-policy: rollouts are collected during sampling phase, which will be immediately used in the training phase of the same iteration),
+        n_iters=250, # Number of sampling and training iterations (on-policy: rollouts are collected during sampling phase, which will be immediately used in the training phase of the same iteration),
         frames_per_batch=2**12, # Number of team frames collected per training iteration 
                                 # num_envs = frames_per_batch / max_steps
                                 # total_frames = frames_per_batch * n_iters
                                 # sub_batch_size = frames_per_batch // minibatch_size
         num_epochs=60, # Optimization steps per batch of data collected,
         minibatch_size=2**9, # Size of the mini-batches in each optimization step (2**9 - 2**12?),
-        lr=4e-4, # Learning rate,
+        lr=2e-4, # Learning rate,
         lr_min=1e-5, # Learning rate,
         max_grad_norm=1.0, # Maximum norm for the gradients,
         clip_epsilon=0.2, # clip value for PPO loss,
@@ -433,18 +430,19 @@ if __name__ == "__main__":
         lmbda=0.9, # lambda for generalised advantage estimation,
         entropy_eps=1e-4, # coefficient of the entropy term in the PPO loss,
         max_steps=2**7, # Episode steps before done
-        training_strategy='1', # One of {'1', '2', '3', '4'}. 1 for vanilla, 2 for vanilla with prioritized replay buffer, 3 for vanilla with challenging initial state buffer, 4 for mixed training
+        training_strategy='4', # One of {'1', '2', '3', '4'}. 1 for vanilla, 2 for vanilla with prioritized replay buffer, 3 for vanilla with challenging initial state buffer, 4 for mixed training
         
-        is_save_intermidiate_model=True, # Is this is true, the model with the hightest mean episode reward will be saved,
+        is_save_intermidiate_model=True, # Is this is true, the model with the highest mean episode reward will be saved,
         
         episode_reward_mean_current=0.00,
         
         is_load_model=False, # Load offline model if available. The offline model in `where_to_save` whose name contains `episode_reward_mean_current` will be loaded
+        is_load_final_model=False, # Whether to load the final model instead of the intermidiate model with the highest episode reward
         is_continue_train=False, # If offline models are loaded, whether to continue to train the model
         mode_name=None, 
         episode_reward_intermidiate=-1e3, # The initial value should be samll enough
         
-        where_to_save=f"outputs/{scenario_name}_ppo/0330_strategy_1/", # folder where to save the trained models, fig, data, etc.
+        where_to_save=f"outputs/{scenario_name}_ppo/strategy_4_test/", # folder where to save the trained models, fig, data, etc.
 
         # Scenario parameters
         is_partial_observation=True,
@@ -459,6 +457,12 @@ if __name__ == "__main__":
         
         is_save_eval_results=True,
         
+        is_prb=False, # Whether to enable prioritized replay buffer
+        
+        is_observe_boundary_points=False,
+        is_apply_mask=True,
+        is_use_mtv_distance=True,
+
         ############################################
         # For path_tracking only
         ############################################
@@ -470,10 +474,7 @@ if __name__ == "__main__":
         ############################################
         # For obstacle_avoidance only
         ############################################
-        is_observe_corners=False,
-
-        # Whether to enable prioritized replay buffer
-        is_prb=False
+        is_observe_corners=False,        
     )
     
     if parameters.training_strategy == "2":
@@ -490,5 +491,5 @@ if __name__ == "__main__":
             auto_cast_to_device=True,
             break_when_any_done=True,
         )
-    # evaluate_outputs(out_td=out_td, parameters=parameters, agent_width=env.scenario.world.agents[0].shape.width)
+
     

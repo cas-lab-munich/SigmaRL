@@ -1215,7 +1215,7 @@ if __name__ == "__main__":
         entropy_eps=4e-4, # coefficient of the entropy term in the PPO loss,
         max_steps=2**8, # Episode steps before done (512)
         
-        is_save_intermidiate_model=True, # Is this is true, the model with the hightest mean episode reward will be saved,
+        is_save_intermidiate_model=True, # Is this is true, the model with the highest mean episode reward will be saved,
 
         episode_reward_mean_current=0.00,
         

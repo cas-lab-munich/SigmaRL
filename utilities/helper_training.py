@@ -136,7 +136,7 @@ class TransformedEnvCustom(TransformedEnv):
         The data returned will be marked with a "time" dimension name for the last
         dimension of the tensordict (at the ``env.ndim`` index).
         """
-        print("[DEBUG] new env.rollout")
+        # print("[DEBUG] new env.rollout")
         try:
             policy_device = next(policy.parameters()).device
         except (StopIteration, AttributeError):
@@ -280,29 +280,36 @@ class Parameters():
                 episode_reward_mean_current: float = 0.00,  # Achieved mean episode reward (total/n_agents)
                 episode_reward_intermidiate: float = -1e3, # A arbitrary, small initial value
                 
+                is_prb: bool = False,
+                
                 # Observation
+                n_points_short_term: int = 3,            # Number of points that build a short-term reference path
+
                 is_partial_observation: bool = True,
                 is_global_coordinate_sys: bool = False,      # Global or local coordinate system
-                n_points_short_term: int = 3,            # Number of points that build a short-term reference path
                 n_nearing_agents_observed: int = 2,      # Number of nearing agents to be observed (consider limited sensor range)
-                n_nearing_obstacles_observed: int = 4,   # Number of nearing obstacles to be observed (consider limited sensor range)
-                is_observe_corners: bool = False,            # If True, corners of agents/obstacles will be observed; otherwise, the center point and rotation angle.
 
-                is_testing_mode: bool = False,               # In testing mode, collisions do not terminate the current simulation
+                is_observe_boundary_points: bool = False,   # Whether to observe points on lanelet boundaries or observe the distance to labelet boundaries
+                is_observe_corners: bool = False,            # If True, corners of agents/obstacles will be observed; otherwise, the center point and rotation angle.
+                is_observe_distance_to_ref_path: bool = True,
+                is_apply_mask: bool = True,                 # Whether to mask faraway agents
+                is_use_mtv_distance: bool = True,           # Whether to use MTV-based (Minimum Translation Vector) distance or c2c-based (center-to-center) distance.
+                
+                # Visu
                 is_visualize_short_term_path: bool = True,
-                
-                
+                is_real_time_rendering: bool = False,        # Simulation will be paused at each time step for a certain duration to enable real-time rendering
+
                 # Save/Load
                 is_save_intermidiate_model: bool = True,
                 is_load_model: bool = False,
+                is_load_final_model: bool = False,
                 mode_name: str = None,
                 where_to_save: str = "outputs/",
                 is_continue_train: bool = False,             # Whether to continue training after loading an offline model
                 is_save_eval_results: bool = True,
                 is_load_out_td: bool = False,
                 
-                is_real_time_rendering: bool = False,        # Simulation will be paused at each time step for a certain duration to enable real-time rendering
-                is_prb: bool = False,
+                is_testing_mode: bool = False,               # In testing mode, collisions do not terminate the current simulation
 
                 ############################################
                 ## Only for path-tracking scenario
@@ -316,6 +323,7 @@ class Parameters():
                 ## Only for obstacle-avoidance scenario
                 ############################################
                 obstacle_type: str = "static",                  # For obstacle-avoidance scenarios
+                n_nearing_obstacles_observed: int = 4,   # Number of nearing obstacles to be observed (consider limited sensor range)
                 ):
         
         self.n_agents = n_agents
@@ -352,6 +360,7 @@ class Parameters():
 
         self.is_save_intermidiate_model = is_save_intermidiate_model
         self.is_load_model = is_load_model        
+        self.is_load_final_model = is_load_final_model        
         
         self.episode_reward_mean_current = episode_reward_mean_current
         self.episode_reward_intermidiate = episode_reward_intermidiate
@@ -369,6 +378,10 @@ class Parameters():
         
         self.is_testing_mode = is_testing_mode
         self.is_visualize_short_term_path = is_visualize_short_term_path
+        
+        self.is_observe_boundary_points = is_observe_boundary_points
+        self.is_apply_mask = is_apply_mask
+        self.is_use_mtv_distance = is_use_mtv_distance
         
         self.path_tracking_type = path_tracking_type
         self.is_dynamic_goal_reward = is_dynamic_goal_reward
@@ -438,8 +451,8 @@ def delete_model_with_lower_mean_reward(parameters:Parameters):
                 # Delete the saved model if its performance is worse
                 os.remove(os.path.join(parameters.where_to_save, file_name))
 
-def find_the_hightest_reward_among_all_models(path):
-    """This function returns the hightest reward of the models stored in folder `parameters.where_to_save`"""
+def find_the_highest_reward_among_all_models(path):
+    """This function returns the highest reward of the models stored in folder `parameters.where_to_save`"""
     # Initialize variables to track the highest reward and corresponding model
     highest_reward = float('-inf')
     
