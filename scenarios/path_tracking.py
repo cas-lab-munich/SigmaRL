@@ -818,7 +818,7 @@ class ScenarioPathTracking(BaseScenario):
 
 
 if __name__ == "__main__":
-    scenario_name = "car_like_robots_path_tracking" # car_like_robots_road_traffic, car_like_robots_go_to_formation, car_like_robots_path_tracking
+    scenario_name = "path_tracking" # road_traffic, go_to_formation, path_tracking
     parameters = Parameters(
         n_agents=4,
         dt=0.1, # [s] sample time 
@@ -838,7 +838,7 @@ if __name__ == "__main__":
         entropy_eps=4e-4, # coefficient of the entropy term in the PPO loss,
         max_steps=2**7, # Episode steps before done (512)
         
-        is_save_intermidiate_model=True, # Is this is true, the model with the hightest mean episode reward will be saved,
+        is_save_intermidiate_model=True, # Is this is true, the model with the highest mean episode reward will be saved,
         n_nearing_agents_observed=4,
         episode_reward_mean_current=0.00,
         

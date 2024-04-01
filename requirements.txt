@@ -7,3 +7,4 @@ tqdm==4.66.1
 typing_extensions==4.8.0
 vmas==1.3.4
 matplotlib==3.8.2
+termcolor==2.4.0

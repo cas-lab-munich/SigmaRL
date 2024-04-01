@@ -1,6 +1,8 @@
 # Adapted from https://pytorch.org/rl/tutorials/multiagent_ppo.html
 import time
-from concurrent.futures import ThreadPoolExecutor
+import multiprocessing
+
+from termcolor import colored, cprint
 
 # Torch
 import torch
@@ -17,6 +19,7 @@ from torchrl.data.replay_buffers import ReplayBuffer
 from torchrl.data import PrioritizedReplayBuffer, TensorDictReplayBuffer
 from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement, PrioritizedSampler
 from torchrl.data.replay_buffers.storages import LazyTensorStorage, ListStorage
+from utilities.CustomPERLoss import CustomPERLoss
 
 # Env
 from torchrl.envs import RewardSum
@@ -45,19 +48,18 @@ plt.style.use(['science','ieee']) # The science + ieee styles for IEEE papers (c
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
 
 # Import custom classes
-from utilities.helper_training import Parameters, SaveData, VmasEnvCustom, SyncDataCollectorCustom, TransformedEnvCustom, get_path_to_save_model, find_the_hightest_reward_among_all_models, save
-from utilities.evaluation import evaluate_outputs
+from utilities.helper_training import Parameters, SaveData, VmasEnvCustom, SyncDataCollectorCustom, TransformedEnvCustom, get_path_to_save_model, find_the_highest_reward_among_all_models, save
 
-from scenarios.car_like_robots_road_traffic_2 import ScenarioRoadTraffic
-from scenarios.car_like_robots_path_tracking import ScenarioPathTracking
-from scenarios.car_like_robots_obstacle_avoidance import ScenarioObstacleAvoidance 
+from scenarios.road_traffic import ScenarioRoadTraffic
+from scenarios.path_tracking import ScenarioPathTracking
+from scenarios.obstacle_avoidance import ScenarioObstacleAvoidance 
 
 
 # Reproducibility
 torch.manual_seed(0)
 
 
-def multiagent_ppo_cavs(parameters: Parameters):
+def mppo_cavs(parameters: Parameters):
     if "road_traffic" in parameters.scenario_name:
         scenario = ScenarioRoadTraffic()
     elif "path_tracking" in parameters.scenario_name:
@@ -65,7 +67,7 @@ def multiagent_ppo_cavs(parameters: Parameters):
     elif "obstacle_avoidance" in parameters.scenario_name:
         scenario = ScenarioObstacleAvoidance()
     else:
-        raise ValueError(f"The given scenario '{parameters.scenario_name}' is not found. Current implementation includes 'car_like_robots_road_traffic' and 'car_like_robots_path_tracking'.")
+        raise ValueError(f"The given scenario '{parameters.scenario_name}' is not found. Current implementation includes 'road_traffic' and 'path_tracking'.")
     
     scenario.parameters = parameters
 
@@ -129,7 +131,7 @@ def multiagent_ppo_cavs(parameters: Parameters):
     )
 
 
-    print("policy_net:", policy_net, "\n")
+    # print("policy_net:", policy_net, "\n")
 
     policy_module = TensorDictModule(
         policy_net,
@@ -197,7 +199,7 @@ def multiagent_ppo_cavs(parameters: Parameters):
         out_keys=[("agents", "state_value")],
     )
 
-    print("critic_net:", critic_net, "\n")
+    # print("critic_net:", critic_net, "\n")
     # print("Running policy:", policy(env.reset()), "\n")
     # print("Running value:", critic(env.reset()), "\n")
 
@@ -205,29 +207,33 @@ def multiagent_ppo_cavs(parameters: Parameters):
     # Check if the directory defined to store the model exists and create it if not
     if not os.path.exists(parameters.where_to_save):
         os.makedirs(parameters.where_to_save)
-        print(f"A new directory ({parameters.where_to_save}) to save the trained models has been created.")
+        print(colored("[INFO] Created a new directory to save the trained model:", "black"), colored(f"{parameters.where_to_save}", "blue"))
         
     # Specify a path
      
     
     # Load an existing model or train a new model?
     if parameters.is_load_model:
-        # Load the model with the hightest reward in the folder `parameters.where_to_save`
-        highest_reward = find_the_hightest_reward_among_all_models(parameters=parameters)
+        # Load the model with the highest reward in the folder `parameters.where_to_save`
+        highest_reward = find_the_highest_reward_among_all_models(parameters.where_to_save)
         parameters.episode_reward_mean_current = highest_reward # Update the parameter so that the right filename will be returned later on 
         if highest_reward is not float('-inf'):
-            print("Offline model exists and will be loaded.")
-            PATH_POLICY, PATH_CRITIC, PATH_FIG, PATH_JSON = get_path_to_save_model(parameters=parameters)
-            # Load the saved model state dictionaries
-            policy.load_state_dict(torch.load(PATH_POLICY))
+            if parameters.is_load_final_model:
+                policy.load_state_dict(torch.load(parameters.where_to_save + "final_policy.pth"))
+                print(colored("[INFO] Loaded the final model (instead of the intermediate model with the highest episode reward)", "red"))
+            else:
+                PATH_POLICY, PATH_CRITIC, PATH_FIG, PATH_JSON = get_path_to_save_model(parameters=parameters)
+                # Load the saved model state dictionaries
+                policy.load_state_dict(torch.load(PATH_POLICY))
+                print(colored("[INFO] Loaded the intermediate model with the highest episode reward", "blue"))
         else:
             raise ValueError("There is no model stored in '{parameters.where_to_save}', or the model names stored here are not following the right pattern.")
 
         if not parameters.is_continue_train:
-            print("Training will not continue.")
+            print(colored("[INFO] Training will not continue.", "blue"))
             return env, policy, parameters
         else:
-            print("Training will continue with the loaded model.")
+            print(colored("[INFO] Training will continue with the loaded model.", "red"))
             critic.load_state_dict(torch.load(PATH_CRITIC))
 
     # collector = SyncDataCollector(
@@ -249,12 +255,21 @@ def multiagent_ppo_cavs(parameters: Parameters):
     )
 
     if parameters.is_prb:
-        print("\033[91mPrioritized Replay Buffer enabled.\033[0m") # Print in red
-        replay_buffer = TensorDictReplayBuffer(
-            storage=ListStorage(parameters.frames_per_batch),
-            sampler=PrioritizedSampler(parameters.frames_per_batch, alpha=0.8, beta=1.1),
-            # priority_key="td_error",
-            batch_size=parameters.minibatch_size,
+        print(colored("Enable Prioritized Replay Buffer", "red"))
+        replay_buffer = PrioritizedReplayBuffer(
+            alpha=0.7,
+            beta=0.9,
+            storage=LazyTensorStorage(
+                parameters.frames_per_batch, device=parameters.device
+            ),
+            batch_size=parameters.minibatch_size
+        )
+        loss_module = CustomPERLoss(
+            actor=policy,
+            critic=critic,
+            clip_epsilon=parameters.clip_epsilon,
+            entropy_coef=parameters.entropy_eps,
+            normalize_advantage=False,  # Important to avoid normalizing across the agent dimension
         )
     else:
         replay_buffer = ReplayBuffer(
@@ -265,13 +280,13 @@ def multiagent_ppo_cavs(parameters: Parameters):
             batch_size=parameters.minibatch_size,  # We will sample minibatches of this size
         )
 
-    loss_module = ClipPPOLoss(
-        actor=policy,
-        critic=critic,
-        clip_epsilon=parameters.clip_epsilon,
-        entropy_coef=parameters.entropy_eps,
-        normalize_advantage=False,  # Important to avoid normalizing across the agent dimension
-    )
+        loss_module = ClipPPOLoss(
+            actor=policy,
+            critic=critic,
+            clip_epsilon=parameters.clip_epsilon,
+            entropy_coef=parameters.entropy_eps,
+            normalize_advantage=False,  # Important to avoid normalizing across the agent dimension
+        )
     loss_module.set_keys(  # We have to tell the loss where to find the keys
         reward=env.reward_key,
         action=env.action_key,
@@ -289,10 +304,9 @@ def multiagent_ppo_cavs(parameters: Parameters):
     GAE = loss_module.value_estimator # Generalized Advantage Estimation 
 
     optim = torch.optim.Adam(loss_module.parameters(), parameters.lr)
-    # scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=100, parameters.gamma=0.1)
 
 
-    pbar = tqdm(total=parameters.n_iters, desc="episode_reward_mean = 0")
+    pbar = tqdm(total=parameters.n_iters, desc="epi_rew_mean = 0")
 
     episode_reward_mean_list = []
 
@@ -324,19 +338,21 @@ def multiagent_ppo_cavs(parameters: Parameters):
         for _ in range(parameters.num_epochs):
             # print("[DEBUG] for _ in range(parameters.num_epochs):")
             for _ in range(parameters.frames_per_batch // parameters.minibatch_size):
-                subdata = replay_buffer.sample()
-                loss_vals = loss_module(subdata)
+                # sample a batch of data
+                data,  info = replay_buffer.sample(return_info=True)
 
                 if parameters.is_prb:
-                    replay_buffer.update_tensordict_priority(subdata)
+                    loss_vals, abs_error = loss_module(data)
+                    replay_buffer.update_priority(index=info.get('index'), priority=abs_error)
+                else:
+                    loss_vals = loss_module(data)
+
 
                 loss_value = (
                     loss_vals["loss_objective"]
                     + loss_vals["loss_critic"]
                     + loss_vals["loss_entropy"]
                 )
-                
-                # print(loss_value)
                 
                 assert not loss_value.isnan().any()
                 assert not loss_value.isinf().any()
@@ -373,6 +389,7 @@ def multiagent_ppo_cavs(parameters: Parameters):
                 # Save the model if it improves the mean episode reward sufficiently enough
                 save(parameters=parameters, save_data=save_data, policy=policy, critic=critic)
                 # pool.submit(save, parameters, save_data, policy, critic)
+                # multiprocessing.Process(target=save, args=(parameters, save_data, policy, critic)).start()
                 # Update the episode reward of the saved model
                 parameters.episode_reward_intermidiate = episode_reward_mean
             else:
@@ -380,6 +397,7 @@ def multiagent_ppo_cavs(parameters: Parameters):
                 parameters.episode_reward_mean_current = parameters.episode_reward_intermidiate
                 save(parameters=parameters, save_data=save_data, policy=None, critic=None)
                 # pool.submit(save, parameters, save_data, policy, critic)
+                # multiprocessing.Process(target=save, args=(parameters, save_data, policy, critic)).start()
 
             # print("Fig saved.")
 
@@ -394,31 +412,24 @@ def multiagent_ppo_cavs(parameters: Parameters):
         pbar.update()
         
     # Save the final model
-    if not parameters.is_save_intermidiate_model:
-        # Update the current mean episode reward
-        parameters.episode_reward_mean_current = episode_reward_mean
-        save_data.episode_reward_mean_list = episode_reward_mean_list
-
-        save(parameters=parameters, save_data=save_data, policy=policy, critic=critic)
-        print("Final model saved.")
-        
-    print(f"All files have been saved under {parameters.where_to_save + parameters.mode_name}.")
+    torch.save(policy.state_dict(), parameters.where_to_save + "final_policy.pth")
+    torch.save(critic.state_dict(), parameters.where_to_save + "final_critic.pth")
+    print(colored("[INFO] All files have been saved under:", "black"), colored(f"{parameters.where_to_save}", "red"))
     # plt.show()
     
     return env, policy, parameters
 
-
 if __name__ == "__main__":
-    scenario_name = "car_like_robots_road_traffic" # car_like_robots_road_traffic, car_like_robots_path_tracking, car_like_robots_obstacle_avoidance
+    scenario_name = "road_traffic" # road_traffic, path_tracking, obstacle_avoidance
     
     parameters = Parameters(
-        n_agents=10,
+        n_agents=4,
         dt=0.05, # [s] sample time 
         device="cpu" if not torch.backends.cuda.is_built() else "cuda:0",  # The divice where learning is run
         scenario_name=scenario_name,
         
         # Training parameters
-        n_iters=500, # Number of sampling and training iterations (on-policy: rollouts are collected during sampling phase, which will be immediately used in the training phase of the same iteration),
+        n_iters=250, # Number of sampling and training iterations (on-policy: rollouts are collected during sampling phase, which will be immediately used in the training phase of the same iteration),
         frames_per_batch=2**12, # Number of team frames collected per training iteration 
                                 # num_envs = frames_per_batch / max_steps
                                 # total_frames = frames_per_batch * n_iters
@@ -433,18 +444,19 @@ if __name__ == "__main__":
         lmbda=0.9, # lambda for generalised advantage estimation,
         entropy_eps=1e-4, # coefficient of the entropy term in the PPO loss,
         max_steps=2**7, # Episode steps before done
-        training_strategy='2', # One of {'1', '2', '3', '4'}. 1 for vanilla, 2 for vanilla with prioritized replay buffer, 3 for vanilla with challenging initial state buffer, 4 for mixed training
+        training_strategy='4', # One of {'1', '2', '3', '4'}. 1 for vanilla, 2 for vanilla with prioritized replay buffer, 3 for vanilla with challenging initial state buffer, 4 for mixed training
         
-        is_save_intermidiate_model=True, # Is this is true, the model with the hightest mean episode reward will be saved,
+        is_save_intermidiate_model=True, # Is this is true, the model with the highest mean episode reward will be saved,
         
         episode_reward_mean_current=0.00,
         
         is_load_model=False, # Load offline model if available. The offline model in `where_to_save` whose name contains `episode_reward_mean_current` will be loaded
+        is_load_final_model=False, # Whether to load the final model instead of the intermidiate model with the highest episode reward
         is_continue_train=False, # If offline models are loaded, whether to continue to train the model
         mode_name=None, 
         episode_reward_intermidiate=-1e3, # The initial value should be samll enough
         
-        where_to_save=f"outputs/{scenario_name}_ppo/0329_strategy_2/", # folder where to save the trained models, fig, data, etc.
+        where_to_save=f"outputs/{scenario_name}_ppo/strategy_4_test/", # folder where to save the trained models, fig, data, etc.
 
         # Scenario parameters
         is_partial_observation=True,
@@ -459,8 +471,15 @@ if __name__ == "__main__":
         
         is_save_eval_results=True,
         
+        is_prb=False, # Whether to enable prioritized replay buffer
+        reset_scenario_probabilities=[1.0, 0.0, 0.0],
+        
+        is_observe_boundary_points=False,
+        is_apply_mask=True,
+        is_use_mtv_distance=False,
+
         ############################################
-        # For car_like_robots_path_tracking only
+        # For path_tracking only
         ############################################
         path_tracking_type='sine', # [relevant to path-tracking scenarios] should be one of 'line', 'turning', 'circle', 'sine', and 'horizontal_8'
         obstacle_type="static", # [relevant for obstacle-avoidance scenarios] should be one of "static" and "dynamic"
@@ -468,18 +487,15 @@ if __name__ == "__main__":
         is_dynamic_goal_reward=False, # set to True if the goal reward is dynamically adjusted based on the performance of agents' history trajectories 
 
         ############################################
-        # For car_like_robots_obstacle_avoidance only
+        # For obstacle_avoidance only
         ############################################
-        is_observe_corners=False,
-
-        # Whether to enable prioritized replay buffer
-        is_prb=False
+        is_observe_corners=False,        
     )
     
     if parameters.training_strategy == "2":
         parameters.is_prb=True
         
-    env, policy, parameters = multiagent_ppo_cavs(parameters=parameters)
+    env, policy, parameters = mppo_cavs(parameters=parameters)
 
     # Evaluate the model
     with torch.no_grad():
@@ -490,4 +506,3 @@ if __name__ == "__main__":
             auto_cast_to_device=True,
             break_when_any_done=True,
         )
-    # evaluate_outputs(out_td=out_td, parameters=parameters, agent_width=env.scenario.world.agents[0].shape.width)
