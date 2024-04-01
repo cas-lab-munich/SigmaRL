@@ -126,6 +126,8 @@ n_steps_stored = n_steps_before_recording # Store previous `n_steps_stored` step
 probability_record = 1.0 # Probability of recording a collision-event into the buffer
 probability_use_recording = 0.1 # Probability of using an recording when resetting an env
 
+reset_scenario_probabilities = [1.0, 0.0, 0.0] # 1 for intersection, 2 for merge-in, 3 for merge-out scenario
+
 is_observe_boundary_points = True # Whether to observe points on lanelet boundaries or the distance to lanelet boundaries
 is_apply_mask = True
 is_use_mtv_distance = True
@@ -176,6 +178,7 @@ class ScenarioRoadTraffic(BaseScenario):
                 is_observe_boundary_points=is_observe_boundary_points,
                 is_apply_mask=is_apply_mask,
                 is_use_mtv_distance=is_use_mtv_distance,
+                reset_scenario_probabilities=reset_scenario_probabilities,
             )
             
         # Parameter adjustment to meet simulation requirements
@@ -430,9 +433,10 @@ class ScenarioRoadTraffic(BaseScenario):
             mask_zero=torch.tensor(0, device=device, dtype=torch.float32),
             mask_one=torch.tensor(1, device=device, dtype=torch.float32),
             reset_agent_min_distance=torch.tensor((l_f+l_r) ** 2 + width ** 2, device=device, dtype=torch.float32).sqrt() * 1.2,
-            reset_scenario_probabilities=torch.tensor([0.8, 0.1, 0.1], device=device, dtype=torch.float32), # 1 for intersection, 2 for merge-in, 3 for merge-out scenario
+            reset_scenario_probabilities=torch.tensor(self.parameters.reset_scenario_probabilities, device=device, dtype=torch.float32), # 1 for intersection, 2 for merge-in, 3 for merge-out scenario
             # reset_scenario_probabilities=torch.tensor([0.7, 0.15, 0.15], device=device, dtype=torch.float32), # 1 for intersection, 2 for merge-in, 3 for merge-out scenario TODO Check if nevessary
         )
+        
         
         # Initialize collision matrix
         self.collisions = Collisions(

@@ -256,11 +256,21 @@ def mppo_cavs(parameters: Parameters):
 
     if parameters.is_prb:
         print(colored("Enable Prioritized Replay Buffer", "red"))
-        replay_buffer = TensorDictReplayBuffer(
-            storage=ListStorage(parameters.frames_per_batch),
-            sampler=PrioritizedSampler(parameters.frames_per_batch, alpha=0.8, beta=1.1),
-            # priority_key="td_error",
-            batch_size=parameters.minibatch_size,
+        replay_buffer = PrioritizedReplayBuffer(
+            alpha=0.7,
+            beta=0.9,
+            storage=LazyTensorStorage(
+                parameters.frames_per_batch, device=parameters.device
+            ),
+            batch_size=parameters.minibatch_size
+        )
+
+        loss_module = CustomPERLoss(
+            actor=policy,
+            critic=critic,
+            clip_epsilon=parameters.clip_epsilon,
+            entropy_coef=parameters.entropy_eps,
+            normalize_advantage=False,  # Important to avoid normalizing across the agent dimension
         )
     else:
         replay_buffer = ReplayBuffer(
@@ -271,13 +281,13 @@ def mppo_cavs(parameters: Parameters):
             batch_size=parameters.minibatch_size,  # We will sample minibatches of this size
         )
 
-    loss_module = ClipPPOLoss(
-        actor=policy,
-        critic=critic,
-        clip_epsilon=parameters.clip_epsilon,
-        entropy_coef=parameters.entropy_eps,
-        normalize_advantage=False,  # Important to avoid normalizing across the agent dimension
-    )
+        loss_module = ClipPPOLoss(
+            actor=policy,
+            critic=critic,
+            clip_epsilon=parameters.clip_epsilon,
+            entropy_coef=parameters.entropy_eps,
+            normalize_advantage=False,  # Important to avoid normalizing across the agent dimension
+        )
     loss_module.set_keys(  # We have to tell the loss where to find the keys
         reward=env.reward_key,
         action=env.action_key,
@@ -295,10 +305,9 @@ def mppo_cavs(parameters: Parameters):
     GAE = loss_module.value_estimator # Generalized Advantage Estimation 
 
     optim = torch.optim.Adam(loss_module.parameters(), parameters.lr)
-    # scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=100, parameters.gamma=0.1)
 
 
-    pbar = tqdm(total=parameters.n_iters, desc="episode_reward_mean = 0")
+    pbar = tqdm(total=parameters.n_iters, desc="epi_rew_mean = 0")
 
     episode_reward_mean_list = []
 
@@ -330,19 +339,21 @@ def mppo_cavs(parameters: Parameters):
         for _ in range(parameters.num_epochs):
             # print("[DEBUG] for _ in range(parameters.num_epochs):")
             for _ in range(parameters.frames_per_batch // parameters.minibatch_size):
-                subdata = replay_buffer.sample()
-                loss_vals = loss_module(subdata)
+                # sample a batch of data
+                data,  info = replay_buffer.sample(return_info=True)
 
                 if parameters.is_prb:
-                    replay_buffer.update_tensordict_priority(subdata)
+                    loss_vals, abs_error = loss_module(data)
+                    replay_buffer.update_priority(index=info.get('index'), priority=abs_error)
+                else:
+                    loss_vals = loss_module(data)
+
 
                 loss_value = (
                     loss_vals["loss_objective"]
                     + loss_vals["loss_critic"]
                     + loss_vals["loss_entropy"]
                 )
-                
-                # print(loss_value)
                 
                 assert not loss_value.isnan().any()
                 assert not loss_value.isinf().any()
@@ -374,18 +385,18 @@ def mppo_cavs(parameters: Parameters):
             # Update the current mean episode reward
             parameters.episode_reward_mean_current = episode_reward_mean
             save_data.episode_reward_mean_list = episode_reward_mean_list
-            
+
             if episode_reward_mean > parameters.episode_reward_intermidiate:
                 # Save the model if it improves the mean episode reward sufficiently enough
                 save(parameters=parameters, save_data=save_data, policy=policy, critic=critic)
-                # pool.submit(save, parameters, save_data, policy, critic)
+                # multiprocessing.Process(target=save, args=(parameters, save_data, policy, critic)).start()
                 # Update the episode reward of the saved model
                 parameters.episode_reward_intermidiate = episode_reward_mean
             else:
                 # Save only the mean episode reward list and parameters
                 parameters.episode_reward_mean_current = parameters.episode_reward_intermidiate
                 save(parameters=parameters, save_data=save_data, policy=None, critic=None)
-                # pool.submit(save, parameters, save_data, policy, critic)
+                # multiprocessing.Process(target=save, args=(parameters, save_data, policy, critic)).start()
 
         # Learning rate schedule
         for param_group in optim.param_groups:
@@ -458,10 +469,11 @@ if __name__ == "__main__":
         is_save_eval_results=True,
         
         is_prb=False, # Whether to enable prioritized replay buffer
+        reset_scenario_probabilities=[1.0, 0.0, 0.0],
         
         is_observe_boundary_points=False,
         is_apply_mask=True,
-        is_use_mtv_distance=True,
+        is_use_mtv_distance=False,
 
         ############################################
         # For path_tracking only
@@ -491,5 +503,3 @@ if __name__ == "__main__":
             auto_cast_to_device=True,
             break_when_any_done=True,
         )
-
-    

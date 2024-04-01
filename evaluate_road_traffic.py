@@ -130,10 +130,10 @@ parameters = Parameters(
 )
 
 model_paths = [
-    "outputs/road_traffic_ppo/strategy_4_test_no_reward_near_collide/",
-    "outputs/road_traffic_ppo/strategy_4_test_lanelet_points/",
-    "outputs/road_traffic_ppo/strategy_4_lanelet_test_c2c/",
-    "outputs/road_traffic_ppo/strategy_4_test_our/",
+    "outputs/road_traffic_ppo/PER/",
+    "outputs/road_traffic_ppo/challenging_initial_states/",
+    "outputs/road_traffic_ppo/our_intersection_only/",
+    "outputs/road_traffic_ppo/our_mixed_811/",
     # "outputs/road_traffic_ppo/0329_strategy_1_bird_view/",
     # "outputs/road_traffic_ppo/0330_strategy_1_4/",
     # "outputs/road_traffic_ppo/0330_strategy_2_4/",
@@ -167,9 +167,9 @@ for i_model in range(num_models):
             parameters.is_load_final_model = False
             parameters.is_load_out_td  = False
             
-            parameters.n_agents = 10
-            parameters.max_steps = 1200 # 1200 -> 1 min
-            parameters.num_vmas_envs = 32
+            parameters.n_agents = 12
+            parameters.max_steps = 120 # 1200 -> 1 min
+            parameters.num_vmas_envs = 1
             parameters.frames_per_batch = parameters.max_steps * parameters.num_vmas_envs
             parameters.training_strategy = "1"
     except StopIteration:
@@ -199,7 +199,7 @@ for i_model in range(num_models):
             out_td = env.rollout(
                 max_steps=parameters.max_steps-1,
                 policy=policy,
-                # callback=lambda env, _: env.render(),
+                callback=lambda env, _: env.render(),
                 auto_cast_to_device=True,
                 break_when_any_done=False,
             )

@@ -6,7 +6,7 @@
 outputs
 test*.py
 note*.md
-*_tmp_[0-9].*
+*tmp_[0-9].*
 examples
 # VectorizedMultiAgentSimulator
 

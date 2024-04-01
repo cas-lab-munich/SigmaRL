@@ -281,6 +281,7 @@ class Parameters():
                 episode_reward_intermidiate: float = -1e3, # A arbitrary, small initial value
                 
                 is_prb: bool = False,
+                reset_scenario_probabilities = [1.0, 0.0, 0.0], # 1 for intersection, 2 for merge-in, 3 for merge-out scenario
                 
                 # Observation
                 n_points_short_term: int = 3,            # Number of points that build a short-term reference path
@@ -394,6 +395,7 @@ class Parameters():
         self.is_real_time_rendering = is_real_time_rendering
 
         self.is_prb = is_prb
+        self.reset_scenario_probabilities = reset_scenario_probabilities
         
         if (mode_name is None) and (scenario_name is not None):
             self.mode_name = get_model_name(self)
