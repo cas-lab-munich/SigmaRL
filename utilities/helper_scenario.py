@@ -98,17 +98,14 @@ class ReferencePathsAgentRelated:
         self.point_id = point_id        # Which points agents are
 
 class Observations:
-    def __init__(self, is_partial = None, is_global_coordinate_sys = None, n_nearing_agents = None, nearing_agents_indices = None, n_nearing_obstacles_observed = None, is_add_noise = None, noise_level = None, n_stored_steps = None, n_observed_steps = None, is_observe_corners = None, past_pri: torch.Tensor = None, past_pos: torch.Tensor = None, past_rot: torch.Tensor = None, past_corners: torch.Tensor = None, past_vel: torch.Tensor = None, past_short_term_ref_points: torch.Tensor = None, past_action_vel: torch.Tensor = None, past_action_steering: torch.Tensor = None, past_distance_to_ref_path: torch.Tensor = None, past_distance_to_boundaries: torch.Tensor = None, past_distance_to_left_boundary: torch.Tensor = None, past_distance_to_right_boundary: torch.Tensor = None, past_distance_to_agents: torch.Tensor = None, past_left_boundary: torch.Tensor = None, past_right_boundary: torch.Tensor = None):
+    def __init__(self, is_partial = None, n_nearing_agents = None, nearing_agents_indices = None, n_nearing_obstacles_observed = None, noise_level = None, n_stored_steps = None, n_observed_steps = None, past_pri: torch.Tensor = None, past_pos: torch.Tensor = None, past_rot: torch.Tensor = None, past_corners: torch.Tensor = None, past_vel: torch.Tensor = None, past_short_term_ref_points: torch.Tensor = None, past_action_vel: torch.Tensor = None, past_action_steering: torch.Tensor = None, past_distance_to_ref_path: torch.Tensor = None, past_distance_to_boundaries: torch.Tensor = None, past_distance_to_left_boundary: torch.Tensor = None, past_distance_to_right_boundary: torch.Tensor = None, past_distance_to_agents: torch.Tensor = None, past_left_boundary: torch.Tensor = None, past_right_boundary: torch.Tensor = None):
         self.is_partial = is_partial    # Local observation
-        self.is_global_coordinate_sys = is_global_coordinate_sys
         self.n_nearing_agents = n_nearing_agents
         self.nearing_agents_indices = nearing_agents_indices
         self.n_nearing_obstacles_observed = n_nearing_obstacles_observed
-        self.is_add_noise = is_add_noise            # Whether to add noise to observations
         self.noise_level = noise_level              # Whether to add noise to observations
         self.n_stored_steps = n_stored_steps        # Number of past steps to store
         self.n_observed_steps = n_observed_steps    # Number of past steps to observe
-        self.is_observe_corners = is_observe_corners
 
         self.past_pri = past_pri            # Past priorities
         self.past_pos = past_pos            # Past positions

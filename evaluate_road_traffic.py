@@ -107,7 +107,7 @@ parameters = Parameters(
 
     # Scenario parameters
     is_partial_observation=True, 
-    is_global_coordinate_sys=False,
+    is_ego_view=True,
     n_points_short_term=3,
     is_use_intermediate_goals=False,
     n_nearing_agents_observed=2,
@@ -118,7 +118,7 @@ parameters = Parameters(
     
     is_save_eval_results=True,
     
-    is_observe_boundary_points=True,
+    is_observe_distance_to_boundaries=True,
     is_apply_mask=True,
     is_use_mtv_distance=True,
     

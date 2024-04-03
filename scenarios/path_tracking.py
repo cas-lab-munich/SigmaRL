@@ -67,7 +67,7 @@ penalty_time = -0.0
 n_points_short_term = 12 # The number of points on the short-term reference path
 
 # Observation
-is_global_coordinate_sys = True # Set to True if you want to use global coordinate system
+is_ego_view = True # Set to True if you want to use global coordinate system
 is_mixed_scenario_training = True
 
 is_partial_observation = False # TODO Set to True if sensor range is limited
@@ -114,7 +114,7 @@ class ScenarioPathTracking(BaseScenario):
                 max_steps=max_steps,
                 is_dynamic_goal_reward=is_dynamic_goal_reward,
                 path_tracking_type='line',
-                is_global_coordinate_sys=is_global_coordinate_sys,
+                is_ego_view=is_ego_view,
                 is_mixed_scenario_training=is_mixed_scenario_training,
             )
 
@@ -182,7 +182,7 @@ class ScenarioPathTracking(BaseScenario):
         
         self.observations = Observations(
             is_partial=torch.tensor(is_partial_observation, device=device, dtype=torch.bool),
-            is_global_coordinate_sys=torch.tensor(self.parameters.is_global_coordinate_sys, device=device, dtype=torch.bool),
+            is_ego_view=torch.tensor(self.parameters.is_ego_view, device=device, dtype=torch.bool),
             is_add_noise=torch.tensor(is_add_noise, device=device, dtype=torch.bool),
             noise_level=torch.tensor(noise_level, device=device, dtype=torch.float32),
             n_stored_steps=torch.tensor(n_stored_steps, device=device, dtype=torch.int),
@@ -605,7 +605,7 @@ class ScenarioPathTracking(BaseScenario):
             noise_ref_path = 0
             noise_distances_to_ref_path = 0
 
-        if self.observations.is_global_coordinate_sys:
+        if not self.parameters.is_ego_view: # Bird view
             positions = agent.state.pos / self.normalizers.pos
             velocities = agent.state.vel / self.normalizers.v
             ##################################################
@@ -677,7 +677,7 @@ class ScenarioPathTracking(BaseScenario):
                 obs_ref_point_norm,
         ]
         
-        if self.observations.is_global_coordinate_sys:
+        if not self.parameters.is_ego_view: # Bird view
             obs_list.insert(
                 0,
                 (self.observations.past_pos[:, index_start:] / self.normalizers.pos).reshape(self.world.batch_dim, -1)
@@ -851,7 +851,7 @@ if __name__ == "__main__":
         
         # Scenario parameters
         is_partial_observation=False, 
-        is_global_coordinate_sys=True,
+        is_ego_view=True,
         n_points_short_term=6,
         
         is_testing_mode=False,

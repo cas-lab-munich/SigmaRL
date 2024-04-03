@@ -287,13 +287,17 @@ class Parameters():
                 n_points_short_term: int = 3,            # Number of points that build a short-term reference path
 
                 is_partial_observation: bool = True,
-                is_global_coordinate_sys: bool = False,      # Global or local coordinate system
                 n_nearing_agents_observed: int = 2,      # Number of nearing agents to be observed (consider limited sensor range)
 
-                is_observe_boundary_points: bool = False,   # Whether to observe points on lanelet boundaries or observe the distance to labelet boundaries
-                is_observe_corners: bool = False,            # If True, corners of agents/obstacles will be observed; otherwise, the center point and rotation angle.
-                is_observe_distance_to_ref_path: bool = True,
-                is_apply_mask: bool = True,                 # Whether to mask faraway agents
+                is_ego_view: bool = True,      # Global or local coordinate system
+                is_apply_mask: bool = True,                         # Whether to mask faraway agents
+                is_observe_distance_to_agents: bool = True,         # Whether to observe the distance to other agents
+                is_observe_distance_to_boundaries: bool = True,     # Whether to observe points on lanelet boundaries or observe the distance to labelet boundaries
+                is_observe_distance_to_ref_path: bool = True,       # Whether to observe the distance to reference path
+                is_observe_CG: bool = True,                         # Whether to observe the center of gravity of other agents or the corners of them
+                is_add_noise: bool = True,                          # Whether to add noise to observations
+                is_observe_ref_path_other_agents: bool = False,     # Whether to observe the reference paths of other agents
+                
                 is_use_mtv_distance: bool = True,           # Whether to use MTV-based (Minimum Translation Vector) distance or c2c-based (center-to-center) distance.
                 
                 # Visu
@@ -370,19 +374,24 @@ class Parameters():
 
         # Observation
         self.is_partial_observation = is_partial_observation
-        self.is_global_coordinate_sys = is_global_coordinate_sys
         self.n_points_short_term = n_points_short_term
         self.is_use_intermediate_goals = is_use_intermediate_goals
         self.n_nearing_agents_observed = n_nearing_agents_observed
         self.n_nearing_obstacles_observed = n_nearing_obstacles_observed
-        self.is_observe_corners = is_observe_corners
+        self.is_observe_distance_to_agents = is_observe_distance_to_agents
         
         self.is_testing_mode = is_testing_mode
         self.is_visualize_short_term_path = is_visualize_short_term_path
         
-        self.is_observe_boundary_points = is_observe_boundary_points
+        self.is_ego_view = is_ego_view
         self.is_apply_mask = is_apply_mask
         self.is_use_mtv_distance = is_use_mtv_distance
+        self.is_observe_distance_to_boundaries = is_observe_distance_to_boundaries
+        self.is_observe_distance_to_ref_path = is_observe_distance_to_ref_path
+        self.is_observe_CG = is_observe_CG
+        self.is_add_noise = is_add_noise 
+        self.is_observe_ref_path_other_agents = is_observe_ref_path_other_agents 
+
         
         self.path_tracking_type = path_tracking_type
         self.is_dynamic_goal_reward = is_dynamic_goal_reward

@@ -377,8 +377,8 @@ def mppo_cavs(parameters: Parameters):
         episode_reward_mean_list.append(episode_reward_mean)
         pbar.set_description(f"episode_reward_mean = {episode_reward_mean:.3f}", refresh=False)
 
-        env.test1 = pbar.n
-        env.test2 = episode_reward_mean
+        # env.scenario.iter = pbar.n # A way to pass the information from the training algorithm to the environment
+        # env.scenario.episode_reward_mean = episode_reward_mean
         
         if parameters.is_save_intermidiate_model:
             # Update the current mean episode reward
@@ -456,11 +456,10 @@ if __name__ == "__main__":
         mode_name=None, 
         episode_reward_intermidiate=-1e3, # The initial value should be samll enough
         
-        where_to_save=f"outputs/{scenario_name}_ppo/strategy_4_test/", # folder where to save the trained models, fig, data, etc.
+        where_to_save=f"outputs/{scenario_name}_ppo/test/", # folder where to save the trained models, fig, data, etc.
 
         # Scenario parameters
         is_partial_observation=True,
-        is_global_coordinate_sys=False,
         n_points_short_term=3,
         is_use_intermediate_goals=False,
         n_nearing_agents_observed=2,
@@ -474,9 +473,17 @@ if __name__ == "__main__":
         is_prb=False, # Whether to enable prioritized replay buffer
         reset_scenario_probabilities=[1.0, 0.0, 0.0],
         
-        is_observe_boundary_points=False,
-        is_apply_mask=True,
         is_use_mtv_distance=False,
+
+        # Ablation study        
+        is_ego_view=True,      # Ego view or bird view
+        is_apply_mask=True,                 # Whether to mask faraway agents
+        is_observe_distance_to_agents=True,      
+        is_observe_CG=True,
+        is_observe_distance_to_boundaries=True,  
+        is_observe_distance_to_ref_path=True,
+        is_add_noise=True,
+        is_observe_ref_path_other_agents=False,
 
         ############################################
         # For path_tracking only
@@ -488,8 +495,7 @@ if __name__ == "__main__":
 
         ############################################
         # For obstacle_avoidance only
-        ############################################
-        is_observe_corners=False,        
+        ############################################  
     )
     
     if parameters.training_strategy == "2":
@@ -498,11 +504,11 @@ if __name__ == "__main__":
     env, policy, parameters = mppo_cavs(parameters=parameters)
 
     # Evaluate the model
-    with torch.no_grad():
-        out_td = env.rollout(
-            max_steps=parameters.max_steps*4,
-            policy=policy,
-            callback=lambda env, _: env.render(),
-            auto_cast_to_device=True,
-            break_when_any_done=True,
-        )
+    # with torch.no_grad():
+    #     out_td = env.rollout(
+    #         max_steps=parameters.max_steps,
+    #         policy=policy,
+    #         callback=lambda env, _: env.render(),
+    #         auto_cast_to_device=True,
+    #         break_when_any_done=False,
+    #     )
