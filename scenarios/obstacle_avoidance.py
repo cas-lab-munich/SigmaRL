@@ -1199,7 +1199,7 @@ if __name__ == "__main__":
     parameters = Parameters(
         n_agents=4,
         dt=0.1, # [s] sample time 
-        device="cpu" if not torch.backends.cuda.is_built() else "cuda:0",  # The divice where learning is run
+        device="cpu" if not torch.cuda.is_available() else "cuda:0",  # The divice where learning is run
         scenario_name=scenario_name,
         
         # Training parameters

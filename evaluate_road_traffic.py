@@ -50,8 +50,34 @@ def evaluate_outputs():
     if parameters.is_save_eval_results:
         # Save the input TensorDict
         torch.save(out_td, path_eval_out_td)
-            
+
+def remove_max_min_per_row(tensor):
+    """
+    Remove the maximum and minimum values from each row of the tensor.
     
+    Args:
+        tensor: A 2D tensor with shape [a, b]
+    
+    Returns:
+        A 2D tensor with the max and min values removed from each row.
+    """
+    # Find the indices of the max and min in each row
+    max_vals, max_indices = torch.max(tensor, dim=1, keepdim=True)
+    min_vals, min_indices = torch.min(tensor, dim=1, keepdim=True)
+    
+    # Create a range of indices for each row
+    row_indices = torch.arange(tensor.size(0)).unsqueeze(-1)
+    
+    # Replace max and min values with inf and -inf
+    tensor[row_indices, max_indices] = float('inf')
+    tensor[row_indices, min_indices] = float('-inf')
+    
+    # Remove the inf and -inf values
+    mask = (tensor != float('inf')) & (tensor != float('-inf'))
+    filtered_tensor = tensor[mask].view(tensor.size(0), -1)
+    
+    return filtered_tensor
+
 # Function to add custom median markers
 def custom_violinplot_color(parts, color_face, color_lines, alpha):
     for pc in parts['bodies']:
@@ -73,7 +99,7 @@ scenario_name = "road_traffic" # road_traffic, path_tracking, obstacle_avoidance
 parameters = Parameters(
     n_agents=16,
     dt=0.05, # [s] sample time 
-    device="cpu" if not torch.backends.cuda.is_built() else "cuda:0",  # The divice where learning is run
+    device="cpu" if not torch.cuda.is_available() else "cuda:0",  # The divice where learning is run
     scenario_name=scenario_name,
     
     # Training parameters
@@ -130,24 +156,26 @@ parameters = Parameters(
 )
 
 model_paths = [
-    "outputs/road_traffic_ppo/PER/",
-    "outputs/road_traffic_ppo/challenging_initial_states/",
-    "outputs/road_traffic_ppo/our_intersection_only/",
-    "outputs/road_traffic_ppo/our_mixed_811/",
-    # "outputs/road_traffic_ppo/0329_strategy_1_bird_view/",
-    # "outputs/road_traffic_ppo/0330_strategy_1_4/",
-    # "outputs/road_traffic_ppo/0330_strategy_2_4/",
-    # "outputs/road_traffic_ppo/0330_strategy_3_4/",
-    # "outputs/road_traffic_ppo/0330_strategy_4/",
-    # "outputs/road_traffic_ppo/0329_strategy_3_bird_view/",
+    "outputs/road_traffic_ppo/no_mask/",
+    "outputs/road_traffic_ppo/not_observe_distance_to_other_agents/",
+    "outputs/road_traffic_ppo/not_observe_CG/",
+    "outputs/road_traffic_ppo/not_observe_distance_to_boundaries/",
+    "outputs/road_traffic_ppo/not_observe_distance_to_ref/",
+    "outputs/road_traffic_ppo/our_0403/",
+    "outputs/road_traffic_ppo/vanilla/",
+    "outputs/road_traffic_ppo/challenging_initial_state/",
+    # "outputs/road_traffic_ppo/no_obs_noise/", # not needed
+    # "outputs/road_traffic_ppo/obs_ref_of_others/", # not needed
 ]
 
 num_models = len(model_paths)
 
+labels = [m.split('/')[-2] for m in model_paths]
+
 for i_model in range(num_models):
-    print("------------------------")
-    print(colored("-- [INFO] Model ", "black"), colored(f"{i_model}", "blue"))
-    print("------------------------")
+    print("------------------------------------------")
+    print(colored("-- [INFO] Model ", "black"), colored(f"{i_model + 1}", "blue"), colored(f"({labels[i_model]})", color="grey"))
+    print("------------------------------------------")
     
     model_path = model_paths[i_model]
     
@@ -165,11 +193,11 @@ for i_model in range(num_models):
             parameters.is_save_eval_results = True
             parameters.is_load_model = True
             parameters.is_load_final_model = False
-            parameters.is_load_out_td  = False
+            parameters.is_load_out_td  = True
             
             parameters.n_agents = 12
-            parameters.max_steps = 120 # 1200 -> 1 min
-            parameters.num_vmas_envs = 1
+            parameters.max_steps = 1200 # 1200 -> 1 min
+            parameters.num_vmas_envs = 32
             parameters.frames_per_batch = parameters.max_steps * parameters.num_vmas_envs
             parameters.training_strategy = "1"
     except StopIteration:
@@ -178,7 +206,7 @@ for i_model in range(num_models):
     if i_model == 0:
         # Initialize
         velocity_average = torch.zeros((num_models, parameters.num_vmas_envs), device=parameters.device, dtype=torch.float32)
-        collision_rate_sum = torch.zeros((num_models, parameters.num_vmas_envs), device=parameters.device, dtype=torch.float32)
+        # collision_rate_sum = torch.zeros((num_models, parameters.num_vmas_envs), device=parameters.device, dtype=torch.float32)
         collision_rate_with_agents = torch.zeros((num_models, parameters.num_vmas_envs), device=parameters.device, dtype=torch.float32)
         collision_rate_with_lanelets = torch.zeros((num_models, parameters.num_vmas_envs), device=parameters.device, dtype=torch.float32)
         distance_ref_average = torch.zeros((num_models, parameters.num_vmas_envs), device=parameters.device, dtype=torch.float32)
@@ -199,7 +227,7 @@ for i_model in range(num_models):
             out_td = env.rollout(
                 max_steps=parameters.max_steps-1,
                 policy=policy,
-                callback=lambda env, _: env.render(),
+                callback=(lambda env, _: env.render()) if parameters.num_vmas_envs == 1 else None,
                 auto_cast_to_device=True,
                 break_when_any_done=False,
             )
@@ -213,11 +241,11 @@ for i_model in range(num_models):
         plt.close('all')
 
 
-collision_rate_sum[:] = collision_rate_with_agents[:] + collision_rate_with_lanelets[:]
+collision_rate_with_agents = remove_max_min_per_row(collision_rate_with_agents)
+collision_rate_with_lanelets = remove_max_min_per_row(collision_rate_with_lanelets)
+collision_rate_sum = collision_rate_with_agents[:] + collision_rate_with_lanelets[:]
 
 
-# labels = [f"Model {i}" for i in range(1, num_models + 1)]
-labels = [m.split('/')[-2] for m in model_paths]
 
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
