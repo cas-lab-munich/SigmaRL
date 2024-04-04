@@ -28,6 +28,10 @@ import sys
 from mppo_cavs import mppo_cavs
 from utilities.helper_training import Parameters, SaveData, find_the_highest_reward_among_all_models, get_model_name
 
+colors = [
+    Color.blue100, Color.purple100, Color.violet100, Color.bordeaux100, Color.red100, Color.orange100, Color.maygreen100, Color.green100, Color.turquoise100, Color.petrol100, Color.yellow100, Color.magenta100, Color.black100,
+    Color.blue50, Color.purple50, Color.violet50, Color.bordeaux50, Color.red50, Color.orange50, Color.maygreen50, Color.green50, Color.turquoise50, Color.petrol50, Color.yellow50, Color.magenta50, Color.black50,
+] # Each agent will get a different color
 
 def evaluate_outputs():
 
@@ -93,6 +97,22 @@ def custom_violinplot_color(parts, color_face, color_lines, alpha):
     parts["cmins"].set_alpha(alpha)
     parts["cbars"].set_colors(color_lines)
     parts["cbars"].set_alpha(alpha)
+
+
+def smooth_data(data, window_size=5):
+    """
+    Smooths the data using a simple moving average.
+    
+    Args:
+        data: The input data to smooth.
+        window_size (int): The size of the smoothing window.
+        
+    Returns:
+        numpy.ndarray: The smoothed data.
+    """
+    smoothed = np.convolve(data, np.ones(window_size)/window_size, mode='valid')
+    return np.concatenate((data[:window_size-1], smoothed))
+
 
 scenario_name = "road_traffic" # road_traffic, path_tracking, obstacle_avoidance
 
@@ -185,7 +205,8 @@ for i_model in range(num_models):
         # Load parameters from the saved json file
         with open(path_to_json_file, 'r') as file:
             data = json.load(file)
-            parameters = SaveData.from_dict(data).parameters
+            saved_data = SaveData.from_dict(data)
+            parameters = saved_data.parameters
             
             parameters.is_testing_mode = True
             parameters.is_real_time_rendering = False
@@ -210,6 +231,9 @@ for i_model in range(num_models):
         collision_rate_with_agents = torch.zeros((num_models, parameters.num_vmas_envs), device=parameters.device, dtype=torch.float32)
         collision_rate_with_lanelets = torch.zeros((num_models, parameters.num_vmas_envs), device=parameters.device, dtype=torch.float32)
         distance_ref_average = torch.zeros((num_models, parameters.num_vmas_envs), device=parameters.device, dtype=torch.float32)
+        episode_reward = torch.zeros((num_models, parameters.n_iters), device=parameters.device, dtype=torch.float32)
+        
+    episode_reward[i_model, :] = torch.tensor([saved_data.episode_reward_mean_list])
 
     if parameters.is_load_out_td:
         # Load the model with the highest reward
@@ -248,6 +272,9 @@ collision_rate_sum = collision_rate_with_agents[:] + collision_rate_with_lanelet
 
 
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+
 
 ###############################
 ## Fig 1 - average velocity 
@@ -341,4 +368,33 @@ if parameters.is_save_eval_results:
     plt.savefig(path_save_eval_fig, format="pdf", bbox_inches="tight", pad_inches=0)
     print(colored(f"[INFO] A fig has been saved under", "black"), colored(f"{path_save_eval_fig}", "blue"))
 
+
+###############################
+## Fig 4 - Episode reward
+###############################
+data_np = episode_reward.numpy()
+plt.clf()
+plt.figure(figsize=(12, 4))
+
+for i in range(data_np.shape[0]):
+    # Original data with transparency
+    plt.plot(data_np[i, :], color=colors[i], alpha=0.2, linestyle="-")
+    
+    # Smoothed data
+    smoothed_reward = smooth_data(data_np[i, :])
+    plt.plot(smoothed_reward, label=labels[i], color=colors[i], linestyle="-")
+
+plt.xlim([0, data_np.shape[1]])
+plt.xlabel('Episode')
+plt.ylabel('Episode reward')
+plt.legend(loc='lower right', fontsize=9)
+# plt.legend(bbox_to_anchor=(0.5, 1.4), loc='lower right', fontsize=9)
+plt.tight_layout()
+# Save figure
+if parameters.is_save_eval_results:
+    path_save_eval_fig = f"outputs/road_traffic_ppo/{timestamp}_episode_reward.pdf"
+    plt.savefig(path_save_eval_fig, format="pdf", bbox_inches="tight", pad_inches=0)
+    print(colored(f"[INFO] A fig has been saved under", "black"), colored(f"{path_save_eval_fig}", "blue"))
+    
+    
 # plt.show()
