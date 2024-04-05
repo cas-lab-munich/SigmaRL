@@ -188,16 +188,27 @@ class ScenarioRoadTraffic(BaseScenario):
                 is_add_noise=is_add_noise,
                 is_observe_ref_path_other_agents=is_observe_ref_path_other_agents,
             )
-            
+        
+        # Logs
+        if self.parameters.is_testing_mode:
+            print(colored(f"[INFO] Testing mode", "red"))
+        else:        
+            if self.parameters.training_strategy == "1":
+                print(colored("[INFO] Vanilla model", "red"))
+            elif self.parameters.training_strategy == "2":
+                print(colored("[INFO] Enable prioritized experience replay", "red"), colored("(state of the art)"), "blue")
+            elif self.parameters.training_strategy == "3":
+                print(colored("[INFO] Enable using the challenging initial state buffer", "red"), colored("(state of the art)"), "blue")
+            elif self.parameters.training_strategy == "4":
+                print(colored("[INFO] Enable training in partial map", "red"), colored("(our)", "blue"))
+
         # Parameter adjustment to meet simulation requirements
         if self.parameters.training_strategy == "4":
             self.parameters.n_agents = 4
-            print(colored(f"[INFO] Changed the number of agents to {self.parameters.n_agents}", "red"))
-
+            print(colored(f"[INFO] Changed the number of agents to {self.parameters.n_agents}", "black"))
         self.parameters.n_nearing_agents_observed = min(self.parameters.n_nearing_agents_observed, self.parameters.n_agents - 1)
-        
         self.n_agents = self.parameters.n_agents
-
+        
         # Timer for the first env
         self.timer = Timer(
             start=time.time(),
@@ -373,7 +384,7 @@ class ScenarioRoadTraffic(BaseScenario):
             distance_type = "MTV" # One of {"c2c", "MTV"}
         else:
             distance_type = "c2c" # One of {"c2c", "MTV"}
-        print(colored("[INFO] Distance type: ", "black"), colored(distance_type, "blue"))
+        # print(colored("[INFO] Distance type: ", "black"), colored(distance_type, "blue"))
             
         self.distances = Distances(
             type = distance_type, # Type of distances between agents

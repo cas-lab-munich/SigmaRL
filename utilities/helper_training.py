@@ -448,7 +448,7 @@ def get_path_to_save_model(parameters: Parameters):
     
     return PATH_POLICY, PATH_CRITIC, PATH_FIG, PATH_JSON
 
-def delete_model_with_lower_mean_reward(parameters:Parameters):
+def delete_files_with_lower_mean_reward(parameters:Parameters):
     # Regular expression pattern to match and capture the float number
     pattern = r'reward(-?[0-9]*\.?[0-9]+)_'
 
@@ -483,6 +483,9 @@ def find_the_highest_reward_among_all_models(path):
 
 
 def save(parameters: Parameters, save_data: SaveData, policy=None, critic=None):
+    # Delete files with lower mean episode reward
+    delete_files_with_lower_mean_reward(parameters=parameters)
+    
     # Get paths
     PATH_POLICY, PATH_CRITIC, PATH_FIG, PATH_JSON = get_path_to_save_model(parameters=parameters)
     
@@ -506,8 +509,6 @@ def save(parameters: Parameters, save_data: SaveData, policy=None, critic=None):
 
     # Save models
     if (policy != None) & (critic != None): 
-        # Delete models with lower mean episode reward
-        delete_model_with_lower_mean_reward(parameters=parameters)
         # Save current models
         torch.save(policy.state_dict(), PATH_POLICY)
         torch.save(critic.state_dict(), PATH_CRITIC)

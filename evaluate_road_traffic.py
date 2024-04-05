@@ -69,13 +69,20 @@ def remove_max_min_per_row(tensor):
     max_vals, max_indices = torch.max(tensor, dim=1, keepdim=True)
     min_vals, min_indices = torch.min(tensor, dim=1, keepdim=True)
     
-    # Create a range of indices for each row
-    row_indices = torch.arange(tensor.size(0)).unsqueeze(-1)
+    # Deal with the case in which one whole row has the same value
+    is_row_same_value = max_indices == min_indices
+    is_row_different_values = max_indices != min_indices
+    
+    row_same_value, _ = torch.where(is_row_same_value)
+    row_different_values, _ = torch.where(is_row_different_values)
     
     # Replace max and min values with inf and -inf
-    tensor[row_indices, max_indices] = float('inf')
-    tensor[row_indices, min_indices] = float('-inf')
-    
+    tensor[row_same_value.unsqueeze(-1), 0] = float('inf')
+    tensor[row_same_value.unsqueeze(-1), 1] = float('-inf')
+
+    tensor[row_different_values.unsqueeze(-1), max_indices[is_row_different_values].unsqueeze(-1)] = float('inf')
+    tensor[row_different_values.unsqueeze(-1), min_indices[is_row_different_values].unsqueeze(-1)] = float('-inf')
+
     # Remove the inf and -inf values
     mask = (tensor != float('inf')) & (tensor != float('-inf'))
     filtered_tensor = tensor[mask].view(tensor.size(0), -1)
@@ -176,14 +183,15 @@ parameters = Parameters(
 )
 
 model_paths = [
-    "outputs/road_traffic_ppo/no_mask/",
-    "outputs/road_traffic_ppo/not_observe_distance_to_other_agents/",
-    "outputs/road_traffic_ppo/not_observe_CG/",
-    "outputs/road_traffic_ppo/not_observe_distance_to_boundaries/",
-    "outputs/road_traffic_ppo/not_observe_distance_to_ref/",
-    "outputs/road_traffic_ppo/our_0403/",
+    "outputs/road_traffic_ppo/no mask/",
+    "outputs/road_traffic_ppo/not obs. dist. to others/",
+    "outputs/road_traffic_ppo/not obs. CG/",
+    "outputs/road_traffic_ppo/not obs. dist. to bound./",
+    "outputs/road_traffic_ppo/not obs. dist. to ref./",
+    "outputs/road_traffic_ppo/our/",
     "outputs/road_traffic_ppo/vanilla/",
-    "outputs/road_traffic_ppo/challenging_initial_state/",
+    "outputs/road_traffic_ppo/chall. initial state buff./",
+    "outputs/road_traffic_ppo/PER/",
     # "outputs/road_traffic_ppo/no_obs_noise/", # not needed
     # "outputs/road_traffic_ppo/obs_ref_of_others/", # not needed
 ]
@@ -191,6 +199,7 @@ model_paths = [
 num_models = len(model_paths)
 
 labels = [m.split('/')[-2] for m in model_paths]
+fontsize = 8
 
 for i_model in range(num_models):
     print("------------------------------------------")
@@ -270,10 +279,18 @@ collision_rate_with_lanelets = remove_max_min_per_row(collision_rate_with_lanele
 collision_rate_sum = collision_rate_with_agents[:] + collision_rate_with_lanelets[:]
 
 
-
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
+# Define the directory path
+where_to_save_eva_results = "outputs/road_traffic_ppo/eva"
+
+# Check if the directory exists
+if not os.path.exists(where_to_save_eva_results):
+    os.makedirs(where_to_save_eva_results)
+    print(f"[INFO] Directory '{where_to_save_eva_results}' was created.")
+else:
+    print(f"[INFO] Directory '{where_to_save_eva_results}' already exists.")
 
 
 ###############################
@@ -285,12 +302,12 @@ ax.violinplot(dataset = data_np.T, showmeans=False, showmedians=True)
 ax.set_xticks(np.arange(1, len(labels) + 1))
 # ax.set_xticklabels(labels)
 ax.set_xticklabels(labels, rotation=45, ha="right", fontsize='small')
-ax.set_ylabel(r'Average velocities $\bar{v}$ [m/s]')
-ax.set_ylim([0.7, 0.8]) # [m/s]
+ax.set_ylabel(r'Average velocities [m/s]')
+ax.set_ylim([0.6, 0.8]) # [m/s]
 # Save figure
 plt.tight_layout()
 if parameters.is_save_eval_results:
-    path_save_eval_fig = f"outputs/road_traffic_ppo/{timestamp}_velocity_average.pdf"
+    path_save_eval_fig = f"{where_to_save_eva_results}/{timestamp}_velocity_average.pdf"
     plt.savefig(path_save_eval_fig, format="pdf", bbox_inches="tight", pad_inches=0)
     print(colored(f"[INFO] A fig has been saved under", "black"), colored(f"{path_save_eval_fig}", "cyan"))
 
@@ -323,33 +340,17 @@ ax.set_xticks(positions)
 ax.set_xticklabels(labels, rotation=45, ha="right", fontsize='small')
 
 # Adding legend
-ax.legend([parts1["bodies"][0], parts2["bodies"][0], parts3["bodies"][0]], ['Sum', 'With agents', 'With lanelets'], loc='upper left')
+ax.legend([parts1["bodies"][0], parts2["bodies"][0], parts3["bodies"][0]], ['Total', 'With agents', 'With lane boundaries'], loc='upper right', fontsize=fontsize)
 
-ax.set_ylabel(r'Collision rate $[\%]$')
+ax.set_ylabel(r'Collision rate [$\%$]')
 
 plt.tight_layout()
 # Save figure
 if parameters.is_save_eval_results:
-    path_save_eval_fig = f"outputs/road_traffic_ppo/{timestamp}_collision_rate.pdf"
+    path_save_eval_fig = f"{where_to_save_eva_results}/{timestamp}_collision_rate.pdf"
     plt.savefig(path_save_eval_fig, format="pdf", bbox_inches="tight", pad_inches=0)
     print(colored(f"[INFO] A fig has been saved under", "black"), colored(f"{path_save_eval_fig}", "blue"))
 
-
-# data_np = collision_rate_sum.numpy() * 100
-
-# ax.violinplot(dataset = data_np.T, showmeans=False, showmedians=True)
-# ax.set_xticks(np.arange(1, len(labels) + 1))
-# # ax.set_xticklabels(labels)
-# ax.set_xticklabels(labels, rotation=45, ha="right", fontsize='small')
-# ax.set_ylabel(r'Collide rate $[\%]$')
-# # ax.set_ylim([0, 0.8])
-
-# plt.tight_layout()
-# # Save figure
-# if parameters.is_save_eval_results:
-#     path_save_eval_fig = f"outputs/road_traffic_ppo/{timestamp}_collision_rate.pdf"
-#     plt.savefig(path_save_eval_fig, format="pdf", bbox_inches="tight", pad_inches=0)
-#     print(colored(f"[INFO] A fig has been saved under", "black"), colored(f"{path_save_eval_fig}", "blue"))
 
 ###############################
 ## Fig 3 - average deviation from center line
@@ -360,11 +361,11 @@ ax.violinplot(dataset = data_np.T, showmeans=False, showmedians=True)
 ax.set_xticks(np.arange(1, len(labels) + 1))
 # ax.set_xticklabels(labels)
 ax.set_xticklabels(labels, rotation=45, ha="right", fontsize='small')
-ax.set_ylabel(r'Average deviation from center line $\bar{d}$ [m]')
+ax.set_ylabel(r'Center line deviation [m]')
 # Save figure
 plt.tight_layout()
 if parameters.is_save_eval_results:
-    path_save_eval_fig = f"outputs/road_traffic_ppo/{timestamp}_deviation_average.pdf"
+    path_save_eval_fig = f"{where_to_save_eva_results}/{timestamp}_deviation_average.pdf"
     plt.savefig(path_save_eval_fig, format="pdf", bbox_inches="tight", pad_inches=0)
     print(colored(f"[INFO] A fig has been saved under", "black"), colored(f"{path_save_eval_fig}", "blue"))
 
@@ -387,12 +388,12 @@ for i in range(data_np.shape[0]):
 plt.xlim([0, data_np.shape[1]])
 plt.xlabel('Episode')
 plt.ylabel('Episode reward')
-plt.legend(loc='lower right', fontsize=9)
+plt.legend(loc='lower right', fontsize=fontsize)
 # plt.legend(bbox_to_anchor=(0.5, 1.4), loc='lower right', fontsize=9)
 plt.tight_layout()
 # Save figure
 if parameters.is_save_eval_results:
-    path_save_eval_fig = f"outputs/road_traffic_ppo/{timestamp}_episode_reward.pdf"
+    path_save_eval_fig = f"{where_to_save_eva_results}/{timestamp}_episode_reward.pdf"
     plt.savefig(path_save_eval_fig, format="pdf", bbox_inches="tight", pad_inches=0)
     print(colored(f"[INFO] A fig has been saved under", "black"), colored(f"{path_save_eval_fig}", "blue"))
     

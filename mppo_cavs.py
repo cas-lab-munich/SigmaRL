@@ -16,9 +16,9 @@ from tensordict.nn.distributions import NormalParamExtractor
 
 # Data collection
 from torchrl.data.replay_buffers import ReplayBuffer
-from torchrl.data import PrioritizedReplayBuffer, TensorDictReplayBuffer
-from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement, PrioritizedSampler
-from torchrl.data.replay_buffers.storages import LazyTensorStorage, ListStorage
+from torchrl.data import TensorDictPrioritizedReplayBuffer
+from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
+from torchrl.data.replay_buffers.storages import LazyTensorStorage
 from utilities.CustomPERLoss import CustomPERLoss
 
 # Env
@@ -255,21 +255,15 @@ def mppo_cavs(parameters: Parameters):
     )
 
     if parameters.is_prb:
-        print(colored("Enable Prioritized Replay Buffer", "red"))
-        replay_buffer = PrioritizedReplayBuffer(
+        print(colored("[INFO] Enable prioritized replay buffer", "red"))
+        replay_buffer = TensorDictPrioritizedReplayBuffer(
             alpha=0.7,
-            beta=0.9,
+            beta=1.1,
             storage=LazyTensorStorage(
                 parameters.frames_per_batch, device=parameters.device
             ),
-            batch_size=parameters.minibatch_size
-        )
-        loss_module = CustomPERLoss(
-            actor=policy,
-            critic=critic,
-            clip_epsilon=parameters.clip_epsilon,
-            entropy_coef=parameters.entropy_eps,
-            normalize_advantage=False,  # Important to avoid normalizing across the agent dimension
+            batch_size=parameters.minibatch_size,
+            priority_key="td_error",
         )
     else:
         replay_buffer = ReplayBuffer(
@@ -280,13 +274,13 @@ def mppo_cavs(parameters: Parameters):
             batch_size=parameters.minibatch_size,  # We will sample minibatches of this size
         )
 
-        loss_module = ClipPPOLoss(
-            actor=policy,
-            critic=critic,
-            clip_epsilon=parameters.clip_epsilon,
-            entropy_coef=parameters.entropy_eps,
-            normalize_advantage=False,  # Important to avoid normalizing across the agent dimension
-        )
+    loss_module = ClipPPOLoss(
+        actor=policy,
+        critic=critic,
+        clip_epsilon=parameters.clip_epsilon,
+        entropy_coef=parameters.entropy_eps,
+        normalize_advantage=False,  # Important to avoid normalizing across the agent dimension
+    )
     loss_module.set_keys(  # We have to tell the loss where to find the keys
         reward=env.reward_key,
         action=env.action_key,
@@ -296,7 +290,6 @@ def mppo_cavs(parameters: Parameters):
         done=("agents", "done"),
         terminated=("agents", "terminated"),
     )
-
 
     loss_module.make_value_estimator(
         ValueEstimators.GAE, gamma=parameters.gamma, lmbda=parameters.lmbda
@@ -332,6 +325,39 @@ def mppo_cavs(parameters: Parameters):
                 target_params=loss_module.target_critic_params,
             )  # Compute GAE and add it to the data
 
+        # Update sample priorities
+        if parameters.is_prb:
+            current_state_values = tensordict_data["agents"]["state_value"]  # This could be from critic's output
+            next_rewards = tensordict_data.get(("next", "agents", "reward"))
+            next_state_values = tensordict_data.get(("next", "agents", "state_value"))  # This needs to be calculated or provided
+            gamma = 0.9 # discount factor
+            td_error = next_rewards + gamma * next_state_values - current_state_values # See Eq. (2) of Section B EXPERIMENTAL DETAILS of paper https://doi.org/10.48550/arXiv.1511.05952
+            td_error = td_error.abs() # Magnitude is more interesting than the actual TD error
+            
+            td_error_average_over_agents = td_error.mean(dim=-2) # Cooperative agents
+            
+            # Normalize TD error to [-1, 1] (priorities must be positive)
+            td_min = td_error_average_over_agents.min()
+            td_max = td_error_average_over_agents.max()
+            td_error_range = td_max - td_min
+            if td_error_range <= 1e-3:
+                print(colored("[WARNING] TD error may not work. Double check it."))
+                td_error_range = 1e-3 # For numerical stability
+            td_error_average_over_agents = (td_error_average_over_agents - td_min) / td_error_range
+            td_error_average_over_agents = torch.clamp(td_error_average_over_agents, 1e-3, 1) # For numerical stability
+
+            tensordict_data.set(("td_error"), td_error_average_over_agents)  # Adding TD error to the tensordict_data
+            
+            assert tensordict_data["td_error"].min() >= 0, "TD error must be greater than 0"
+            
+            # print(f"TD error mean: {td_error_average_over_agents.mean():.4f}")
+            # print(f"TD error max:  {td_error_average_over_agents.max():.4f}")
+            # print(f"TD error min:  {td_error_average_over_agents.min():.4f}")
+            
+        data_view = tensordict_data.reshape(-1)  # Flatten the batch size to shuffle data
+        replay_buffer.extend(data_view)
+        # replay_buffer.update_tensordict_priority() # Not necessary, as priorities were updated automatically when calling `replay_buffer.extend()`
+        
         data_view = tensordict_data.reshape(-1)  # Flatten the batch size to shuffle data
         replay_buffer.extend(data_view)
 
@@ -387,11 +413,11 @@ def mppo_cavs(parameters: Parameters):
 
             if episode_reward_mean > parameters.episode_reward_intermidiate:
                 # Save the model if it improves the mean episode reward sufficiently enough
+                parameters.episode_reward_intermidiate = episode_reward_mean
                 save(parameters=parameters, save_data=save_data, policy=policy, critic=critic)
                 # pool.submit(save, parameters, save_data, policy, critic)
                 # multiprocessing.Process(target=save, args=(parameters, save_data, policy, critic)).start()
                 # Update the episode reward of the saved model
-                parameters.episode_reward_intermidiate = episode_reward_mean
             else:
                 # Save only the mean episode reward list and parameters
                 parameters.episode_reward_mean_current = parameters.episode_reward_intermidiate
