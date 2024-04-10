@@ -8,6 +8,7 @@ from tensordict import TensorDict
 from utilities.colors import Color
 
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 
 # Scientific plotting
 import scienceplots # Do not remove (https://github.com/garrettj403/SciencePlots)
@@ -183,22 +184,29 @@ parameters = Parameters(
 )
 
 model_paths = [
+    "outputs/road_traffic_ppo/bird-view/",
     "outputs/road_traffic_ppo/no mask/",
-    "outputs/road_traffic_ppo/not obs. dist. to others/",
-    "outputs/road_traffic_ppo/not obs. CG/",
-    "outputs/road_traffic_ppo/not obs. dist. to bound./",
-    "outputs/road_traffic_ppo/not obs. dist. to ref./",
+    "outputs/road_traffic_ppo/obs. corners of surr. ag./",
+    "outputs/road_traffic_ppo/not obs. dist. to surr. ag./",
+    "outputs/road_traffic_ppo/obs. boundary points/",
+    "outputs/road_traffic_ppo/not obs. dist. to center line/",
     "outputs/road_traffic_ppo/our/",
     "outputs/road_traffic_ppo/vanilla/",
-    "outputs/road_traffic_ppo/chall. initial state buff./",
+    "outputs/road_traffic_ppo/chall. initial state buffer/",
     "outputs/road_traffic_ppo/PER/",
-    # "outputs/road_traffic_ppo/no_obs_noise/", # not needed
-    # "outputs/road_traffic_ppo/obs_ref_of_others/", # not needed
 ]
 
 num_models = len(model_paths)
 
 labels = [m.split('/')[-2] for m in model_paths]
+labels_short = [f"M{idx + 1}" for idx in range(num_models)]
+
+idx_our_model = next((i for i, s in enumerate(model_paths) if "our" in s), None)
+labels_short[idx_our_model] += " (our)" 
+
+labels_with_numbers = [labels_short[idx] + " (" + l + ")" for idx, l in enumerate(labels)]
+labels_with_numbers[idx_our_model] = labels_with_numbers[idx_our_model][0:8]
+
 fontsize = 8
 
 for i_model in range(num_models):
@@ -293,33 +301,54 @@ else:
     print(f"[INFO] Directory '{where_to_save_eva_results}' already exists.")
 
 
+torch.set_printoptions(precision=3)
+# Logs
+print(colored(f"[LOG] Median velocity [m/s]: {velocity_average.median(dim=-1)[0]}", "black"))
+print(colored(f"[LOG] Median collision rate [%]: {collision_rate_sum.median(dim=-1)[0] * 100}", "black"))
+print(colored(f"[LOG] Median deviation from center line [m]: {distance_ref_average.median(dim=-1)[0]}", "black"))
+
+
+
 ###############################
-## Fig 1 - average velocity 
+## Fig 1 - Episode reward
 ###############################
-fig, ax = plt.subplots()
-data_np = velocity_average.numpy()
-ax.violinplot(dataset = data_np.T, showmeans=False, showmedians=True)
-ax.set_xticks(np.arange(1, len(labels) + 1))
-# ax.set_xticklabels(labels)
-ax.set_xticklabels(labels, rotation=45, ha="right", fontsize='small')
-ax.set_ylabel(r'Average velocities [m/s]')
-ax.set_ylim([0.6, 0.8]) # [m/s]
-# Save figure
+data_np = episode_reward.numpy()
+plt.clf()
+plt.figure(figsize=(3.5, 2.3))
+
+for i in range(data_np.shape[0]):
+    # Original data with transparency
+    plt.plot(data_np[i, :], color=colors[i], alpha=0.2, linestyle="-", linewidth=0.15)
+    
+    # Smoothed data
+    smoothed_reward = smooth_data(data_np[i, :])
+    plt.plot(smoothed_reward, label=labels_short[i], color=colors[i], linestyle="-", linewidth=0.7)
+
+plt.xlim([0, data_np.shape[1]])
+plt.xlabel('Episode')
+plt.ylabel('Episode mean reward')
+plt.legend(loc='lower right', fontsize="small", ncol=4)
+# plt.legend(bbox_to_anchor=(1, 0.5), loc='center right', fontsize=fontsize)
+# plt.legend(bbox_to_anchor=(0.5, 1.0), loc='upper center', fontsize='x-small', ncol=5)
+
+plt.ylim([-1.5, 6])
+
 plt.tight_layout()
+# Save figure
 if parameters.is_save_eval_results:
-    path_save_eval_fig = f"{where_to_save_eva_results}/{timestamp}_velocity_average.pdf"
-    plt.savefig(path_save_eval_fig, format="pdf", bbox_inches="tight", pad_inches=0)
-    print(colored(f"[INFO] A fig has been saved under", "black"), colored(f"{path_save_eval_fig}", "cyan"))
+    path_save_eval_fig = f"{where_to_save_eva_results}/{timestamp}_episode_reward.pdf"
+    plt.savefig(path_save_eval_fig, format="pdf", bbox_inches="tight", pad_inches=0, dpi=300)
+    print(colored(f"[INFO] A fig has been saved under", "black"), colored(f"{path_save_eval_fig}", "blue"))
+
 
 ###############################
 ## Fig 2 - collision rate
 ###############################
-fig, ax = plt.subplots()
+plt.clf()
+fig, ax = plt.subplots(figsize=(3.5, 2.0))
 data_np = collision_rate_sum.numpy() * 100
 data_with_agents_np = collision_rate_with_agents.numpy() * 100
 data_with_lanelets_np = collision_rate_with_lanelets.numpy() * 100
-
-fig, ax = plt.subplots()
 
 # Positions of the violin plots (adjust as needed to avoid overlap)
 positions = np.arange(1, len(labels) + 1)
@@ -335,67 +364,71 @@ custom_violinplot_color(parts1, Color.red100, Color.black100, 0.5)
 custom_violinplot_color(parts2, Color.blue100, Color.black100, 0.15)
 custom_violinplot_color(parts3, Color.green100, Color.black100, 0.15)
 
-# Setting x-ticks and labels
+# Setting ticks and labels
 ax.set_xticks(positions)
-ax.set_xticklabels(labels, rotation=45, ha="right", fontsize='small')
+ax.set_xticklabels(labels_short, rotation=45, ha="right", fontsize='small')
+ax.set_ylabel(r'Collision rate [$\%$]')
+ax.set_ylim([0, 2.5]) # [%]
+ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f')) # Set y-axis tick labels to have two digits after the comma
+ax.xaxis.set_minor_locator(ticker.NullLocator()) # Make minor x-ticks invisible
+ax.grid(True, which='major', axis='x', linestyle='--', linewidth=0.1)
+ax.grid(True, which='both', axis='y', linestyle='--', linewidth=0.1)
 
 # Adding legend
-ax.legend([parts1["bodies"][0], parts2["bodies"][0], parts3["bodies"][0]], ['Total', 'With agents', 'With lane boundaries'], loc='upper right', fontsize=fontsize)
-
-ax.set_ylabel(r'Collision rate [$\%$]')
+ax.legend([parts1["bodies"][0], parts2["bodies"][0], parts3["bodies"][0]], ['Total', 'Agent-agent', 'Agent-boundary'], loc='upper right', fontsize=fontsize)
 
 plt.tight_layout()
 # Save figure
 if parameters.is_save_eval_results:
     path_save_eval_fig = f"{where_to_save_eva_results}/{timestamp}_collision_rate.pdf"
-    plt.savefig(path_save_eval_fig, format="pdf", bbox_inches="tight", pad_inches=0)
+    plt.savefig(path_save_eval_fig, format="pdf", bbox_inches="tight", pad_inches=0, dpi=300)
     print(colored(f"[INFO] A fig has been saved under", "black"), colored(f"{path_save_eval_fig}", "blue"))
-
-
+    
+    
 ###############################
-## Fig 3 - average deviation from center line
+## Fig 3 - center line deviation
 ###############################
-fig, ax = plt.subplots()
+plt.clf()
+fig, ax = plt.subplots(figsize=(3.5, 2.0))
+
 data_np = distance_ref_average.numpy()
 ax.violinplot(dataset = data_np.T, showmeans=False, showmedians=True)
 ax.set_xticks(np.arange(1, len(labels) + 1))
-# ax.set_xticklabels(labels)
-ax.set_xticklabels(labels, rotation=45, ha="right", fontsize='small')
+ax.set_xticklabels(labels_short, rotation=45, ha="right", fontsize='small')
 ax.set_ylabel(r'Center line deviation [m]')
+ax.set_ylim([0.04, 0.1]) # [m]
+ax.xaxis.set_minor_locator(ticker.NullLocator()) # Make minor x-ticks invisible
+ax.grid(True, which='major', axis='x', linestyle='--', linewidth=0.1)
+ax.grid(True, which='both', axis='y', linestyle='--', linewidth=0.1)
+
 # Save figure
 plt.tight_layout()
 if parameters.is_save_eval_results:
     path_save_eval_fig = f"{where_to_save_eva_results}/{timestamp}_deviation_average.pdf"
-    plt.savefig(path_save_eval_fig, format="pdf", bbox_inches="tight", pad_inches=0)
+    plt.savefig(path_save_eval_fig, format="pdf", bbox_inches="tight", pad_inches=0, dpi=300)
     print(colored(f"[INFO] A fig has been saved under", "black"), colored(f"{path_save_eval_fig}", "blue"))
 
-
+    
+    
 ###############################
-## Fig 4 - Episode reward
+## Fig 4 - average velocity 
 ###############################
-data_np = episode_reward.numpy()
 plt.clf()
-plt.figure(figsize=(12, 4))
-
-for i in range(data_np.shape[0]):
-    # Original data with transparency
-    plt.plot(data_np[i, :], color=colors[i], alpha=0.2, linestyle="-")
-    
-    # Smoothed data
-    smoothed_reward = smooth_data(data_np[i, :])
-    plt.plot(smoothed_reward, label=labels[i], color=colors[i], linestyle="-")
-
-plt.xlim([0, data_np.shape[1]])
-plt.xlabel('Episode')
-plt.ylabel('Episode reward')
-plt.legend(loc='lower right', fontsize=fontsize)
-# plt.legend(bbox_to_anchor=(0.5, 1.4), loc='lower right', fontsize=9)
-plt.tight_layout()
+fig, ax = plt.subplots(figsize=(3.5, 2.0))
+data_np = velocity_average.numpy()
+ax.violinplot(dataset = data_np.T, showmeans=False, showmedians=True)
+ax.set_xticks(np.arange(1, len(labels) + 1))
+ax.set_xticklabels(labels_with_numbers, rotation=45, ha="right", fontsize='small')
+ax.set_ylabel(r'Velocity [m/s]')
+ax.set_ylim([0.7, 0.8]) # [m/s]
+ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f')) # Set y-axis tick labels to have two digits after the comma
+ax.xaxis.set_minor_locator(ticker.NullLocator()) # Make minor x-ticks invisible
+ax.grid(True, which='major', axis='x', linestyle='--', linewidth=0.1)
+ax.grid(True, which='both', axis='y', linestyle='--', linewidth=0.1)
 # Save figure
+plt.tight_layout()
 if parameters.is_save_eval_results:
-    path_save_eval_fig = f"{where_to_save_eva_results}/{timestamp}_episode_reward.pdf"
-    plt.savefig(path_save_eval_fig, format="pdf", bbox_inches="tight", pad_inches=0)
-    print(colored(f"[INFO] A fig has been saved under", "black"), colored(f"{path_save_eval_fig}", "blue"))
-    
-    
+    path_save_eval_fig = f"{where_to_save_eva_results}/{timestamp}_velocity_average.pdf"
+    plt.savefig(path_save_eval_fig, format="pdf", bbox_inches="tight", pad_inches=0, dpi=300)
+    print(colored(f"[INFO] A fig has been saved under", "black"), colored(f"{path_save_eval_fig}", "cyan"))
 # plt.show()

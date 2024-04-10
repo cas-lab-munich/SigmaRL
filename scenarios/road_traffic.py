@@ -946,8 +946,7 @@ class ScenarioRoadTraffic(BaseScenario):
         
         ##################################################
         ## [reward] high velocity
-        ##################################################
-        # TODO Check if this reward is necessary        
+        ##################################################   
         v_proj = torch.sum(agent.state.vel.unsqueeze(1) * ref_points_vecs, dim=-1).mean(-1)
         factor_moving_direction = torch.where(v_proj>0, 1, 2) # Get penalty if move in negative direction
         

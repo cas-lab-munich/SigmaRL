@@ -131,7 +131,7 @@ def mppo_cavs(parameters: Parameters):
     )
 
 
-    # print("policy_net:", policy_net, "\n")
+    print("policy_net:", policy_net, "\n")
 
     policy_module = TensorDictModule(
         policy_net,
@@ -179,7 +179,7 @@ def mppo_cavs(parameters: Parameters):
         num_cells=256,
         activation_class=torch.nn.Tanh,
     )
-    # print(critic_net)
+    print(critic_net)
     critic = TensorDictModule(
         module=critic_net,
         in_keys=[("agents", "observation")], # Note that the critic in PPO only takes the same inputs (observations) as the actor
