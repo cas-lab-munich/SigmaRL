@@ -26,7 +26,7 @@ import sys
 # project_root = os.path.abspath(os.path.join(current_dir, '..'))
 # sys.path.append(project_root)
 
-from mppo_cavs import mppo_cavs
+from mappo_cavs import mappo_cavs
 from utilities.helper_training import Parameters, SaveData, find_the_highest_reward_among_all_models, get_model_name
 
 colors = [
@@ -261,7 +261,7 @@ for i_model in range(num_models):
         
         evaluate_outputs()
     else:
-        env, policy, parameters = mppo_cavs(parameters=parameters)
+        env, policy, parameters = mappo_cavs(parameters=parameters)
         
         sim_begin = time.time()
         with torch.no_grad():

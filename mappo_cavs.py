@@ -59,7 +59,7 @@ from scenarios.obstacle_avoidance import ScenarioObstacleAvoidance
 torch.manual_seed(0)
 
 
-def mppo_cavs(parameters: Parameters):
+def mappo_cavs(parameters: Parameters):
     if "road_traffic" in parameters.scenario_name:
         scenario = ScenarioRoadTraffic()
     elif "path_tracking" in parameters.scenario_name:
@@ -527,7 +527,7 @@ if __name__ == "__main__":
     if parameters.training_strategy == "2":
         parameters.is_prb=True
         
-    env, policy, parameters = mppo_cavs(parameters=parameters)
+    env, policy, parameters = mappo_cavs(parameters=parameters)
 
     # Evaluate the model
     # with torch.no_grad():
