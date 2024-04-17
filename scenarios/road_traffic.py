@@ -92,7 +92,8 @@ threshold_no_reward_if_too_close_to_other_agents = agent_width / 6
 
 
 ## Visualization
-viewer_size = (world_x_dim * 200, world_y_dim * 200) # TODO Check if we can use a fix camera view in vmas
+viewer_size = (int(world_x_dim * 200), int(world_y_dim * 200)) # TODO Check if we can use a fix camera view in vmas
+
 viewer_zoom = 1
 is_testing_mode = False             # In testing mode, collisions do not lead to the termination of the simulation 
 is_visualize_short_term_path = True
