@@ -31,7 +31,7 @@ plt.style.use(['science','ieee']) # The science + ieee styles for IEEE papers (c
 import time
 import json
 
-from mappo_cavs import mappo_cavs
+from training_mappo_cavs import mappo_cavs
 from utilities.helper_training import Parameters, SaveData, find_the_highest_reward_among_all_models, get_model_name
 
 colors = [

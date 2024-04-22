@@ -15,7 +15,7 @@ project_root = os.path.dirname(script_dir) # Project root directory
 if project_root not in sys.path:
     sys.path.append(project_root)
 
-from utilities.helper_scenario import get_rectangle_corners
+from utilities.helper_scenario import get_rectangle_vertices
     
 from utilities.colors import Color # Do not remove (https://github.com/garrettj403/SciencePlots)
 # print(plt.style.available) # List all available style
@@ -210,7 +210,7 @@ def visualize_and_save_map(lanelets, intersection_info, is_save_fig = False, is_
             pos = center_line[point_index]
             yaw = center_line_jaws[point_index]
             
-            corners = get_rectangle_corners(
+            vertices = get_rectangle_vertices(
                 center=pos,
                 yaw=yaw, 
                 width=w, 
@@ -221,7 +221,7 @@ def visualize_and_save_map(lanelets, intersection_info, is_save_fig = False, is_
             if k == 0:
                 color_veh = Color.blue100
                 # Get the observation area of the first agent
-                # area_observation = get_rectangle_corners(
+                # area_observation = get_rectangle_vertices(
                 #     center=pos,
                 #     yaw=yaw, 
                 #     width=l*10,
@@ -235,7 +235,7 @@ def visualize_and_save_map(lanelets, intersection_info, is_save_fig = False, is_
             else:
                 color_veh = Color.black50
             
-            plt.fill(corners[:, 0], corners[:, 1], color=color_veh)
+            plt.fill(vertices[:, 0], vertices[:, 1], color=color_veh)
             plt.text(pos[0] + 0.08, pos[1], k+1, color='black', fontname=fontname, fontsize=fontsize)
 
     # plt.xlabel(r"$x$ [m]", fontsize=18)

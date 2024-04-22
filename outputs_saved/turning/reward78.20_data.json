@@ -29,8 +29,6 @@
         "n_short_term_points": 6,
         "is_testing_mode": false,
         "is_visualize_short_term_path": true,
-        "path_tracking_type": "turning",
-        "is_dynamic_goal_reward": false,
         "is_save_eval_results": false,
         "is_load_out_td": null,
         "mode_name": "turning_reward78.20"

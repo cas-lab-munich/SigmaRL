@@ -4,7 +4,6 @@
 
 # User-specific stuff
 outputs
-test*.py
 note*.md
 *tmp_[0-9].*
 examples

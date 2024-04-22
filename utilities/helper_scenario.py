@@ -98,11 +98,10 @@ class ReferencePathsAgentRelated:
         self.point_id = point_id        # Which points agents are
 
 class Observations:
-    def __init__(self, is_partial = None, n_nearing_agents = None, nearing_agents_indices = None, n_nearing_obstacles_observed = None, noise_level = None, n_stored_steps = None, n_observed_steps = None, past_pri: torch.Tensor = None, past_pos: torch.Tensor = None, past_rot: torch.Tensor = None, past_corners: torch.Tensor = None, past_vel: torch.Tensor = None, past_short_term_ref_points: torch.Tensor = None, past_action_vel: torch.Tensor = None, past_action_steering: torch.Tensor = None, past_distance_to_ref_path: torch.Tensor = None, past_distance_to_boundaries: torch.Tensor = None, past_distance_to_left_boundary: torch.Tensor = None, past_distance_to_right_boundary: torch.Tensor = None, past_distance_to_agents: torch.Tensor = None, past_left_boundary: torch.Tensor = None, past_right_boundary: torch.Tensor = None):
+    def __init__(self, is_partial = None, n_nearing_agents = None, nearing_agents_indices = None, noise_level = None, n_stored_steps = None, n_observed_steps = None, past_pri: torch.Tensor = None, past_pos: torch.Tensor = None, past_rot: torch.Tensor = None, past_vertices: torch.Tensor = None, past_vel: torch.Tensor = None, past_short_term_ref_points: torch.Tensor = None, past_action_vel: torch.Tensor = None, past_action_steering: torch.Tensor = None, past_distance_to_ref_path: torch.Tensor = None, past_distance_to_boundaries: torch.Tensor = None, past_distance_to_left_boundary: torch.Tensor = None, past_distance_to_right_boundary: torch.Tensor = None, past_distance_to_agents: torch.Tensor = None, past_left_boundary: torch.Tensor = None, past_right_boundary: torch.Tensor = None):
         self.is_partial = is_partial    # Local observation
         self.n_nearing_agents = n_nearing_agents
         self.nearing_agents_indices = nearing_agents_indices
-        self.n_nearing_obstacles_observed = n_nearing_obstacles_observed
         self.noise_level = noise_level              # Whether to add noise to observations
         self.n_stored_steps = n_stored_steps        # Number of past steps to store
         self.n_observed_steps = n_observed_steps    # Number of past steps to observe
@@ -110,7 +109,7 @@ class Observations:
         self.past_pri = past_pri            # Past priorities
         self.past_pos = past_pos            # Past positions
         self.past_rot = past_rot            # Past rotations
-        self.past_corners = past_corners    # Past corners
+        self.past_vertices = past_vertices    # Past vertices
         self.past_vel = past_vel            # Past velocites
         
         self.past_short_term_ref_points = past_short_term_ref_points    # Past short-term reference points
@@ -131,8 +130,8 @@ class Distances:
             raise ValueError("Invalid distance type. Must be 'c2c' or 'MTV'.")
         self.type = type                            # Distances between agents
         self.agents = agents                        # Distances between agents
-        self.left_boundaries = left_boundaries      # Distances between agents and the left boundaries of their current lanelets (for each corner of each agent)
-        self.right_boundaries = right_boundaries    # Distances between agents and the right boundaries of their current lanelets (for each corner of each agent)
+        self.left_boundaries = left_boundaries      # Distances between agents and the left boundaries of their current lanelets (for each vertex of each agent)
+        self.right_boundaries = right_boundaries    # Distances between agents and the right boundaries of their current lanelets (for each vertex of each agent)
         self.boundaries = boundaries                # The minimum distances between agents and the boundaries of their current lanelets
         self.ref_paths = ref_paths                  # Distances between agents and the center line of their current lanelets
         self.closest_point_on_ref_path = closest_point_on_ref_path  # Index of the closest point on reference path
@@ -152,10 +151,10 @@ class Evaluation:
 
 class Obstacles:
     # This class stores the data relevant to static and dynamic obstacles.
-    def __init__(self, n = None, pos = None, corners = None, vel = None, rot = None, length = None, width = None, center_points = None, lengths = None, yaws = None):
+    def __init__(self, n = None, pos = None, vertices = None, vel = None, rot = None, length = None, width = None, center_points = None, lengths = None, yaws = None):
         self.n = n              # The number of obstacles
         self.pos = pos          # Position
-        self.corners = corners  # Corners
+        self.vertices = vertices  # vertices
         self.vel = vel          # Velocity
         self.rot = rot          # Rotation
         self.length = length    # Length of the dynamic obstacle
@@ -290,8 +289,8 @@ class Noise:
 ##################################################
 ## Helper Functions
 ##################################################
-def get_rectangle_corners(center: torch.Tensor, yaw, width, length, is_close_shape: bool = True):
-    """ Compute the corners of rectangles for a batch of agents given their centers, yaws (rotations),
+def get_rectangle_vertices(center: torch.Tensor, yaw, width, length, is_close_shape: bool = True):
+    """ Compute the vertices of rectangles for a batch of agents given their centers, yaws (rotations),
     widths, and lengths, using PyTorch tensors.
 
     Args:
@@ -301,7 +300,7 @@ def get_rectangle_corners(center: torch.Tensor, yaw, width, length, is_close_sha
         length: [scalar] Length of the rectangles.
         
     Return: 
-        [batch_dim, 4, 2] Corner points of the rectangles for each agent.
+        [batch_dim, 4, 2] vertex points of the rectangles for each agent.
     """
     if center.ndim == 1:
         center = center.unsqueeze(0)
@@ -316,14 +315,14 @@ def get_rectangle_corners(center: torch.Tensor, yaw, width, length, is_close_sha
     width_half = width / 2
     length_half = length / 2
 
-    # Corner points relative to the center
+    # vertex points relative to the center
     if is_close_shape:
-        corners = torch.tensor([[length_half, width_half], [length_half, -width_half], [-length_half, -width_half], [-length_half, width_half], [length_half, width_half]], dtype=center.dtype, device=center.device) # Repeat the first vertex to close the shape
+        vertices = torch.tensor([[length_half, width_half], [length_half, -width_half], [-length_half, -width_half], [-length_half, width_half], [length_half, width_half]], dtype=center.dtype, device=center.device) # Repeat the first vertex to close the shape
     else:
-        corners = torch.tensor([[length_half, width_half], [length_half, -width_half], [-length_half, -width_half], [-length_half, width_half]], dtype=center.dtype, device=center.device)         
+        vertices = torch.tensor([[length_half, width_half], [length_half, -width_half], [-length_half, -width_half], [-length_half, width_half]], dtype=center.dtype, device=center.device)         
 
-    # Expand corners to match batch size
-    corners = corners.unsqueeze(0).repeat(batch_dim, 1, 1)
+    # Expand vertices to match batch size
+    vertices = vertices.unsqueeze(0).repeat(batch_dim, 1, 1)
 
     # Create rotation matrices for each agent
     cos_yaw = torch.cos(yaw).squeeze(1)
@@ -335,13 +334,13 @@ def get_rectangle_corners(center: torch.Tensor, yaw, width, length, is_close_sha
         torch.stack([sin_yaw, cos_yaw], dim=1)
     ], dim=1)
 
-    # Apply rotation to corners
-    corners_rotated = torch.matmul(rot_matrix, corners.transpose(1, 2)).transpose(1, 2)
+    # Apply rotation to vertices
+    vertices_rotated = torch.matmul(rot_matrix, vertices.transpose(1, 2)).transpose(1, 2)
 
-    # Add center positions to the rotated corners
-    corners_global = corners_rotated + center.unsqueeze(1)
+    # Add center positions to the rotated vertices
+    vertices_global = vertices_rotated + center.unsqueeze(1)
 
-    return corners_global
+    return vertices_global
 
 def get_perpendicular_distances(point: torch.Tensor, polyline: torch.Tensor, n_points_long_term: torch.Tensor = None):
     """ Calculate the minimum perpendicular distance from the given point(s) to the given polyline.
@@ -448,57 +447,6 @@ def get_short_term_reference_path(polyline: torch.Tensor, index_closest_point: t
         
     return short_term_path, future_points_idx
 
-def get_nearing_boundaries(left_boundary: torch.Tensor = None, right_boundary: torch.Tensor = None, closest_point_on_ref_path: torch.Tensor = None, n_points_nearing_boundary: torch.Tensor = None, device = torch.device("cpu"), is_ref_path_loop: torch.Tensor = False, n_points_long_term: torch.Tensor = None, sample_interval: int = 1,):
-    """
-    
-    Args:
-        left_boundary:              [batch_size, num_points, 2] or [num_points, 2]. In the case of the latter, batch_dim is deemed as 1.
-        right_boundary:             [batch_size, num_points, 2] or [num_points, 2]. In the case of the latter, batch_dim is deemed as 1.
-        closest_point_on_ref_path:  [batch_size, 1] or [1] or []. In the case of the latter, batch_dim is deemed as 1.
-        n_points_nearing_boundary:        [1] or []. In the case of the latter, batch_dim is deemed as 1.
-        is_ref_path_loop:           [batch_size] or []. In the case of the latter, batch_dim is deemed as 1.
-        n_points_long_term:         [batch_size] or []. In the case of the latter, batch_dim is deemed as 1.
-    """
-    if left_boundary.ndim == 2:
-        left_boundary = left_boundary.unsqueeze(0)
-    if right_boundary.ndim == 2:
-        right_boundary = right_boundary.unsqueeze(0)
-    if closest_point_on_ref_path.ndim == 1:
-        closest_point_on_ref_path = closest_point_on_ref_path.unsqueeze(1)
-    elif closest_point_on_ref_path.ndim == 0:
-        closest_point_on_ref_path = closest_point_on_ref_path.unsqueeze(0).unsqueeze(1)
-    if is_ref_path_loop.ndim == 0:
-        is_ref_path_loop = is_ref_path_loop.unsqueeze(0)
-    if n_points_long_term.ndim == 0:
-        n_points_long_term = n_points_long_term.unsqueeze(0)
-        
-    batch_size = closest_point_on_ref_path.shape[0]        
-
-    # Create a tensor that represents the indices for n_points_nearing_boundary for each agent
-    future_points_idx = torch.arange(n_points_nearing_boundary, device=device) * sample_interval + closest_point_on_ref_path - 2 # Add one to push the short-term reference path one point further
-
-    if n_points_long_term is None:
-        n_points_long_term = left_boundary.shape[-2]
-    
-    for env_i in range(batch_size):
-        n_long_term_point = n_points_long_term[env_i]
-        if is_ref_path_loop[env_i]:
-            # Apply modulo to handle the case that each agent's reference path is a loop
-            future_points_idx[env_i] = torch.where(future_points_idx[env_i] >= n_long_term_point - 1, (future_points_idx[env_i] + 1) % n_long_term_point, future_points_idx[env_i]) # Use "+ 1" to skip the last point since it overlaps with the first point
-
-    # Extract the nearing points
-    nearing_points_left_boundary = left_boundary[
-        torch.arange(batch_size, device=device, dtype=torch.int).unsqueeze(1), # For broadcasting
-        future_points_idx
-    ]
-    nearing_points_right_boundary = right_boundary[
-        torch.arange(batch_size, device=device, dtype=torch.int).unsqueeze(1), # For broadcasting
-        future_points_idx
-    ]
-        
-    return nearing_points_left_boundary, nearing_points_right_boundary
-
-
 def calculate_projected_movement(agent_pos_cur, agent_pos_next, line_segments):
     """
     Calculate the minimum perpendicular distance from the agent to line segments,
@@ -592,27 +540,27 @@ def get_distances_between_agents(self, distance_type, is_set_diagonal = False):
         mutual_distances = torch.zeros((self.world.batch_dim, self.n_agents, self.n_agents), device=self.world.device, dtype=torch.float32)
         
         # Calculate the normal axes of the four edges of each rectangle (Note that each rectangle has two normal axes)
-        axes_all = torch.diff(self.corners[:,:,0:3,:], dim=2)
+        axes_all = torch.diff(self.vertices[:,:,0:3,:], dim=2)
         axes_norm_all = axes_all / torch.norm(axes_all, dim=-1).unsqueeze(-1) # Normalize
 
         for i in range(self.n_agents):
-            corners_i = self.corners[:,i,0:4,:]
+            vertices_i = self.vertices[:,i,0:4,:]
             axes_norm_i = axes_norm_all[:,i]
             for j in range(i+1, self.n_agents):
-                corners_j = self.corners[:,j,0:4,:]
+                vertices_j = self.vertices[:,j,0:4,:]
                 axes_norm_j = axes_norm_all[:,j]
                 
-                # 1. Project each of the four corners of rectangle i and all the four corners of rectangle j to each of the two axes of rectangle j. 
-                # 2. The distance from a corner of rectangle i to rectangle j is calculated by taking the Euclidean distance of the "gaps" on the two axes of rectangle j between the projected point of this corner on the axes and the projected points of rectangle j. If the projected point of this corner lies inside the projection of rectangle j, the gap is consider zero.
+                # 1. Project each of the four vertices of rectangle i and all the four vertices of rectangle j to each of the two axes of rectangle j. 
+                # 2. The distance from a vertex of rectangle i to rectangle j is calculated by taking the Euclidean distance of the "gaps" on the two axes of rectangle j between the projected point of this vertex on the axes and the projected points of rectangle j. If the projected point of this vertex lies inside the projection of rectangle j, the gap is consider zero.
                 # 3. Steps 1 and 2 give us four distances. Repeat these two step for rectangle j, which give us another four distances.
                 # 4. The MTV-based distance between the two rectangles is the smallest distance among the eight distances.
                         
                 # Project rectangle j to its own axes
-                projection_jj = (corners_j.unsqueeze(2) * axes_norm_j.unsqueeze(1)).sum(dim=3)
+                projection_jj = (vertices_j.unsqueeze(2) * axes_norm_j.unsqueeze(1)).sum(dim=3)
                 max_jj, _ = torch.max(projection_jj, dim=1)
                 min_jj, _ = torch.min(projection_jj, dim=1)
                 # Project rectangle i to the axes of rectangle j
-                projection_ij = (corners_i.unsqueeze(2) * axes_norm_j.unsqueeze(1)).sum(dim=3)
+                projection_ij = (vertices_i.unsqueeze(2) * axes_norm_j.unsqueeze(1)).sum(dim=3)
                 max_ij, _ = torch.max(projection_ij, dim=1)
                 min_ij, _ = torch.min(projection_ij, dim=1)
                 
@@ -621,11 +569,11 @@ def get_distances_between_agents(self, distance_type, is_set_diagonal = False):
                 MTVs_ij_Euclidean = torch.norm(MTVs_ij, dim=2)
                 
                 # Project rectangle i to its own axes
-                projection_ii = (corners_i.unsqueeze(2) * axes_norm_i.unsqueeze(1)).sum(dim=3)
+                projection_ii = (vertices_i.unsqueeze(2) * axes_norm_i.unsqueeze(1)).sum(dim=3)
                 max_ii, _ = torch.max(projection_ii, dim=1)
                 min_ii, _ = torch.min(projection_ii, dim=1)
                 # Project rectangle j to the axes of rectangle i
-                projection_ji = (corners_j.unsqueeze(2) * axes_norm_i.unsqueeze(1)).sum(dim=3)
+                projection_ji = (vertices_j.unsqueeze(2) * axes_norm_i.unsqueeze(1)).sum(dim=3)
                 max_ji, _ = torch.max(projection_ji, dim=1)
                 min_ji, _ = torch.min(projection_ji, dim=1)
                 MTVs_ji = (projection_ji - min_ii.unsqueeze(1))*(projection_ji <= min_ii.unsqueeze(1)) + (max_ii.unsqueeze(1) - projection_ji)*(projection_ji >= max_ii.unsqueeze(1))
@@ -760,17 +708,17 @@ def get_point_line_distance(points: torch.Tensor, lines_start_points: torch.Tens
 def visualize_path(tracking_path, start_pos, goal_pos, start_rot, agent_width, agent_length, is_ref_path_loop: bool = False, is_save_fig: bool = False, path_save_fig: str = "fig.pdf", obstacles = None):
     plt.plot(tracking_path[:,0], tracking_path[:,1], color=Color.black100, linewidth=0.5)
 
-    corners = get_rectangle_corners(
+    vertices = get_rectangle_vertices(
         center=start_pos,
         yaw=start_rot,
         width=agent_width,
         length=agent_length,
         is_close_shape=True
     )
-    if corners.shape[0] == 1:
-        corners = corners.squeeze(0)
+    if vertices.shape[0] == 1:
+        vertices = vertices.squeeze(0)
 
-    plt.fill(corners[:, 0], corners[:, 1], color=Color.blue100, linewidth=0.2, edgecolor='black') #  , alpha=0.5, 
+    plt.fill(vertices[:, 0], vertices[:, 1], color=Color.blue100, linewidth=0.2, edgecolor='black') #  , alpha=0.5, 
     
     # Calculate the end point of the arrow based on the rotation angle
     dx = agent_length / 2 * torch.cos(start_rot)
@@ -811,241 +759,6 @@ def remove_overlapping_points(polyline: torch.Tensor, threshold: float = 1e-4):
     remove = torch.hstack((remove, torch.zeros(1, dtype=torch.bool))) # Always keep the last point
     # Filter out overlapping points
     return polyline[~remove]
-
-def generate_sine_path(start_pos, path_length_x, amplitude, num_points, device):
-    # Generate linearly spaced x coordinates
-    x_coords = torch.linspace(start_pos[0], start_pos[0] + path_length_x, num_points, device=device)
-    # Generate sine y coordinates
-    y_coords = start_pos[1] + amplitude * torch.sin(2 * torch.pi * (x_coords - start_pos[0]) / path_length_x)
-    
-    tracking_path = torch.stack((x_coords, y_coords), dim=1)
-    return tracking_path
-
-     
-
-def get_ref_path_for_tracking_scenarios(path_tracking_type, agent_width: float = 0.1, agent_length: float = 0.2, point_interval: float = 0.1, max_speed: float = 0.5, device = torch.device("cpu"), center_point = None, is_visualize: bool = False, is_save_fig: bool = False, max_ref_path_points = None):
-    if path_tracking_type == "line":
-        first_point = torch.tensor([-1, 0], device=device, dtype=torch.float32)
-
-        path_length = 3 # [m]
-        
-        last_point = first_point.clone()
-        last_point[0] += path_length
-        
-        num_points = int(path_length / point_interval)  # Total number of points to discretize the reference path
-        tracking_path = torch.stack(
-            [torch.linspace(first_point[i], last_point[i], num_points, device=device, dtype=torch.float32) for i in range(2)], dim=1
-        )
-        
-        start_rot = torch.tensor(45, device=device, dtype=torch.float32).deg2rad()
-        goal_rot = torch.tensor(0, device=device, dtype=torch.float32).deg2rad()
-
-    elif path_tracking_type == "turning":
-        first_point = torch.tensor([-1, 0], device=device, dtype=torch.float32)
-
-        horizontal_length = 3  # [m] Length of the horizontal part. Default 3 m
-        vertical_length = 2  # [m] Length of the vertical part. Default 2 m
-        num_points = int((horizontal_length + vertical_length) / point_interval)  # Total number of points to discretize the reference path
-
-        # Number of points for each segment
-        num_points_horizontal = int(num_points * horizontal_length / (horizontal_length + vertical_length))
-        num_points_vertical = num_points - num_points_horizontal
-
-        # Generate horizontal segment
-        x_coords_horizontal = torch.linspace(first_point[0], first_point[0] + horizontal_length, num_points_horizontal, device=device)
-        y_coords_horizontal = torch.full((num_points_horizontal,), first_point[1], device=device)
-
-        # Generate vertical segment
-        x_coords_vertical = torch.full((num_points_vertical,), first_point[0] + horizontal_length, device=device)
-        y_coords_vertical = torch.linspace(first_point[1], first_point[1] + vertical_length, num_points_vertical, device=device)
-
-        # Combine segments
-        x_coords = torch.cat((x_coords_horizontal, x_coords_vertical))
-        y_coords = torch.cat((y_coords_horizontal, y_coords_vertical))
-        tracking_path = torch.stack((x_coords, y_coords), dim=1)
-
-        start_rot = torch.tensor(0, device=device, dtype=torch.float32).deg2rad()
-        goal_rot = torch.tensor(90, device=device, dtype=torch.float32).deg2rad()
-        
-    elif path_tracking_type == "circle":
-        first_point = torch.tensor([-1, 0], device=device, dtype=torch.float32)
-        
-        circle_radius = 1.5 # [m] default: 1.5
-        
-        # Calculate the number of discrete points that consist of the whole path such that the interval between points is roughly `point_interval`
-        path_length = 2 * torch.pi * circle_radius # [m]
-        num_points = int(path_length / point_interval) 
-        
-        circle_origin = first_point.clone()
-        circle_origin[0] += circle_radius
-                
-        # Generate angles for each point on the tracking path
-        angles = torch.linspace(torch.pi, -torch.pi, num_points, device=device)
-
-        # Calculate x and y coordinates for each point 
-        x_coords = circle_origin[0] + circle_radius * torch.cos(angles)
-        y_coords = circle_origin[1] + circle_radius * torch.sin(angles)
-
-        tracking_path = torch.stack((x_coords, y_coords), dim=1)
-
-        start_rot = torch.tensor(90, device=device, dtype=torch.float32).deg2rad()
-        goal_rot = start_rot.clone()
-    elif path_tracking_type == "sine":
-        first_point = torch.tensor([-1, 0], device=device, dtype=torch.float32)
-
-        path_length_x = 2.5  # [m] Length along x-axis. Default: 3
-        num_points_tmp = 100  # Will be used to calculate the sine wave in a numerical way. Should be sufficient but not overly large
-        amplitude = 0.8  # Amplitude of the sine wave. Default: 1
-
-        # Calculate the actual needed number of discrete points
-        tracking_path_tmp = generate_sine_path(first_point, path_length_x, amplitude, num_points_tmp, device)
-        path_length = ((tracking_path_tmp.diff(dim=0) ** 2).sum(dim=1) ** 0.5).sum()
-        num_points = int(path_length / point_interval) # Total number of points to discretize the reference path
-        
-        tracking_path = generate_sine_path(first_point, path_length_x, amplitude, num_points, device)
-
-        start_rot = torch.tensor(90, device=device, dtype=torch.float32).deg2rad()
-        goal_rot = torch.tensor(90, device=device, dtype=torch.float32).deg2rad()        
-    elif path_tracking_type == "horizontal_8":
-        # Use lemniscate of Bernoulli to generate a horizontal "8" path (inspired by https://mathworld.wolfram.com/Lemniscate.html)
-        first_point = torch.tensor([-1, 0], device=device, dtype=torch.float32)
-
-        center_point_8 = first_point.clone() # Center point of the lemniscate
-        a = 1.5  # half-width of the lemniscate
-        center_point_8[0] += a
-        num_points = 100  # Number of points to discretize the reference path
-
-        # Generate parameter t
-        t = torch.linspace(-torch.pi, torch.pi, num_points, device=device)
-
-        # Parametric equations for the lemniscate
-        x_coords = first_point[0] + (a * torch.cos(t)) / (1 + torch.sin(t)**2)
-        y_coords = first_point[1] + (a * torch.sin(t) * torch.cos(t)) / (1 + torch.sin(t)**2)
-
-        # Combine x and y coordinates
-        tracking_path = torch.stack((x_coords, y_coords), dim=1)
-
-        start_rot = torch.tensor(90, device=device, dtype=torch.float32).deg2rad()
-        goal_rot = torch.tensor(90, device=device, dtype=torch.float32).deg2rad()
-
-    else:
-        raise ValueError("Invalid path tracking type provided. Must be one of 'line', 'turning', 'circle', 'sine', and 'turning'.")
-    
-    tracking_path = remove_overlapping_points(tracking_path)
-    num_points = tracking_path.shape[0] # Update
-    # Initial velocity is set as the haf of the maximum velocity
-    start_vel = torch.tensor([0.5*max_speed*torch.cos(start_rot), 0.5*max_speed*torch.sin(start_rot)], device=device, dtype=torch.float32) 
-    
-    # Mean length of the line segments on the path
-    mean_length_line_segments = tracking_path.diff(dim=0).norm(dim=1).mean()
-    # print(f"The mean length of the line segments of the tracking path is {mean_length_line_segments}.")
-
-    # Check is the reference path is a loop
-    is_ref_path_loop = (tracking_path[0, :] - tracking_path[-1, :]).norm() <= 1e-4
-
-    # Determine the x- and y-range of the reference path, which will later be used to determine the x- and y-dimensions of the world
-    x_min = torch.min(tracking_path[:, 0])
-    x_max = torch.max(tracking_path[:, 0])
-    y_min = torch.min(tracking_path[:, 1])
-    y_max = torch.max(tracking_path[:, 1])
-    ranges = torch.hstack((x_max - x_min, y_max - y_min))
-    center_point_path = torch.hstack(
-        (
-            (x_min + x_max) / 2,
-            (y_min + y_max) / 2
-        )
-    )
-    
-    tracking_path -= center_point_path # Move the path center to the origin
-    
-    if center_point is not None:
-        tracking_path += center_point # Move the path center to the given center point
-        
-    start_pos = tracking_path[0, :].clone()
-    goal_pos = tracking_path[-1, :].clone()
-
-    # Extend an additional point (with the same direction) at the end of the path to workaround the phenomenon that the agent oscilltes near the final goal. Only used in non-loop path-tracking scenarios.
-    point_extended = 2 * tracking_path[-1, :] - tracking_path[-2, :]
-
-        
-    if is_visualize:
-        is_save_fig = True
-        path_save_fig = "outputs/path_tracking_" + path_tracking_type + ".pdf"
-        visualize_path(tracking_path, start_pos, goal_pos, start_rot, agent_width, agent_length, is_ref_path_loop, is_save_fig, path_save_fig)
-        
-    if max_ref_path_points is not None:
-        # Repeated the last point
-        assert max_ref_path_points > num_points, "The number of points on the reference path should be smaller than the defined maximum number."
-        last_point = tracking_path[-1, :].unsqueeze(0).repeat(max_ref_path_points - num_points, 1)
-        tracking_path_last_point_repeated = torch.cat((tracking_path, last_point), dim=0)
-    
-    return tracking_path_last_point_repeated, num_points, ranges, start_pos, start_rot, start_vel, goal_pos, goal_rot, is_ref_path_loop, point_extended
-
-def get_ref_path_for_obstacle_avoidance_scenarios(agent_width: float = 0.1, agent_length: float = 0.2, point_interval: float = 0.1, max_speed: float = 0.5, device = torch.device("cpu"), center_point = True, is_visualize: bool = False, is_save_fig: bool = False, obstacles = None):
-    
-    first_point = torch.tensor([-1, 0], device=device, dtype=torch.float32)
-
-    path_length = 3 # [m]
-    
-    last_point = first_point.clone()
-    last_point[0] += path_length
-    
-    num_points = int(path_length / point_interval)  # Total number of points to discretize the reference path
-    tracking_path = torch.stack(
-        [torch.linspace(first_point[i], last_point[i], num_points, device=device, dtype=torch.float32) for i in range(2)], dim=1
-    )
-    
-    start_rot = torch.tensor(0, device=device, dtype=torch.float32).deg2rad()
-    goal_rot = torch.tensor(0, device=device, dtype=torch.float32).deg2rad()
-    
-    tracking_path = remove_overlapping_points(tracking_path)
-    # Initial velocity is set as the haf of the maximum velocity
-    start_vel = torch.tensor([0.5*max_speed*torch.cos(start_rot), 0.5*max_speed*torch.sin(start_rot)], device=device, dtype=torch.float32) 
-    
-    # Mean length of the line segments on the path
-    mean_length_line_segments = tracking_path.diff(dim=0).norm(dim=1).mean()
-    # print(f"The mean length of the line segments of the tracking path is {mean_length_line_segments}.")
-
-    # Check is the reference path is a loop
-    is_ref_path_loop = (tracking_path[0, :] - tracking_path[-1, :]).norm() <= 1e-4
-        
-    # Determine the x- and y-range of the reference path, which will later be used to determine the x- and y-dimensions of the world
-    x_min = torch.min(tracking_path[:, 0])
-    x_max = torch.max(tracking_path[:, 0])
-    y_min = torch.min(tracking_path[:, 1])
-    y_max = torch.max(tracking_path[:, 1])
-    ranges = torch.hstack((x_max - x_min, y_max - y_min))
-    center_point_path = torch.hstack(
-        (
-            (x_min + x_max) / 2,
-            (y_min + y_max) / 2
-        )
-    )
-
-    tracking_path -= center_point_path # Move the path center to the origin
-    
-    if center_point is not None:
-        tracking_path += center_point # Move the path center to the given center point
-        
-    start_pos = tracking_path[0, :].clone()
-    goal_pos = tracking_path[-1, :].clone()
-
-    if not is_ref_path_loop:
-        # Extend an additional point (with the same direction) at the end of the path to workaround the phenomenon that the agent oscilltes near the final goal
-        point_extended = 2 * tracking_path[-1, :] - tracking_path[-2, :]
-    else:
-        point_extended = None
-        
-    if is_visualize:
-        is_save_fig = True
-        if obstacles.ndim == 4:
-            path_save_fig = "outputs/obstacle_avoidance_dynamics.pdf"
-        else:
-            path_save_fig = "outputs/obstacle_avoidance_static.pdf"
-        visualize_path(tracking_path, start_pos, goal_pos, start_rot, agent_width, agent_length, is_ref_path_loop, is_save_fig, path_save_fig, obstacles=obstacles)
-    
-    return tracking_path, ranges, start_pos, start_rot, start_vel, goal_pos, goal_rot, is_ref_path_loop, point_extended
-
 
 def transform_from_global_to_local_coordinate(pos_i: torch.Tensor, pos_j: torch.Tensor, rot_i):
     """

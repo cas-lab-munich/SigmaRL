@@ -45,66 +45,11 @@ def get_model_name(parameters):
 
 ##################################################
 ## Custom Classes
-##################################################
-class VmasEnvCustom(VmasEnv):
-    def _reset(
-        self, tensordict: Optional[TensorDictBase] = None, **kwargs
-    ) -> TensorDictBase:
-        # print("Custoim _reset()")
-        if tensordict is not None and "_reset" in tensordict.keys():
-            _reset = tensordict.get("_reset")
-            envs_to_reset = _reset.squeeze(-1)
-            
-            self._env.scenario.training_info = tensordict # TODO
-            
-            if envs_to_reset.all():
-                self._env.reset(return_observations=False)
-            else:
-                for env_index, to_reset in enumerate(envs_to_reset):
-                    if to_reset:
-                        self._env.reset_at(env_index, return_observations=False)
-        else:
-            self._env.reset(return_observations=False)
-
-        obs, dones, infos = self._env.get_from_scenario(
-            get_observations=True,
-            get_infos=True,
-            get_rewards=False,
-            get_dones=True,
-        )
-        dones = self.read_done(dones)
-
-        agent_tds = []
-        for i in range(self.n_agents):
-            agent_obs = self.read_obs(obs[i])
-            agent_info = self.read_info(infos[i])
-
-            agent_td = TensorDict(
-                source={
-                    "observation": agent_obs,
-                },
-                batch_size=self.batch_size,
-                device=self.device,
-            )
-            if agent_info is not None:
-                agent_td.set("info", agent_info)
-            agent_tds.append(agent_td)
-
-        agent_tds = torch.stack(agent_tds, dim=1)
-        if not self.het_specs:
-            agent_tds = agent_tds.to_tensordict()
-        tensordict_out = TensorDict(
-            source={"agents": agent_tds, "done": dones, "terminated": dones.clone()},
-            batch_size=self.batch_size,
-            device=self.device,
-        )
-
-        return tensordict_out
-    
-
-    
-    
+##################################################  
 class TransformedEnvCustom(TransformedEnv):
+    """
+    Slightly modify the function `rollout`, `_rollout_stop_early`, and `_rollout_nonstop` to enable returning a frame list to save evaluation video
+    """
     def rollout(
         self,
         max_steps: int,
@@ -301,82 +246,6 @@ class TransformedEnvCustom(TransformedEnv):
         else:
             return tensordicts
         
-class SyncDataCollectorCustom(SyncDataCollector):
-    # Redefine `rollout`
-    @torch.no_grad()
-    def rollout(self) -> TensorDictBase:
-        """Computes a rollout in the environment using the provided policy.
-
-        Returns:
-            TensorDictBase containing the computed rollout.
-
-        """
-        # print("[DEBUG] new rollout")
-        if self.reset_at_each_iter:
-            self._tensordict.update(self.env.reset())
-
-        # self._tensordict.fill_(("collector", "step_count"), 0)
-        self._tensordict_out.fill_(("collector", "traj_ids"), -1)
-        tensordicts = []
-
-        prediction_horizon = 1  # Set the number of actions you want to generate per step
-
-        with set_exploration_type(self.exploration_type):
-            for t in range(self.frames_per_batch):
-                if (
-                    self.init_random_frames is not None
-                    and self._frames < self.init_random_frames
-                ):
-                    self.env.rand_action(self._tensordict)
-                else:
-                    for _ in range(prediction_horizon):
-                        self.policy(self._tensordict)
-
-                tensordict, tensordict_ = self.env.step_and_maybe_reset(
-                    self._tensordict
-                )
-                self._tensordict = tensordict_.set(
-                    "collector", tensordict.get("collector").clone(False)
-                )
-                tensordicts.append(
-                    tensordict.to(self.storing_device, non_blocking=True)
-                )
-
-                self._update_traj_ids(tensordict)
-                if (
-                    self.interruptor is not None
-                    and self.interruptor.collection_stopped()
-                ):
-                    try:
-                        torch.stack(
-                            tensordicts,
-                            self._tensordict_out.ndim - 1,
-                            out=self._tensordict_out[: t + 1],
-                        )
-                    except RuntimeError:
-                        with self._tensordict_out.unlock_():
-                            torch.stack(
-                                tensordicts,
-                                self._tensordict_out.ndim - 1,
-                                out=self._tensordict_out[: t + 1],
-                            )
-                    break
-            else:
-                try:
-                    self._tensordict_out = torch.stack(
-                        tensordicts,
-                        self._tensordict_out.ndim - 1,
-                        out=self._tensordict_out,
-                    )
-                except RuntimeError:
-                    with self._tensordict_out.unlock_():
-                        self._tensordict_out = torch.stack(
-                            tensordicts,
-                            self._tensordict_out.ndim - 1,
-                            out=self._tensordict_out,
-                        )
-        return self._tensordict_out
-
 class Parameters():
     def __init__(self,
                 # General parameters
@@ -415,11 +284,11 @@ class Parameters():
                 n_nearing_agents_observed: int = 2,      # Number of nearing agents to be observed (consider limited sensor range)
 
                 is_ego_view: bool = True,      # Global or local coordinate system
-                is_apply_mask: bool = True,                         # Whether to mask faraway agents
+                is_apply_mask: bool = True,                         # Whether to mask distant agents
                 is_observe_distance_to_agents: bool = True,         # Whether to observe the distance to other agents
                 is_observe_distance_to_boundaries: bool = True,     # Whether to observe points on lanelet boundaries or observe the distance to labelet boundaries
                 is_observe_distance_to_ref_path: bool = True,       # Whether to observe the distance to reference path
-                is_observe_CG: bool = True,                         # Whether to observe the center of gravity of other agents or the corners of them
+                is_observe_CG: bool = True,                         # Whether to observe the center of gravity of other agents or the vertices of them
                 is_add_noise: bool = True,                          # Whether to add noise to observations
                 is_observe_ref_path_other_agents: bool = False,     # Whether to observe the reference paths of other agents
                 
@@ -444,20 +313,6 @@ class Parameters():
                 
                 is_testing_mode: bool = False,               # In testing mode, collisions do not terminate the current simulation
                 is_save_simulation_video: bool = False,
-
-                ############################################
-                ## Only for path-tracking scenario
-                ############################################
-                is_mixed_scenario_training: bool = True,    # Whether to use mixed scenarios durining training
-                is_use_intermediate_goals: bool = False,     # If True, intermediate goals will be used, serving as reward shaping; otherwise, only a final goal will be used
-                path_tracking_type: str = "sine",             # For path-tracking scenarios
-                is_dynamic_goal_reward: bool = False,        # TODO Adjust the goal reward based on how well agents achieve their goals
-                
-                ############################################
-                ## Only for obstacle-avoidance scenario
-                ############################################
-                obstacle_type: str = "static",                  # For obstacle-avoidance scenarios
-                n_nearing_obstacles_observed: int = 4,   # Number of nearing obstacles to be observed (consider limited sensor range)
                 ):
         
         self.n_agents = n_agents
@@ -486,9 +341,6 @@ class Parameters():
         self.max_steps = max_steps
         self.training_strategy = training_strategy
         
-        # Scenario parameters
-        self.is_mixed_scenario_training = is_mixed_scenario_training
-        
         if (frames_per_batch is not None) and (max_steps is not None):
             self.num_vmas_envs = frames_per_batch // max_steps # Number of vectorized envs. frames_per_batch should be divisible by this number,
 
@@ -504,9 +356,7 @@ class Parameters():
         # Observation
         self.is_partial_observation = is_partial_observation
         self.n_points_short_term = n_points_short_term
-        self.is_use_intermediate_goals = is_use_intermediate_goals
         self.n_nearing_agents_observed = n_nearing_agents_observed
-        self.n_nearing_obstacles_observed = n_nearing_obstacles_observed
         self.is_observe_distance_to_agents = is_observe_distance_to_agents
         
         self.is_testing_mode = is_testing_mode
@@ -522,12 +372,6 @@ class Parameters():
         self.is_observe_CG = is_observe_CG
         self.is_add_noise = is_add_noise 
         self.is_observe_ref_path_other_agents = is_observe_ref_path_other_agents 
-
-        
-        self.path_tracking_type = path_tracking_type
-        self.is_dynamic_goal_reward = is_dynamic_goal_reward
-        
-        self.obstacle_type = obstacle_type
 
         self.is_save_eval_results = is_save_eval_results
         self.is_load_out_td = is_load_out_td

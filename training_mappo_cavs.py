@@ -15,6 +15,7 @@ from tensordict.nn import TensorDictModule
 from tensordict.nn.distributions import NormalParamExtractor
 
 # Data collection
+from torchrl.collectors import SyncDataCollector
 from torchrl.data.replay_buffers import ReplayBuffer
 from torchrl.data import TensorDictPrioritizedReplayBuffer
 from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
@@ -45,36 +46,26 @@ plt.rcParams.update({'figure.dpi': '100'}) # Avoid DPI problem (https://github.c
 plt.style.use(['science','ieee']) # The science + ieee styles for IEEE papers (can also be one of 'ieee' and 'science' )
 # print(plt.style.available) # List all available style
 
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
+from torchrl.envs.libs.vmas import VmasEnv
 
 # Import custom classes
-from utilities.helper_training import Parameters, SaveData, VmasEnvCustom, SyncDataCollectorCustom, TransformedEnvCustom, get_path_to_save_model, find_the_highest_reward_among_all_models, save
+from utilities.helper_training import Parameters, SaveData, TransformedEnvCustom, get_path_to_save_model, find_the_highest_reward_among_all_models, save
 
 from scenarios.road_traffic import ScenarioRoadTraffic
-from scenarios.path_tracking import ScenarioPathTracking
-from scenarios.obstacle_avoidance import ScenarioObstacleAvoidance 
-
 
 # Reproducibility
 torch.manual_seed(0)
 
 
 def mappo_cavs(parameters: Parameters):
-    if "road_traffic" in parameters.scenario_name:
-        scenario = ScenarioRoadTraffic()
-    elif "path_tracking" in parameters.scenario_name:
-        scenario = ScenarioPathTracking()
-    elif "obstacle_avoidance" in parameters.scenario_name:
-        scenario = ScenarioObstacleAvoidance()
-    else:
-        raise ValueError(f"The given scenario '{parameters.scenario_name}' is not found. Current implementation includes 'road_traffic' and 'path_tracking'.")
+    scenario = ScenarioRoadTraffic()
     
     scenario.parameters = parameters
 
     # Using multi-threads to handle file writing
     # pool = ThreadPoolExecutor(128)
 
-    env = VmasEnvCustom(
+    env = VmasEnv(
         scenario=scenario,
         num_envs=parameters.num_vmas_envs,
         continuous_actions=True,  # VMAS supports both continuous and discrete actions
@@ -83,14 +74,11 @@ def mappo_cavs(parameters: Parameters):
         # Scenario kwargs
         n_agents=parameters.n_agents,  # These are custom kwargs that change for each VMAS scenario, see the VMAS repo to know more.
     )
-
-
     
     save_data = SaveData(
         parameters=parameters,
         episode_reward_mean_list=[],
     )
-
 
     # print("env.full_action_spec:", env.full_action_spec, "\n")
     # print("env.full_reward_spec:", env.full_reward_spec, "\n")
@@ -107,11 +95,6 @@ def mappo_cavs(parameters: Parameters):
     )
 
     check_env_specs(env)
-
-    # n_rollout_steps = 5
-    # rollout = env.rollout(n_rollout_steps)
-    # print("rollout of three steps:", rollout, "\n")
-    # print("Shape of the rollout TensorDict:", rollout.batch_size, "\n")
 
     policy_net = torch.nn.Sequential(
         MultiAgentMLP(
@@ -130,8 +113,7 @@ def mappo_cavs(parameters: Parameters):
         NormalParamExtractor(),  # this will just separate the last dimension into two outputs: a `loc` and a non-negative `scale``, used as parameters for a normal distribution (mean and standard deviation)
     )
 
-
-    print("policy_net:", policy_net, "\n")
+    # print("policy_net:", policy_net, "\n")
 
     policy_module = TensorDictModule(
         policy_net,
@@ -158,18 +140,6 @@ def mappo_cavs(parameters: Parameters):
 
     critic_net = MultiAgentMLP(
         n_agent_inputs=env.observation_spec["agents", "observation"].shape[-1], # Number of observations
-        # n_agent_inputs=
-        #                 env.observation_spec["agents", "info", "pri"].shape[-1]
-        #                 + env.observation_spec["agents", "info", "pos"].shape[-1]
-        #                 + env.observation_spec["agents", "info", "rot"].shape[-1]
-        #                 + env.observation_spec["agents", "info", "vel"].shape[-1]
-        #                 + env.observation_spec["agents", "info", "act_vel"].shape[-1]
-        #                 + env.observation_spec["agents", "info", "act_steer"].shape[-1]
-        #                 + env.observation_spec["agents", "info", "ref"].shape[-1]  # TODO Check if refefrence paths are needed for the critic
-        #                 # + env.observation_spec["agents", "info", "distance_ref"].shape[-1]
-        #                 # + env.observation_spec["agents", "info", "distance_left_b"].shape[-1]
-        #                 # + env.observation_spec["agents", "info", "distance_right_b"].shape[-1]
-        #                 ,
         n_agent_outputs=1,  # 1 value per agent
         n_agents=env.n_agents,
         centralised=mappo, # If `centralised` is True (which may help overcome the non-stationary problem in MARL), each agent will use the inputs of all agents to compute its output (n_agent_inputs * n_agents will be the number of inputs for one agent). Otherwise, each agent will only use its data as input.
@@ -179,39 +149,20 @@ def mappo_cavs(parameters: Parameters):
         num_cells=256,
         activation_class=torch.nn.Tanh,
     )
-    print(critic_net)
+    
+    # print(critic_net)
+    
     critic = TensorDictModule(
         module=critic_net,
         in_keys=[("agents", "observation")], # Note that the critic in PPO only takes the same inputs (observations) as the actor
-        # in_keys=
-        # [
-        #     ("agents", "info", "pri"),
-        #     ("agents", "info", "pos"),
-        #     ("agents", "info", "rot"),
-        #     ("agents", "info", "vel"),
-        #     ("agents", "info", "act_steer"),
-        #     ("agents", "info", "act_vel"),
-        #     ("agents", "info", "ref"),
-        #     # ("agents", "info", "distance_ref"),
-        #     # ("agents", "info", "distance_left_b"),
-        #     # ("agents", "info", "distance_right_b")
-        # ], # Different observations for the critic
         out_keys=[("agents", "state_value")],
     )
-
-    # print("critic_net:", critic_net, "\n")
-    # print("Running policy:", policy(env.reset()), "\n")
-    # print("Running value:", critic(env.reset()), "\n")
-
 
     # Check if the directory defined to store the model exists and create it if not
     if not os.path.exists(parameters.where_to_save):
         os.makedirs(parameters.where_to_save)
         print(colored("[INFO] Created a new directory to save the trained model:", "black"), colored(f"{parameters.where_to_save}", "blue"))
-        
-    # Specify a path
-     
-    
+
     # Load an existing model or train a new model?
     if parameters.is_load_model:
         # Load the model with the highest reward in the folder `parameters.where_to_save`
@@ -236,16 +187,7 @@ def mappo_cavs(parameters: Parameters):
             print(colored("[INFO] Training will continue with the loaded model.", "red"))
             critic.load_state_dict(torch.load(PATH_CRITIC))
 
-    # collector = SyncDataCollector(
-    #     env,
-    #     policy,
-    #     device=parameters.device,
-    #     storing_device=parameters.device,
-    #     frames_per_batch=parameters.frames_per_batch,
-    #     total_frames=total_frames,
-    # )
-
-    collector = SyncDataCollectorCustom(
+    collector = SyncDataCollector(
         env,
         policy,
         device=parameters.device,
@@ -298,7 +240,6 @@ def mappo_cavs(parameters: Parameters):
 
     optim = torch.optim.Adam(loss_module.parameters(), parameters.lr)
 
-
     pbar = tqdm(total=parameters.n_iters, desc="epi_rew_mean = 0")
 
     episode_reward_mean_list = []
@@ -350,10 +291,6 @@ def mappo_cavs(parameters: Parameters):
             
             assert tensordict_data["td_error"].min() >= 0, "TD error must be greater than 0"
             
-            # print(f"TD error mean: {td_error_average_over_agents.mean():.4f}")
-            # print(f"TD error max:  {td_error_average_over_agents.max():.4f}")
-            # print(f"TD error min:  {td_error_average_over_agents.min():.4f}")
-            
         data_view = tensordict_data.reshape(-1)  # Flatten the batch size to shuffle data
         replay_buffer.extend(data_view)
         # replay_buffer.update_tensordict_priority() # Not necessary, as priorities were updated automatically when calling `replay_buffer.extend()`
@@ -389,7 +326,6 @@ def mappo_cavs(parameters: Parameters):
                     loss_module.parameters(), parameters.max_grad_norm
                 )  # Optional
 
-                # print("[DEBUG] optim.step()")
                 optim.step()
                 optim.zero_grad()
 
@@ -404,7 +340,6 @@ def mappo_cavs(parameters: Parameters):
         pbar.set_description(f"episode_reward_mean = {episode_reward_mean:.3f}", refresh=False)
 
         # env.scenario.iter = pbar.n # A way to pass the information from the training algorithm to the environment
-        # env.scenario.episode_reward_mean = episode_reward_mean
         
         if parameters.is_save_intermidiate_model:
             # Update the current mean episode reward
@@ -457,28 +392,31 @@ if __name__ == "__main__":
         # Training parameters
         n_iters=250, # Number of sampling and training iterations (on-policy: rollouts are collected during sampling phase, which will be immediately used in the training phase of the same iteration),
         frames_per_batch=2**12, # Number of team frames collected per training iteration 
-                                # num_envs = frames_per_batch / max_steps
-                                # total_frames = frames_per_batch * n_iters
-                                # sub_batch_size = frames_per_batch // minibatch_size
-        num_epochs=60, # Optimization steps per batch of data collected,
-        minibatch_size=2**9, # Size of the mini-batches in each optimization step (2**9 - 2**12?),
-        lr=2e-4, # Learning rate,
-        lr_min=1e-5, # Learning rate,
-        max_grad_norm=1.0, # Maximum norm for the gradients,
-        clip_epsilon=0.2, # clip value for PPO loss,
-        gamma=0.99, # discount factor (empirical formula: 0.1 = gamma^t, where t is the number of future steps that you want your agents to predict {0.96 -> 56 steps, 0.98 -> 114 steps, 0.99 -> 229 steps, 0.995 -> 459 steps})
-        lmbda=0.9, # lambda for generalised advantage estimation,
-        entropy_eps=1e-4, # coefficient of the entropy term in the PPO loss,
-        max_steps=2**7, # Episode steps before done
-        training_strategy='4', # One of {'1', '2', '3', '4'}. 1 for vanilla, 2 for vanilla with prioritized replay buffer, 3 for vanilla with challenging initial state buffer, 4 for mixed training
-        
+                                    # num_envs = frames_per_batch / max_steps
+                                    # total_frames = frames_per_batch * n_iters
+                                    # sub_batch_size = frames_per_batch // minibatch_size
+        num_epochs=60,          # Optimization steps per batch of data collected,
+        minibatch_size=2**9,    # Size of the mini-batches in each optimization step (2**9 - 2**12?),
+        lr=2e-4,                # Learning rate,
+        lr_min=1e-5,            # Min Learning rate,
+        max_grad_norm=1.0,      # Maximum norm for the gradients,
+        clip_epsilon=0.2,       # Clip value for PPO loss,
+        gamma=0.99,             # Discount factor from 0 to 1. A greater value corresponds to a longer sight.
+        lmbda=0.9,              # lambda for generalised advantage estimation,
+        entropy_eps=1e-4,       # Coefficient of the entropy term in the PPO loss,
+        max_steps=2**7,         # Episode steps before done
+        training_strategy='4',  # One of {'1', '2', '3', '4'}. 
+                                    # 1 for vanilla
+                                    # 2 for vanilla with prioritized replay buffer
+                                    # 3 for vanilla with challenging initial state buffer
+                                    # 4 for mixed training
         is_save_intermidiate_model=True, # Is this is true, the model with the highest mean episode reward will be saved,
         
         episode_reward_mean_current=0.00,
         
-        is_load_model=False, # Load offline model if available. The offline model in `where_to_save` whose name contains `episode_reward_mean_current` will be loaded
-        is_load_final_model=False, # Whether to load the final model instead of the intermidiate model with the highest episode reward
-        is_continue_train=False, # If offline models are loaded, whether to continue to train the model
+        is_load_model=False,        # Load offline model if available. The offline model in `where_to_save` whose name contains `episode_reward_mean_current` will be loaded
+        is_load_final_model=False,  # Whether to load the final model instead of the intermidiate model with the highest episode reward
+        is_continue_train=False,    # If offline models are loaded, whether to continue to train the model
         mode_name=None, 
         episode_reward_intermidiate=-1e3, # The initial value should be samll enough
         
@@ -487,41 +425,27 @@ if __name__ == "__main__":
         # Scenario parameters
         is_partial_observation=True,
         n_points_short_term=3,
-        is_use_intermediate_goals=False,
         n_nearing_agents_observed=2,
-        n_nearing_obstacles_observed=4,
         
         is_testing_mode=False,
         is_visualize_short_term_path=True,
         
         is_save_eval_results=True,
         
-        is_prb=False, # Whether to enable prioritized replay buffer
+        is_prb=False,       # Whether to enable prioritized replay buffer
         reset_scenario_probabilities=[1.0, 0.0, 0.0],
         
         is_use_mtv_distance=False,
 
         # Ablation study        
-        is_ego_view=True,      # Ego view or bird view
-        is_apply_mask=True,                 # Whether to mask faraway agents
+        is_ego_view=True,                   # Ego view or bird view
+        is_apply_mask=True,                 # Whether to mask distant agents
         is_observe_distance_to_agents=True,      
         is_observe_CG=True,
         is_observe_distance_to_boundaries=True,  
         is_observe_distance_to_ref_path=True,
         is_add_noise=True,
         is_observe_ref_path_other_agents=False,
-
-        ############################################
-        # For path_tracking only
-        ############################################
-        path_tracking_type='sine', # [relevant to path-tracking scenarios] should be one of 'line', 'turning', 'circle', 'sine', and 'horizontal_8'
-        obstacle_type="static", # [relevant for obstacle-avoidance scenarios] should be one of "static" and "dynamic"
-        is_mixed_scenario_training = True,
-        is_dynamic_goal_reward=False, # set to True if the goal reward is dynamically adjusted based on the performance of agents' history trajectories 
-
-        ############################################
-        # For obstacle_avoidance only
-        ############################################  
     )
     
     if parameters.training_strategy == "2":
