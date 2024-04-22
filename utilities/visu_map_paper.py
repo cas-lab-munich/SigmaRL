@@ -255,9 +255,11 @@ def visualize_and_save_map(lanelets, intersection_info, is_save_fig = False, is_
     # Save fig
     if is_save_fig:
         file_name = "map_visualization_paper.pdf"
-
         plt.tight_layout() # Set the layout to be tight to minimize white space
         plt.savefig(file_name, format="pdf", bbox_inches="tight")
+
+        file_name = "map_visualization_paper.png"
+        plt.savefig(file_name, format="png", bbox_inches="tight", transparent=True, dpi=600)
         
         print(f"A fig has been saved unter {file_name}.")
         

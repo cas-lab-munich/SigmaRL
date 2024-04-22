@@ -10,12 +10,20 @@ from torchrl.collectors import SyncDataCollector
 from torchrl.envs import TransformedEnv
 from torchrl.envs.utils import (
     set_exploration_type,
+    _terminated_or_truncated,
+    step_mdp,
 )
 from torchrl.envs.libs.vmas import VmasEnv
 
+from vmas.simulator.utils import (
+    X,
+    Y,
+)
+
 # Utils
 from matplotlib import pyplot as plt
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple, Callable, Optional, Union
+from ctypes import byref
 
 from matplotlib import pyplot as plt
 import json
@@ -93,6 +101,8 @@ class VmasEnvCustom(VmasEnv):
 
         return tensordict_out
     
+
+    
     
 class TransformedEnvCustom(TransformedEnv):
     def rollout(
@@ -106,6 +116,7 @@ class TransformedEnvCustom(TransformedEnv):
         return_contiguous: bool = True,
         tensordict: Optional[TensorDictBase] = None,
         out=None,
+        is_save_simulation_video: bool = False,
     ):
         """Executes a rollout in the environment.
 
@@ -164,18 +175,132 @@ class TransformedEnvCustom(TransformedEnv):
             "policy_device": policy_device,
             "env_device": env_device,
             "callback": callback,
+            "is_save_simulation_video": is_save_simulation_video,
         }
         if break_when_any_done:
-            tensordicts = self._rollout_stop_early(**kwargs)
+            if is_save_simulation_video:
+                tensordicts, frame_list = self._rollout_stop_early(**kwargs)
+            else:
+                tensordicts = self._rollout_stop_early(**kwargs)
         else:
-            tensordicts = self._rollout_nonstop(**kwargs)
+            if is_save_simulation_video:
+                tensordicts, frame_list = self._rollout_nonstop(**kwargs)
+            else:
+                tensordicts = self._rollout_nonstop(**kwargs)
+                
         batch_size = self.batch_size if tensordict is None else tensordict.batch_size
         out_td = torch.stack(tensordicts, len(batch_size), out=out)
         if return_contiguous:
             out_td = out_td.contiguous()
         out_td.refine_names(..., "time")
-        return out_td
+        
+        if is_save_simulation_video:
+            return out_td, frame_list
+        else:
+            return out_td
+        
+    def _rollout_stop_early(
+        self,
+        *,
+        tensordict,
+        auto_cast_to_device,
+        max_steps,
+        policy,
+        policy_device,
+        env_device,
+        callback,
+        is_save_simulation_video,
+    ):
+        tensordicts = []
+        
+        if is_save_simulation_video:
+            frame_list = []
+            
+        for i in range(max_steps):
+            if auto_cast_to_device:
+                tensordict = tensordict.to(policy_device, non_blocking=True)
+            tensordict = policy(tensordict)
+            if auto_cast_to_device:
+                tensordict = tensordict.to(env_device, non_blocking=True)
+            tensordict = self.step(tensordict)
+            tensordicts.append(tensordict.clone(False))
 
+            if i == max_steps - 1:
+                # we don't truncated as one could potentially continue the run
+                break
+            tensordict = step_mdp(
+                tensordict,
+                keep_other=True,
+                exclude_action=False,
+                exclude_reward=True,
+                reward_keys=self.reward_keys,
+                action_keys=self.action_keys,
+                done_keys=self.done_keys,
+            )
+            # done and truncated are in done_keys
+            # We read if any key is done.
+            any_done = _terminated_or_truncated(
+                tensordict,
+                full_done_spec=self.output_spec["full_done_spec"],
+                key=None,
+            )
+            if any_done:
+                break
+
+            if callback is not None:
+                if is_save_simulation_video:
+                    frame = callback(self, tensordict)
+                    frame_list.append(frame)
+                else:
+                    callback(self, tensordict)
+                
+        if is_save_simulation_video:
+            return tensordicts, frame_list
+        else:
+            return tensordicts
+
+    def _rollout_nonstop(
+        self,
+        *,
+        tensordict,
+        auto_cast_to_device,
+        max_steps,
+        policy,
+        policy_device,
+        env_device,
+        callback,
+        is_save_simulation_video,
+    ):
+        tensordicts = []
+        tensordict_ = tensordict
+
+        if is_save_simulation_video:
+            frame_list = []
+            
+        for i in range(max_steps):
+            if auto_cast_to_device:
+                tensordict_ = tensordict_.to(policy_device, non_blocking=True)
+            tensordict_ = policy(tensordict_)
+            if auto_cast_to_device:
+                tensordict_ = tensordict_.to(env_device, non_blocking=True)
+            tensordict, tensordict_ = self.step_and_maybe_reset(tensordict_)
+            tensordicts.append(tensordict)
+            if i == max_steps - 1:
+                # we don't truncated as one could potentially continue the run
+                break
+
+            if callback is not None:
+                if is_save_simulation_video:
+                    frame = callback(self, tensordict)
+                    frame_list.append(frame)
+                else:
+                    callback(self, tensordict)
+                    
+        if is_save_simulation_video:
+            return tensordicts, frame_list
+        else:
+            return tensordicts
+        
 class SyncDataCollectorCustom(SyncDataCollector):
     # Redefine `rollout`
     @torch.no_grad()
@@ -302,7 +427,10 @@ class Parameters():
                 
                 # Visu
                 is_visualize_short_term_path: bool = True,
+                is_visualize_lane_boundary: bool = False,
                 is_real_time_rendering: bool = False,        # Simulation will be paused at each time step for a certain duration to enable real-time rendering
+                is_visualize_extra_info: bool = True,
+                render_title: str = "",
 
                 # Save/Load
                 is_save_intermidiate_model: bool = True,
@@ -315,6 +443,7 @@ class Parameters():
                 is_load_out_td: bool = False,
                 
                 is_testing_mode: bool = False,               # In testing mode, collisions do not terminate the current simulation
+                is_save_simulation_video: bool = False,
 
                 ############################################
                 ## Only for path-tracking scenario
@@ -381,7 +510,9 @@ class Parameters():
         self.is_observe_distance_to_agents = is_observe_distance_to_agents
         
         self.is_testing_mode = is_testing_mode
+        self.is_save_simulation_video = is_save_simulation_video
         self.is_visualize_short_term_path = is_visualize_short_term_path
+        self.is_visualize_lane_boundary = is_visualize_lane_boundary
         
         self.is_ego_view = is_ego_view
         self.is_apply_mask = is_apply_mask
@@ -402,6 +533,8 @@ class Parameters():
         self.is_load_out_td = is_load_out_td
             
         self.is_real_time_rendering = is_real_time_rendering
+        self.is_visualize_extra_info = is_visualize_extra_info
+        self.render_title = render_title
 
         self.is_prb = is_prb
         self.reset_scenario_probabilities = reset_scenario_probabilities
