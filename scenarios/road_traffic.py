@@ -92,11 +92,13 @@ threshold_no_reward_if_too_close_to_other_agents = agent_width / 6
 
 
 ## Visualization
-viewer_size = (int(world_x_dim * 200), int(world_y_dim * 200)) # TODO Check if we can use a fix camera view in vmas
+viewer_zoom = 1.44          # Default 1.44
+resolution_factor = 200     # Default 200
 
-viewer_zoom = 1
 is_testing_mode = False             # In testing mode, collisions do not lead to the termination of the simulation 
 is_visualize_short_term_path = True
+is_visualize_extra_info = True
+render_title = "Multi-Agent Reinforcement Learning for Connected and Automated Vehicles"
 
 # Reference path
 n_points_short_term = 3             # The number of points on short-term reference paths
@@ -115,7 +117,7 @@ n_stored_steps = 5      # The number of steps to store (include the current step
 n_observed_steps = 1    # The number of steps to observe (include the current step). At least one, and at most `n_stored_steps`
 
 # Training parameters
-training_strategy = "4" # One of {"1", "2", "3", "4"}
+training_strategy = "1" # One of {"1", "2", "3", "4"}
                         # "1": Train in a single, comprehensive scenario
                         # "2": Train in a single, comprehensive scenario with prioritized replay buffer
                         # "3": Train in a single, comprehensive scenario with challenging initial state buffer
@@ -156,8 +158,6 @@ class ScenarioRoadTraffic(BaseScenario):
         max_steering_angle = kwargs.get("max_steering_angle", torch.deg2rad(torch.tensor(agent_max_steering_angle, device=device, dtype=torch.float32)))
         max_speed = kwargs.get("max_speed", agent_max_speed)
         
-        self.viewer_size = viewer_size
-        self.viewer_zoom = viewer_zoom
         
         self.viewer_bound = torch.tensor(
             # [-0.1, world_x_dim + 0.1, -0.1, world_y_dim + 0.1],
@@ -165,6 +165,12 @@ class ScenarioRoadTraffic(BaseScenario):
             device=device,
             dtype=torch.float32,
         )
+        
+        self.render_origin = [world_x_dim / 2, world_y_dim / 2] # TODO
+        # self.render_origin = [world_x_dim / 2, world_y_dim / 2] # TODO
+
+        self.viewer_size = (int(self.viewer_bound[1] * resolution_factor), int(self.viewer_bound[3] * resolution_factor))
+        self.viewer_zoom = viewer_zoom
 
         # Specify parameters if not given
         if not hasattr(self, "parameters"):
@@ -188,6 +194,8 @@ class ScenarioRoadTraffic(BaseScenario):
                 is_observe_CG=is_observe_CG,
                 is_add_noise=is_add_noise,
                 is_observe_ref_path_other_agents=is_observe_ref_path_other_agents,
+                is_visualize_extra_info=is_visualize_extra_info,
+                render_title=render_title,
             )
         
         # Logs
@@ -985,7 +993,6 @@ class ScenarioRoadTraffic(BaseScenario):
         ##################################################
         ## [penalty] deviating from reference path
         ##################################################
-        # TODO Remove?
         self.rew += self.distances.ref_paths[:, agent_index] / self.penalties.weighting_deviate_from_ref_path * self.penalties.deviate_from_ref_path
 
 
@@ -1544,7 +1551,6 @@ class ScenarioRoadTraffic(BaseScenario):
             # print(f"Paused for {pause_duration} sec.")
             
             self.timer.render_begin = time.time() # Update
-            
         geoms = []
         
         # Visualize all lanelets
@@ -1568,7 +1574,66 @@ class ScenarioRoadTraffic(BaseScenario):
             geom.add_attr(xform)            
             geom.set_color(*Color.black100)
             geoms.append(geom)
+        
+        # Title
+        if self.parameters.is_visualize_extra_info:
+            hight_a = -0.15
+            hight_b = -0.20
+            hight_c = -0.30
+            
+            # geom = rendering.TextLine(
+            #     text=self.parameters.render_title,
+            #     x=0.05 * resolution_factor,
+            #     y=(self.world.y_semidim + hight_a) * resolution_factor,
+            #     font_size=14,
+            # )
+            # xform = rendering.Transform()
+            # geom.add_attr(xform)  
+            # geoms.append(geom)
 
+            # Time and time step
+            geom = rendering.TextLine(
+                text=f"t: {self.timer.step[0]*self.parameters.dt:.2f} sec",
+                x=0.05 * resolution_factor,
+                y=(self.world.y_semidim + hight_b) * resolution_factor,
+                font_size=14,
+            )
+            xform = rendering.Transform()
+            geom.add_attr(xform)  
+            geoms.append(geom)
+            
+            geom = rendering.TextLine(
+                text=f"n: {self.timer.step[0]}",
+                x=0.05 * resolution_factor,
+                y=(self.world.y_semidim + hight_c) * resolution_factor,
+                font_size=14,
+            )
+            xform = rendering.Transform()
+            geom.add_attr(xform)  
+            geoms.append(geom)
+            
+            # mean_vel = torch.vstack([a.state.vel for a in self.world.agents]).norm(dim=-1).mean()
+            # geom = rendering.TextLine(
+            #     text=f"Mean velocity: {mean_vel:.2f} m/s",
+            #     x=1.68 * resolution_factor,
+            #     y=(self.world.y_semidim + hight_b) * resolution_factor,
+            #     font_size=14,
+            # )
+            # xform = rendering.Transform()
+            # geom.add_attr(xform)  
+            # geoms.append(geom)
+
+            # mean_deviation_from_center_line = self.distances.ref_paths[0].mean()
+            # geom = rendering.TextLine(
+            #     text=f"Mean deviation: {mean_deviation_from_center_line:.3f} m",
+            #     x=3.15 * resolution_factor,
+            #     y=(self.world.y_semidim + hight_b) * resolution_factor,
+            #     font_size=14,
+            # )
+            # xform = rendering.Transform()
+            # geom.add_attr(xform)  
+            # geoms.append(geom)
+            
         for agent_i in range(self.n_agents):
             # # Visualize goal
             # if not self.ref_paths_agent_related.is_loop[env_index, agent_i]:
@@ -1649,55 +1714,58 @@ class ScenarioRoadTraffic(BaseScenario):
                     circle.set_color(*colors[agent_i])
                     geoms.append(circle)
             
-            # Visualize the agent IDs
+            # Agent IDs
             geom = rendering.TextLine(
                 text=f"{agent_i}",
-                x=(self.world.agents[agent_i].state.pos[env_index, 0] / (self.world.x_semidim)) * self.viewer_size[0],
-                y=self.world.agents[agent_i].state.pos[env_index, 1] / (self.world.y_semidim) * self.viewer_size[1],
+                x=(self.world.agents[agent_i].state.pos[env_index, 0] / self.world.x_semidim) * self.viewer_size[0],
+                y=(self.world.agents[agent_i].state.pos[env_index, 1] / self.world.y_semidim) * self.viewer_size[1],
+                # x=(self.world.agents[agent_i].state.pos[env_index, 0] - self.render_origin[0] + self.world.x_semidim / 2) * resolution_factor / self.viewer_zoom,
+                # y=(self.world.agents[agent_i].state.pos[env_index, 1] - self.render_origin[1] + self.world.y_semidim / 2) * resolution_factor / self.viewer_zoom,
                 font_size=14,
             )
             xform = rendering.Transform()
             geom.add_attr(xform)  
             geoms.append(geom)
                 
-            # Visualize the lanelet boundaries of agents" reference path
-            if agent_i == 0:
-                # Left boundary
-                geom = rendering.PolyLine(
-                    v = self.ref_paths_agent_related.left_boundary[env_index, agent_i],
-                    close=False,
-                )
-                xform = rendering.Transform()
-                geom.add_attr(xform)            
-                geom.set_color(*colors[agent_i])
-                geoms.append(geom)
-                # Right boundary
-                geom = rendering.PolyLine(
-                    v = self.ref_paths_agent_related.right_boundary[env_index, agent_i],
-                    close=False,
-                )
-                xform = rendering.Transform()
-                geom.add_attr(xform)            
-                geom.set_color(*colors[agent_i])
-                geoms.append(geom)
-                # Entry
-                geom = rendering.PolyLine(
-                    v = self.ref_paths_agent_related.entry[env_index, agent_i],
-                    close=False,
-                )
-                xform = rendering.Transform()
-                geom.add_attr(xform)
-                geom.set_color(*colors[agent_i])
-                geoms.append(geom)
-                # Exit
-                geom = rendering.PolyLine(
-                    v = self.ref_paths_agent_related.exit[env_index, agent_i],
-                    close=False,
-                )
-                xform = rendering.Transform()
-                geom.add_attr(xform)
-                geom.set_color(*colors[agent_i])
-                geoms.append(geom)
+            # Lanelet boundaries of agents' reference path
+            if self.parameters.is_visualize_lane_boundary:
+                if agent_i == 0:
+                    # Left boundary
+                    geom = rendering.PolyLine(
+                        v = self.ref_paths_agent_related.left_boundary[env_index, agent_i],
+                        close=False,
+                    )
+                    xform = rendering.Transform()
+                    geom.add_attr(xform)            
+                    geom.set_color(*colors[agent_i])
+                    geoms.append(geom)
+                    # Right boundary
+                    geom = rendering.PolyLine(
+                        v = self.ref_paths_agent_related.right_boundary[env_index, agent_i],
+                        close=False,
+                    )
+                    xform = rendering.Transform()
+                    geom.add_attr(xform)            
+                    geom.set_color(*colors[agent_i])
+                    geoms.append(geom)
+                    # Entry
+                    geom = rendering.PolyLine(
+                        v = self.ref_paths_agent_related.entry[env_index, agent_i],
+                        close=False,
+                    )
+                    xform = rendering.Transform()
+                    geom.add_attr(xform)
+                    geom.set_color(*colors[agent_i])
+                    geoms.append(geom)
+                    # Exit
+                    geom = rendering.PolyLine(
+                        v = self.ref_paths_agent_related.exit[env_index, agent_i],
+                        close=False,
+                    )
+                    xform = rendering.Transform()
+                    geom.add_attr(xform)
+                    geom.set_color(*colors[agent_i])
+                    geoms.append(geom)
             
         return geoms
 
