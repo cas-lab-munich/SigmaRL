@@ -7,7 +7,7 @@ import json
 
 from training_mappo_cavs import mappo_cavs
 
-path = "outputs_saved/traffic_road"
+path = "checkpoints/our"
 
 try:
     path_to_json_file = next(os.path.join(path, file) for file in os.listdir(path) if file.endswith('.json')) # Find the first json file in the folder
@@ -49,5 +49,3 @@ try:
         save_video(f"{path}video", frame_list, fps=1 / parameters.dt)
 except StopIteration:
     raise FileNotFoundError("No json file found.")
-
-                    

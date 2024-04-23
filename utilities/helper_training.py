@@ -249,38 +249,44 @@ class TransformedEnvCustom(TransformedEnv):
 class Parameters():
     def __init__(self,
                 # General parameters
-                n_agents: int = 4,       # Number of agents
+                n_agents: int = 4,          # Number of agents
                 dt: float = 0.05,           # [s] sample time
-                device: str = "cpu",         # Tensor device
-                scenario_name: str = "road_traffic",
+                device: str = "cpu",        # Tensor device
+                scenario_name: str = "road_traffic",    # Scenario name
                 
                 # Training parameters
-                n_iters: int = 250,            # Number of iterations
-                frames_per_batch: int = 2**12,
-                num_epochs: int = 60,
-                minibatch_size: int = 2**9,
+                n_iters: int = 250,             # Number of training iterations
+                frames_per_batch: int = 2**12, # Number of team frames collected per training iteration 
+                                            # num_envs = frames_per_batch / max_steps
+                                            # total_frames = frames_per_batch * n_iters
+                                            # sub_batch_size = frames_per_batch // minibatch_size
+                num_epochs: int = 60,       # Optimization steps per batch of data collected
+                minibatch_size: int = 2**9,     # Size of the mini-batches in each optimization step (2**9 - 2**12?)
                 lr: float = 2e-4,               # Learning rate
                 lr_min: float = 1e-5,           # Minimum learning rate (used for scheduling of learning rate)
-                max_grad_norm: float = 1.0,
-                clip_epsilon: float = 0.2,
-                gamma: float = 0.99,
-                lmbda: float = 0.9,
-                entropy_eps: float = 1e-4,
-                max_steps: int = 2**7,
-                total_frames: int = None,
+                max_grad_norm: float = 1.0,     # Maximum norm for the gradients
+                clip_epsilon: float = 0.2,      # Clip value for PPO loss
+                gamma: float = 0.99,            # Discount factor from 0 to 1. A greater value corresponds to a better farsight
+                lmbda: float = 0.9,             # lambda for generalised advantage estimation
+                entropy_eps: float = 1e-4,      # Coefficient of the entropy term in the PPO loss
+                max_steps: int = 2**7,          # Episode steps before done
+                total_frames: int = None,       # Total frame for one training, equals `frames_per_batch * n_iters`
                 num_vmas_envs: int = None,      # Number of vectorized environments
-                training_strategy: str = "4",
-                
+                training_strategy: str = "4",  # One of {'1', '2', '3', '4'}. 
+                                            # 1 for vanilla
+                                            # 2 for vanilla with prioritized replay buffer
+                                            # 3 for vanilla with challenging initial state buffer
+                                            # 4 for mixed training
                 episode_reward_mean_current: float = 0.00,  # Achieved mean episode reward (total/n_agents)
-                episode_reward_intermidiate: float = -1e3, # A arbitrary, small initial value
+                episode_reward_intermediate: float = -1e3, # A arbitrary, small initial value
                 
-                is_prb: bool = False,
+                is_prb: bool = False,       # # Whether to enable prioritized replay buffer
                 reset_scenario_probabilities = [1.0, 0.0, 0.0], # 1 for intersection, 2 for merge-in, 3 for merge-out scenario
                 
                 # Observation
                 n_points_short_term: int = 3,            # Number of points that build a short-term reference path
 
-                is_partial_observation: bool = True,
+                is_partial_observation: bool = True,     # Whether to enable partial observation
                 n_nearing_agents_observed: int = 2,      # Number of nearing agents to be observed (consider limited sensor range)
 
                 is_ego_view: bool = True,      # Global or local coordinate system
@@ -295,24 +301,24 @@ class Parameters():
                 is_use_mtv_distance: bool = True,           # Whether to use MTV-based (Minimum Translation Vector) distance or c2c-based (center-to-center) distance.
                 
                 # Visu
-                is_visualize_short_term_path: bool = True,
-                is_visualize_lane_boundary: bool = False,
-                is_real_time_rendering: bool = False,        # Simulation will be paused at each time step for a certain duration to enable real-time rendering
-                is_visualize_extra_info: bool = True,
-                render_title: str = "",
+                is_visualize_short_term_path: bool = True,  # Whether to visualize short-term reference paths
+                is_visualize_lane_boundary: bool = False,   # Whether to visualize lane boundary
+                is_real_time_rendering: bool = False,       # Simulation will be paused at each time step for a certain duration to enable real-time rendering
+                is_visualize_extra_info: bool = True,       # Whether to render extra information such time and time step
+                render_title: str = "",                     # The title to be rendered
 
                 # Save/Load
-                is_save_intermidiate_model: bool = True,
-                is_load_model: bool = False,
-                is_load_final_model: bool = False,
+                is_save_intermediate_model: bool = True,    # Whether to save intermediate model (also called checkpoint) with the hightest episode reward
+                is_load_model: bool = False,                # Whether to load saved model
+                is_load_final_model: bool = False,          # Whether to load the final model (last iteration)
                 mode_name: str = None,
-                where_to_save: str = "outputs/",
-                is_continue_train: bool = False,             # Whether to continue training after loading an offline model
-                is_save_eval_results: bool = True,
-                is_load_out_td: bool = False,
+                where_to_save: str = "outputs/",            # Define where to save files such as intermediate models
+                is_continue_train: bool = False,            # Whether to continue training after loading an offline model
+                is_save_eval_results: bool = True,          # Whether to save evaluation results such as figures and evaluation outputs
+                is_load_out_td: bool = False,               # Whether to load evaluation outputs
                 
-                is_testing_mode: bool = False,               # In testing mode, collisions do not terminate the current simulation
-                is_save_simulation_video: bool = False,
+                is_testing_mode: bool = False,              # In testing mode, collisions do not terminate the current simulation
+                is_save_simulation_video: bool = False,     # Whether to save simulation videos
                 ):
         
         self.n_agents = n_agents
@@ -344,12 +350,12 @@ class Parameters():
         if (frames_per_batch is not None) and (max_steps is not None):
             self.num_vmas_envs = frames_per_batch // max_steps # Number of vectorized envs. frames_per_batch should be divisible by this number,
 
-        self.is_save_intermidiate_model = is_save_intermidiate_model
+        self.is_save_intermediate_model = is_save_intermediate_model
         self.is_load_model = is_load_model        
         self.is_load_final_model = is_load_final_model        
         
         self.episode_reward_mean_current = episode_reward_mean_current
-        self.episode_reward_intermidiate = episode_reward_intermidiate
+        self.episode_reward_intermediate = episode_reward_intermediate
         self.where_to_save = where_to_save
         self.is_continue_train = is_continue_train
 
@@ -435,7 +441,7 @@ def delete_files_with_lower_mean_reward(parameters:Parameters):
         if match:
             # Get the achieved mean episode reward of the saved model
             episode_reward_mean = float(match.group(1))
-            if episode_reward_mean < parameters.episode_reward_intermidiate:
+            if episode_reward_mean < parameters.episode_reward_intermediate:
                 # Delete the saved model if its performance is worse
                 os.remove(os.path.join(parameters.where_to_save, file_name))
 

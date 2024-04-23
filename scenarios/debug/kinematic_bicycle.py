@@ -11,8 +11,6 @@ from vmas import render_interactively
 from vmas.simulator.core import Agent, World, Box
 from vmas.simulator.dynamics.holonomic_with_rot import HolonomicWithRotation
 
-
-
 from vmas.simulator.scenario import BaseScenario
 from vmas.simulator.utils import Color, ScenarioUtils
 
@@ -30,9 +28,6 @@ if project_root not in sys.path:
     sys.path.append(project_root)
 
 from utilities.kinematic_bicycle import KinematicBicycle
-# from utilities.kinematic_bicycle_backup import KinematicBicycle
-
-
 
 class Scenario(BaseScenario):
     def make_world(self, batch_dim: int, device: torch.device, **kwargs):

@@ -20,7 +20,6 @@ from torchrl.data.replay_buffers import ReplayBuffer
 from torchrl.data import TensorDictPrioritizedReplayBuffer
 from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
 from torchrl.data.replay_buffers.storages import LazyTensorStorage
-from utilities.CustomPERLoss import CustomPERLoss
 
 # Env
 from torchrl.envs import RewardSum
@@ -341,21 +340,21 @@ def mappo_cavs(parameters: Parameters):
 
         # env.scenario.iter = pbar.n # A way to pass the information from the training algorithm to the environment
         
-        if parameters.is_save_intermidiate_model:
+        if parameters.is_save_intermediate_model:
             # Update the current mean episode reward
             parameters.episode_reward_mean_current = episode_reward_mean
             save_data.episode_reward_mean_list = episode_reward_mean_list
 
-            if episode_reward_mean > parameters.episode_reward_intermidiate:
+            if episode_reward_mean > parameters.episode_reward_intermediate:
                 # Save the model if it improves the mean episode reward sufficiently enough
-                parameters.episode_reward_intermidiate = episode_reward_mean
+                parameters.episode_reward_intermediate = episode_reward_mean
                 save(parameters=parameters, save_data=save_data, policy=policy, critic=critic)
                 # pool.submit(save, parameters, save_data, policy, critic)
                 # multiprocessing.Process(target=save, args=(parameters, save_data, policy, critic)).start()
                 # Update the episode reward of the saved model
             else:
                 # Save only the mean episode reward list and parameters
-                parameters.episode_reward_mean_current = parameters.episode_reward_intermidiate
+                parameters.episode_reward_mean_current = parameters.episode_reward_intermediate
                 save(parameters=parameters, save_data=save_data, policy=None, critic=None)
                 # pool.submit(save, parameters, save_data, policy, critic)
                 # multiprocessing.Process(target=save, args=(parameters, save_data, policy, critic)).start()
@@ -401,7 +400,7 @@ if __name__ == "__main__":
         lr_min=1e-5,            # Min Learning rate,
         max_grad_norm=1.0,      # Maximum norm for the gradients,
         clip_epsilon=0.2,       # Clip value for PPO loss,
-        gamma=0.99,             # Discount factor from 0 to 1. A greater value corresponds to a longer sight.
+        gamma=0.99,             # Discount factor from 0 to 1. A greater value corresponds to a better farsight.
         lmbda=0.9,              # lambda for generalised advantage estimation,
         entropy_eps=1e-4,       # Coefficient of the entropy term in the PPO loss,
         max_steps=2**7,         # Episode steps before done
@@ -409,16 +408,16 @@ if __name__ == "__main__":
                                     # 1 for vanilla
                                     # 2 for vanilla with prioritized replay buffer
                                     # 3 for vanilla with challenging initial state buffer
-                                    # 4 for mixed training
-        is_save_intermidiate_model=True, # Is this is true, the model with the highest mean episode reward will be saved,
+                                    # 4 for our
+        is_save_intermediate_model=True, # Is this is true, the model with the highest mean episode reward will be saved,
         
         episode_reward_mean_current=0.00,
         
         is_load_model=False,        # Load offline model if available. The offline model in `where_to_save` whose name contains `episode_reward_mean_current` will be loaded
-        is_load_final_model=False,  # Whether to load the final model instead of the intermidiate model with the highest episode reward
+        is_load_final_model=False,  # Whether to load the final model instead of the intermediate model with the highest episode reward
         is_continue_train=False,    # If offline models are loaded, whether to continue to train the model
         mode_name=None, 
-        episode_reward_intermidiate=-1e3, # The initial value should be samll enough
+        episode_reward_intermediate=-1e3, # The initial value should be samll enough
         
         where_to_save=f"outputs/{scenario_name}_ppo/test/", # folder where to save the trained models, fig, data, etc.
 

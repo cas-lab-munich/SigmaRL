@@ -17,7 +17,10 @@ from typing import Dict
 
 from vmas import render_interactively
 from vmas.simulator.core import Agent, Box, Landmark, Sphere, World, Line
+
 # from vmas.simulator.dynamics.kinematic_bicycle import KinematicBicycle
+from utilities.kinematic_bicycle import KinematicBicycle
+
 from vmas.simulator.scenario import BaseScenario
 from utilities.colors import Color
 
@@ -25,10 +28,7 @@ import matplotlib.pyplot as plt
 
 from utilities.helper_training import Parameters
 
-
 from utilities.helper_scenario import Distances, Normalizers, Observations, Penalties, ReferencePathsAgentRelated, ReferencePathsMapRelated, Rewards, Thresholds, Collisions, Timer, Constants, StateBuffer, InitialStateBuffer, Prioritization, Noise, Evaluation, exponential_decreasing_fcn, get_distances_between_agents, get_perpendicular_distances, get_rectangle_vertices, get_short_term_reference_path, interX, angle_eliminate_two_pi, transform_from_global_to_local_coordinate
-
-from utilities.kinematic_bicycle import KinematicBicycle
 
 # Get road data
 from utilities.get_cpm_lab_map import get_map_data
@@ -36,7 +36,7 @@ from utilities.get_reference_paths import get_reference_paths
 
 ## Simulation parameters 
 n_agents = 4                    # The number of agents
-dt = 0.05                        # Sample time in [s]
+dt = 0.05                       # Sample time in [s]
 max_steps = 1000                # Maximum simulation steps
 is_real_time_rendering = True   # Simulation will be paused at each time step for real-time rendering
 agent_max_speed = 1.0           # Maximum allowed speed in [m/s]
@@ -297,7 +297,7 @@ class ScenarioRoadTraffic(BaseScenario):
             scenario_id=torch.zeros((batch_dim, self.n_agents), device=device, dtype=torch.int32), # Which scenarios agents are (1 for intersection, 2 for merge-in, 3 for merge-out)
             path_id=torch.zeros((batch_dim, self.n_agents), device=device, dtype=torch.int32), # Which paths agents are
             point_id=torch.zeros((batch_dim, self.n_agents), device=device, dtype=torch.int32), # Which points agents are
-        )
+        )        
         
         # The shape of each agent is considered a rectangle with 4 vertices. 
         # The first vertex is repeated at the end to close the shape.
@@ -1538,21 +1538,21 @@ class ScenarioRoadTraffic(BaseScenario):
             geom.set_color(*Color.black100)
             geoms.append(geom)
         
-        # Title
         if self.parameters.is_visualize_extra_info:
-            hight_a = -0.15
+            hight_a = -0.10
             hight_b = -0.20
             hight_c = -0.30
             
-            # geom = rendering.TextLine(
-            #     text=self.parameters.render_title,
-            #     x=0.05 * resolution_factor,
-            #     y=(self.world.y_semidim + hight_a) * resolution_factor,
-            #     font_size=14,
-            # )
-            # xform = rendering.Transform()
-            # geom.add_attr(xform)  
-            # geoms.append(geom)
+            # Title
+            geom = rendering.TextLine(
+                text=self.parameters.render_title,
+                x=0.05 * resolution_factor,
+                y=(self.world.y_semidim + hight_a) * resolution_factor,
+                font_size=14,
+            )
+            xform = rendering.Transform()
+            geom.add_attr(xform)  
+            geoms.append(geom)
 
             # Time and time step
             geom = rendering.TextLine(
@@ -1575,6 +1575,7 @@ class ScenarioRoadTraffic(BaseScenario):
             geom.add_attr(xform)  
             geoms.append(geom)
             
+            # Mean velocity
             # mean_vel = torch.vstack([a.state.vel for a in self.world.agents]).norm(dim=-1).mean()
             # geom = rendering.TextLine(
             #     text=f"Mean velocity: {mean_vel:.2f} m/s",
@@ -1586,6 +1587,7 @@ class ScenarioRoadTraffic(BaseScenario):
             # geom.add_attr(xform)  
             # geoms.append(geom)
 
+            # Mean deviation from lane center line
             # mean_deviation_from_center_line = self.distances.ref_paths[0].mean()
             # geom = rendering.TextLine(
             #     text=f"Mean deviation: {mean_deviation_from_center_line:.3f} m",

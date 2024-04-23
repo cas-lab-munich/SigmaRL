@@ -110,5 +110,3 @@ class KinematicBicycle(Dynamics):
         self.agent.state.force[:, vmas.simulator.utils.X] = force_x
         self.agent.state.force[:, vmas.simulator.utils.Y] = force_y
         self.agent.state.torque = torque.unsqueeze(-1)
-        # print(f"force_x={force_x}")
-        # print(f"force_y={force_y}")
