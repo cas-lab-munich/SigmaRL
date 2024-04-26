@@ -35,7 +35,7 @@ from training_mappo_cavs import mappo_cavs
 from utilities.helper_training import Parameters, SaveData, find_the_highest_reward_among_all_models, get_model_name
 
 colors = [
-    Color.blue100, Color.purple100, Color.violet100, Color.bordeaux100, Color.red100, Color.orange100, Color.maygreen100, Color.green100, Color.turquoise100, Color.petrol100, Color.yellow100, Color.magenta100, Color.black100,
+    Color.blue100, Color.purple100, Color.violet100, Color.bordeaux100, Color.red100, Color.maygreen100, Color.orange100, Color.green100, Color.turquoise50, Color.petrol100, Color.yellow100, Color.magenta100, Color.black100,
     Color.blue50, Color.purple50, Color.violet50, Color.bordeaux50, Color.red50, Color.orange50, Color.maygreen50, Color.green50, Color.turquoise50, Color.petrol50, Color.yellow50, Color.magenta50, Color.black50,
 ] # Each agent will get a different color
 
@@ -264,26 +264,27 @@ class Evaluation:
             ###############################
             data_np = self.episode_reward.numpy()
             plt.clf()
-            plt.figure(figsize=(3.5, 2.3))
+            plt.figure(figsize=(3.75, 3.5))
 
             for i in range(data_np.shape[0]):
                 # Original data with transparency
-                plt.plot(data_np[i, :], color=colors[i], alpha=0.2, linestyle="-", linewidth=0.15)
+                plt.plot(data_np[i, :], color=colors[i], alpha=0.2, linestyle="-", linewidth=0.2)
                 
                 # Smoothed data
                 smoothed_reward = self.smooth_data(data_np[i, :])
-                plt.plot(smoothed_reward, label=self.labels_short[models_selected[i]], color=colors[i], linestyle="-", linewidth=0.7)
+                plt.plot(smoothed_reward, label=self.render_titles[models_selected[i]], color=colors[i], linestyle="-", linewidth=0.7)
 
             plt.xlim([0, data_np.shape[1]])
             plt.xlabel('Episode')
-            plt.ylabel('Episode mean reward')
-            plt.legend(loc='lower right', fontsize="small", ncol=4)
+            plt.ylabel('Reward')
+            plt.legend(bbox_to_anchor=(0.5, 1.84), loc='upper center', fontsize='x-small', ncol=2)
+            # plt.legend(loc='lower right', fontsize="small", ncol=4)
             # plt.legend(bbox_to_anchor=(1, 0.5), loc='center right', fontsize=fontsize)
-            # plt.legend(bbox_to_anchor=(0.5, 1.0), loc='upper center', fontsize='x-small', ncol=5)
+            
 
             plt.ylim([-1.5, 6])
-
-            plt.tight_layout()
+            plt.tight_layout(rect=[0, 0, 1, 1])  # Adjust the layout to make space for the legend on the right
+            
             # Save figure
             if self.parameters.is_save_eval_results:
                 path_save_eval_fig = f"{self.where_to_save_eva_results}/{timestamp}_episode_reward.pdf"
@@ -325,6 +326,10 @@ class Evaluation:
             ax.xaxis.set_minor_locator(ticker.NullLocator()) # Make minor x-ticks invisible
             ax.grid(True, which='major', axis='x', linestyle='--', linewidth=0.1)
             ax.grid(True, which='both', axis='y', linestyle='--', linewidth=0.1)
+            
+            # Add text to shown the median of M1
+            median_M1 = np.median(data_np[0])
+            ax.text(positions[0], 0.2, f'Median\n(total):\n{median_M1:.2f}$\%$', ha='center', va='bottom', fontsize='small', color='grey')
 
             # Adding legend
             if (num_models_selected == 7) or (num_models_selected == 4):
@@ -359,6 +364,10 @@ class Evaluation:
             ax.grid(True, which='major', axis='x', linestyle='--', linewidth=0.1)
             ax.grid(True, which='both', axis='y', linestyle='--', linewidth=0.1)
 
+            # Add text to shown the median of M1
+            median_M1 = np.median(data_np[0])
+            ax.text(1, 0.045, f'Median:\n{median_M1:.2f} m', ha='center', va='bottom', fontsize='small', color='grey')
+
             # Save figure
             plt.tight_layout()
             if self.parameters.is_save_eval_results:
@@ -372,17 +381,22 @@ class Evaluation:
             ## Fig 4 - average velocity 
             ###############################
             plt.clf()
-            fig, ax = plt.subplots(figsize=(3.5, 2.0))
+            fig, ax = plt.subplots(figsize=(3.5, 1.6))
             data_np = self.velocity_average.numpy()
             ax.violinplot(dataset = data_np.T, showmeans=False, showmedians=True)
             ax.set_xticks(np.arange(1, num_models_selected + 1))
-            ax.set_xticklabels(itemgetter(*models_selected)(self.labels_with_numbers), rotation=45, ha="right", fontsize='small')
-            ax.set_ylabel(r'Velocity [m/s]')
+            ax.set_xticklabels(itemgetter(*models_selected)(self.labels_short), rotation=45, ha="right", fontsize='small')
+            ax.set_ylabel(r'Speed [m/s]')
             ax.set_ylim([0.7, 0.8]) # [m/s]
             ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f')) # Set y-axis tick labels to have two digits after the comma
             ax.xaxis.set_minor_locator(ticker.NullLocator()) # Make minor x-ticks invisible
             ax.grid(True, which='major', axis='x', linestyle='--', linewidth=0.1)
             ax.grid(True, which='both', axis='y', linestyle='--', linewidth=0.1)
+
+            # Add text to shown the median of M1
+            median_M1 = np.median(data_np[0])
+            ax.text(1, 0.71, f'Median:\n{median_M1:.2f} m/s', ha='center', va='bottom', fontsize='small', color='grey')
+            
             # Save figure
             plt.tight_layout()
             if self.parameters.is_save_eval_results:

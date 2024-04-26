@@ -442,7 +442,7 @@ if __name__ == "__main__":
         is_observe_distance_to_agents=True,      
         is_observe_CG=True,
         is_observe_distance_to_boundaries=True,  
-        is_observe_distance_to_ref_path=True,
+        is_observe_distance_to_center_line=True,
         is_add_noise=True,
         is_observe_ref_path_other_agents=False,
     )

@@ -293,7 +293,7 @@ class Parameters():
                 is_apply_mask: bool = True,                         # Whether to mask distant agents
                 is_observe_distance_to_agents: bool = True,         # Whether to observe the distance to other agents
                 is_observe_distance_to_boundaries: bool = True,     # Whether to observe points on lanelet boundaries or observe the distance to labelet boundaries
-                is_observe_distance_to_ref_path: bool = True,       # Whether to observe the distance to reference path
+                is_observe_distance_to_center_line: bool = True,       # Whether to observe the distance to reference path
                 is_observe_CG: bool = True,                         # Whether to observe the center of gravity of other agents or the vertices of them
                 is_add_noise: bool = True,                          # Whether to add noise to observations
                 is_observe_ref_path_other_agents: bool = False,     # Whether to observe the reference paths of other agents
@@ -374,7 +374,7 @@ class Parameters():
         self.is_apply_mask = is_apply_mask
         self.is_use_mtv_distance = is_use_mtv_distance
         self.is_observe_distance_to_boundaries = is_observe_distance_to_boundaries
-        self.is_observe_distance_to_ref_path = is_observe_distance_to_ref_path
+        self.is_observe_distance_to_center_line = is_observe_distance_to_center_line
         self.is_observe_CG = is_observe_CG
         self.is_add_noise = is_add_noise 
         self.is_observe_ref_path_other_agents = is_observe_ref_path_other_agents 

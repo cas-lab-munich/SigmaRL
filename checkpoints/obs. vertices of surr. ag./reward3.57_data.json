@@ -36,7 +36,7 @@
         "is_apply_mask": true,
         "is_use_mtv_distance": false,
         "is_observe_distance_to_boundaries": true,
-        "is_observe_distance_to_ref_path": true,
+        "is_observe_distance_to_center_line": true,
         "is_observe_CG": false,
         "is_add_noise": true,
         "is_observe_ref_path_other_agents": false,
