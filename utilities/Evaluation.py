@@ -44,7 +44,7 @@ class Evaluation:
     """
     A class for handling the evaluation of simulation outputs.
     """
-    def __init__(self, model_paths, where_to_save_eva_results, models_selected = None, render_titles = None):
+    def __init__(self, model_paths, where_to_save_eva_results, models_selected = None, render_titles = None, video_save_paths = None):
         """
         Initializes the Evaluation object with model paths and titles for rendering.
 
@@ -58,8 +58,16 @@ class Evaluation:
         
         self.models_selected = models_selected
         self.num_models_selected = len(self.models_selected)
+        
+        if self.num_models_selected == 10:
+            self.idx_our = 6 # Index of our model
+        elif self.num_models_selected == 7:
+            self.idx_our = 6
+        elif self.num_models_selected == 4:
+            self.idx_our = 0
 
         self.render_titles = render_titles
+        self.video_save_paths = video_save_paths
         
         self.parameters = None  # This will be set when loading model parameters
 
@@ -121,35 +129,33 @@ class Evaluation:
         self.collision_rate_with_agents[i_model_selected, :] = is_collision_with_agents.squeeze(-1).any(dim=-1).sum(dim=-1) / num_steps
         self.collision_rate_with_lanelets[i_model_selected, :] = is_collision_with_lanelets.squeeze(-1).any(dim=-1).sum(dim=-1) / num_steps
         self.distance_ref_average[i_model_selected, :] = distance_ref.squeeze(-1).mean(dim=(-2, -1))
-
-        path_eval_out_td = self.parameters.where_to_save + self.parameters.mode_name + "_out_td.pth"
-        if self.parameters.is_save_eval_results and (not self.parameters.is_save_simulation_video) and (self.parameters.num_vmas_envs > 1) and (not self.parameters.is_load_out_td):
-            # Save the input TensorDict
-            torch.save(out_td, path_eval_out_td)   
         
     def get_simulation_outputs(self, model_path: str, i_model):
-        if self.parameters.is_load_out_td:
-            # Load the model with the highest reward
-            self.parameters.episode_reward_mean_current = find_the_highest_reward_among_all_models(model_path)
-            self.parameters.mode_name = get_model_name(parameters=self.parameters)
-            path_eval_out_td = self.parameters.where_to_save + self.parameters.mode_name + "_out_td.pth"
+        # Load the model with the highest reward
+        self.parameters.episode_reward_mean_current = find_the_highest_reward_among_all_models(model_path)
+        self.parameters.mode_name = get_model_name(parameters=self.parameters)
+        path_eval_out_td = self.parameters.where_to_save + self.parameters.mode_name + "_out_td.pth"
+        # Load simulation outputs if exist; otherwise run simulation
+        if os.path.exists(path_eval_out_td) & (not self.parameters.is_save_simulation_video):
+            print(colored("[INFO] Simulation outputs exist and will be loaded.", "grey"))
             out_td = torch.load(path_eval_out_td)
         else:
-            env, policy, self.parameters = mappo_cavs(parameters=self.parameters)
-            
+            print(colored("[INFO] Run simulation...", "grey"))
+            env, policy, self.parameters = mappo_cavs(parameters=self.parameters)            
             sim_begin = time.time()
             with torch.no_grad():
                 if self.parameters.is_save_simulation_video:    
                     out_td, frame_list = env.rollout(
                         max_steps=self.parameters.max_steps-1,
                         policy=policy,
-                        callback=lambda env, _: env.render(mode="rgb_array", visualize_when_rgb=True), # mode \in {"human", "rgb_array"}
+                        callback=lambda env, _: env.render(mode="rgb_array", visualize_when_rgb=False), # mode \in {"human", "rgb_array"}
                         auto_cast_to_device=True,
                         break_when_any_done=False,
                         is_save_simulation_video=self.parameters.is_save_simulation_video,
                     )
                     sim_end = time.time() - sim_begin
-                    save_video(f"{model_path}{render_titles[i_model]}", frame_list, fps=1 / self.parameters.dt)
+                    save_video(f"{model_path}{self.video_save_paths[i_model]}", frame_list, fps=1 / self.parameters.dt)
+                    print(colored(f"[INFO] Video saved under ", "grey"), colored(f"{model_path}.", "blue"))
                 else:
                     out_td = env.rollout(
                         max_steps=self.parameters.max_steps-1,
@@ -160,9 +166,14 @@ class Evaluation:
                         is_save_simulation_video=False,
                     )
                     sim_end = time.time() - sim_begin
+
+                    # Save simulation outputs
+                    torch.save(out_td, path_eval_out_td)
+                    print(colored("[INFO] Simulation outputs saved.", "grey"))
             
             print(colored(f"[INFO] Total execution time for {self.parameters.num_vmas_envs} simulations (each has {self.parameters.max_steps} steps): {sim_end:.3f} sec.", "blue"))
             print(colored(f"[INFO] One-step execution time {(sim_end / self.parameters.num_vmas_envs / self.parameters.max_steps):.4f} sec.", "blue"))
+        
         return out_td
     
     @staticmethod
@@ -255,9 +266,23 @@ class Evaluation:
 
             torch.set_printoptions(precision=3)
             # Logs
-            print(colored(f"[LOG] Median velocity [m/s]: {self.velocity_average.median(dim=-1)[0]}", "black"))
-            print(colored(f"[LOG] Median collision rate [%]: {collision_rate_sum.median(dim=-1)[0] * 100}", "black"))
-            print(colored(f"[LOG] Median deviation from center line [m]: {self.distance_ref_average.median(dim=-1)[0]}", "black"))
+            median_CR = collision_rate_sum.median(dim=-1)[0]
+            median_CLD = self.distance_ref_average.median(dim=-1)[0]
+            median_S = self.velocity_average.median(dim=-1)[0]
+            
+            print(colored(f"[LOG] Median collision rate [%]: {median_CR * 100}", "black"))
+            print(colored(f"[LOG] Median center line deviation [m]: {median_CLD}", "black"))
+            print(colored(f"[LOG] Median speed [m/s]: {median_S}", "black"))
+            
+            # Compute composite score
+            mean_CR = collision_rate_sum.median(dim=-1)[0].mean()
+            mean_CLD = self.distance_ref_average.median(dim=-1)[0].mean()
+            mean_S = self.velocity_average.median(dim=-1)[0].mean()
+            w1 = 1 / mean_CR
+            w2 = 1 / mean_CLD
+            w3 = 1 / mean_S
+            score = - w1 * median_CR - w2 * median_CLD + w3 * median_S
+            print(colored(f"[LOG] Composite scores: {score}", "red"))
 
             ###############################
             ## Fig 1 - Episode reward
@@ -277,12 +302,12 @@ class Evaluation:
             plt.xlim([0, data_np.shape[1]])
             plt.xlabel('Episode')
             plt.ylabel('Reward')
-            plt.legend(bbox_to_anchor=(0.5, 1.84), loc='upper center', fontsize='x-small', ncol=2)
+            
+            plt.legend(bbox_to_anchor=(0.5, 1.84), loc='upper center', fontsize='x-small', ncol=2, columnspacing=0.5)
             # plt.legend(loc='lower right', fontsize="small", ncol=4)
             # plt.legend(bbox_to_anchor=(1, 0.5), loc='center right', fontsize=fontsize)
             
-
-            plt.ylim([-1.5, 6])
+            plt.ylim([-1.0, 7])
             plt.tight_layout(rect=[0, 0, 1, 1])  # Adjust the layout to make space for the legend on the right
             
             # Save figure
@@ -307,7 +332,13 @@ class Evaluation:
             positions = np.arange(1, num_models_selected + 1)
             offset = 0.2  # Offset for positioning the violins side by side
 
-            # Plotting each dataset with different colors
+            # Plot a horizontal line indicating the median of our model
+            median_our = np.median(data_np[self.idx_our])
+            max_our = np.max(data_np[self.idx_our])
+            plt.axhline(y=median_our, color='black', linestyle='--', alpha=0.3)
+            ax.text(self.idx_our + 1, max_our, f"Our: {median_our:.2f}$\%$", ha='center', va='bottom', fontsize='small', color='grey')
+            
+            # Plot each dataset with different colors
             parts1 = ax.violinplot(dataset=data_np.T, positions=positions - offset, showmeans=False, showmedians=True, widths=0.2)
             parts2 = ax.violinplot(dataset=data_with_agents_np.T, positions=positions, showmeans=False, showmedians=True, widths=0.2)
             parts3 = ax.violinplot(dataset=data_with_lanelets_np.T, positions=positions + offset, showmeans=False, showmedians=True, widths=0.2)
@@ -321,15 +352,15 @@ class Evaluation:
             ax.set_xticks(positions)
             ax.set_xticklabels(itemgetter(*models_selected)(self.labels_short), rotation=45, ha="right", fontsize='small')
             ax.set_ylabel(r'Collision rate [$\%$]')
-            ax.set_ylim([0, 2.5]) # [%]
+            ax.set_ylim([0, 2.0]) # [%]
             ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f')) # Set y-axis tick labels to have two digits after the comma
             ax.xaxis.set_minor_locator(ticker.NullLocator()) # Make minor x-ticks invisible
             ax.grid(True, which='major', axis='x', linestyle='--', linewidth=0.1)
             ax.grid(True, which='both', axis='y', linestyle='--', linewidth=0.1)
             
-            # Add text to shown the median of M1
-            median_M1 = np.median(data_np[0])
-            ax.text(positions[0], 0.2, f'Median\n(total):\n{median_M1:.2f}$\%$', ha='center', va='bottom', fontsize='small', color='grey')
+            # # Add text to shown the median of M1
+            # median_M1 = np.median(data_np[0])
+            # ax.text(positions[0], 0.2, f'Median\n(total):\n{median_M1:.2f}$\%$', ha='center', va='bottom', fontsize='small', color='grey')
 
             # Adding legend
             if (num_models_selected == 7) or (num_models_selected == 4):
@@ -355,6 +386,13 @@ class Evaluation:
             fig, ax = plt.subplots(figsize=(3.5, 2.0))
 
             data_np = self.distance_ref_average.numpy()
+            
+            # Plot a horizontal line indicating the median of our model
+            median_our = np.median(data_np[self.idx_our])
+            max_our = np.max(data_np[self.idx_our])
+            plt.axhline(y=median_our, color='black', linestyle='--', alpha=0.3)
+            ax.text(self.idx_our + 1, max_our, f"Our: {median_our:.3f} m", ha='center', va='bottom', fontsize='small', color='grey')
+            
             ax.violinplot(dataset = data_np.T, showmeans=False, showmedians=True)
             ax.set_xticks(np.arange(1,num_models_selected + 1))
             ax.set_xticklabels(itemgetter(*models_selected)(self.labels_short), rotation=45, ha="right", fontsize='small')
@@ -365,8 +403,9 @@ class Evaluation:
             ax.grid(True, which='both', axis='y', linestyle='--', linewidth=0.1)
 
             # Add text to shown the median of M1
-            median_M1 = np.median(data_np[0])
-            ax.text(1, 0.045, f'Median:\n{median_M1:.2f} m', ha='center', va='bottom', fontsize='small', color='grey')
+            if (self.num_models_selected == 7) or (self.num_models_selected == 10):
+                median_M1 = np.median(data_np[0])
+                ax.text(1, 0.043, f'Median:\n{median_M1:.2f} m', ha='center', va='bottom', fontsize='small', color='grey')
 
             # Save figure
             plt.tight_layout()
@@ -383,19 +422,26 @@ class Evaluation:
             plt.clf()
             fig, ax = plt.subplots(figsize=(3.5, 1.6))
             data_np = self.velocity_average.numpy()
+            
+            # Plot a horizontal line indicating the median of our model
+            median_our = np.median(data_np[self.idx_our])
+            max_our = np.max(data_np[self.idx_our])
+            plt.axhline(y=median_our, color='black', linestyle='--', alpha=0.3)
+            ax.text(self.idx_our + 1, max_our, f"Our: {median_our:.2f} m/s", ha='center', va='bottom', fontsize='small', color='grey')
+            
             ax.violinplot(dataset = data_np.T, showmeans=False, showmedians=True)
             ax.set_xticks(np.arange(1, num_models_selected + 1))
             ax.set_xticklabels(itemgetter(*models_selected)(self.labels_short), rotation=45, ha="right", fontsize='small')
             ax.set_ylabel(r'Speed [m/s]')
-            ax.set_ylim([0.7, 0.8]) # [m/s]
+            ax.set_ylim([0.6, 0.8]) # [m/s]
             ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f')) # Set y-axis tick labels to have two digits after the comma
             ax.xaxis.set_minor_locator(ticker.NullLocator()) # Make minor x-ticks invisible
             ax.grid(True, which='major', axis='x', linestyle='--', linewidth=0.1)
             ax.grid(True, which='both', axis='y', linestyle='--', linewidth=0.1)
 
-            # Add text to shown the median of M1
-            median_M1 = np.median(data_np[0])
-            ax.text(1, 0.71, f'Median:\n{median_M1:.2f} m/s', ha='center', va='bottom', fontsize='small', color='grey')
+            # # Add text to shown the median of M1
+            # median_M1 = np.median(data_np[0])
+            # ax.text(1, 0.71, f'Median:\n{median_M1:.2f} m/s', ha='center', va='bottom', fontsize='small', color='grey')
             
             # Save figure
             plt.tight_layout()
@@ -431,16 +477,20 @@ class Evaluation:
             self.parameters.is_load_out_td  = True
             self.parameters.n_agents = 12
             self.parameters.max_steps = 1200 # 1200 -> 1 min
-            if self.parameters.is_load_out_td:
-                self.parameters.num_vmas_envs = 32
-            else:
+            
+            self.parameters.is_save_simulation_video = False
+            
+            if self.parameters.is_save_simulation_video:
                 self.parameters.num_vmas_envs = 1
+                self.parameters.is_load_out_td = False
+            else:
+                self.parameters.num_vmas_envs = 32
             self.parameters.frames_per_batch = self.parameters.max_steps * self.parameters.num_vmas_envs
             self.parameters.training_strategy = "1"
-            self.parameters.is_save_simulation_video = False
+            
             self.parameters.is_visualize_short_term_path = False
             self.parameters.is_visualize_lane_boundary = False
-            self.parameters.is_visualize_extra_info = True
+            self.parameters.is_visualize_extra_info = False
             self.parameters.render_title = self.render_titles[i_model]
 
             if self.velocity_average is None:
@@ -465,39 +515,52 @@ if __name__ == "__main__":
     # parameters = Parameters()
 
     model_paths = [
-        "outputs/road_traffic_ppo/bird-view/",
-        "outputs/road_traffic_ppo/no mask/",
-        "outputs/road_traffic_ppo/obs. vertices of surr. ag./",
-        "outputs/road_traffic_ppo/not obs. dist. to surr. ag./",
-        "outputs/road_traffic_ppo/obs. boundary points/",
-        "outputs/road_traffic_ppo/not obs. dist. to center line/",
-        "outputs/road_traffic_ppo/our/",
-        "outputs/road_traffic_ppo/vanilla/",
-        "outputs/road_traffic_ppo/chall. initial state buffer/",
-        "outputs/road_traffic_ppo/PER/",
+        "checkpoints/use bird-eye view/",
+        "checkpoints/do not use mask/",
+        "checkpoints/do not observe vertices of surrounding agents/",
+        "checkpoints/do not observe distance to surrounding agents/",
+        "checkpoints/do not observe distance to boundaries/",
+        "checkpoints/do not observe distance to center line/",
+        "checkpoints/our/",
+        "checkpoints/vanilla/",
+        "checkpoints/use challenging initial state buffer/",
+        "checkpoints/use prioritized experience replay/",
     ]
 
     render_titles = [
-        "M1 (bird's-eye view)",
-        "M2 (no mask)",
-        "M3 (observe vertices of surrounding agents)",
-        "M4 (not observe distance to surrounding agents)",
-        "M5 (observe boundary points)",
-        "M6 (not observe distance to center line)",
+        "M1 (use bird-eye view)",
+        "M2 (do not use mask)",
+        "M3 (do not observe vertices of surrounding agents)",
+        "M4 (do not observe distance to surrounding agents)",
+        "M5 (do not observe distance to boundaries)",
+        "M6 (do not observe distance to center line)",
         "M7 (our)",
         "M8 (vanilla)",
-        "M9 (challenge initial state buffer)",
-        "M10 (prioritized experience replay)",
+        "M9 (use challenging initial state buffer)",
+        "M10 (use prioritized experience replay)",
+    ]
+    
+    video_save_paths = [
+        "M1 - use bird-eye view",
+        "M2 - do not use mask",
+        "M3 - do not observe vertices of surrounding agents",
+        "M4 - do not observe distance to surrounding agents",
+        "M5 - do not observe distance to boundaries",
+        "M6 - do not observe distance to center line",
+        "M7 - our",
+        "M8 - vanilla",
+        "M9 - use challenging initial state buffer",
+        "M10 - use prioritized experience replay",
     ]
 
-    models_selected = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] # All 
+    models_selected = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] # All
     # models_selected = [0, 1, 2, 3, 4, 5, 6] # Ablation studies
     # models_selected = [6, 7, 8, 9] # Comparisons with state of the arts
     
     # Define the directory path
-    where_to_save_eva_results = "outputs/road_traffic_ppo/eva"
+    where_to_save_eva_results = "checkpoints/eva"
 
-    evaluator = Evaluation(model_paths, where_to_save_eva_results, models_selected, render_titles)
+    evaluator = Evaluation(model_paths, where_to_save_eva_results, models_selected, render_titles, video_save_paths)
     
     evaluator.run_evaluation()
     evaluator.plot()

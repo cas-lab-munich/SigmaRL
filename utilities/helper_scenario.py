@@ -8,7 +8,7 @@ from utilities.colors import Color
 ## Custom Classes
 ##################################################
 class Normalizers:
-    def __init__(self, pos = None, pos_world = None, v = None, rot = None, action_steering = None, action_vel = None, distance_lanelet = None, distance_agent = None, distance_ref = None, priority = None,):
+    def __init__(self, pos = None, pos_world = None, v = None, rot = None, action_steering = None, action_vel = None, distance_lanelet = None, distance_agent = None, distance_ref = None,):
         self.pos = pos
         self.pos_world = pos_world
         self.v = v
@@ -18,7 +18,6 @@ class Normalizers:
         self.distance_lanelet = distance_lanelet
         self.distance_agent = distance_agent
         self.distance_ref = distance_ref
-        self.priority = priority
 
 class Rewards:
     def __init__(self, progress = None, weighting_ref_directions = None, higth_v = None, reach_goal = None, reach_intermediate_goal = None,):
@@ -96,33 +95,6 @@ class ReferencePathsAgentRelated:
         self.scenario_id = scenario_id  # Which scenarios agents are (current implementation includes (1) intersection, (2) merge-in, and (3) merge-out)
         self.path_id = path_id          # Which paths agents are
         self.point_id = point_id        # Which points agents are
-
-class Observations:
-    def __init__(self, is_partial = None, n_nearing_agents = None, nearing_agents_indices = None, noise_level = None, n_stored_steps = None, n_observed_steps = None, past_pri: torch.Tensor = None, past_pos: torch.Tensor = None, past_rot: torch.Tensor = None, past_vertices: torch.Tensor = None, past_vel: torch.Tensor = None, past_short_term_ref_points: torch.Tensor = None, past_action_vel: torch.Tensor = None, past_action_steering: torch.Tensor = None, past_distance_to_ref_path: torch.Tensor = None, past_distance_to_boundaries: torch.Tensor = None, past_distance_to_left_boundary: torch.Tensor = None, past_distance_to_right_boundary: torch.Tensor = None, past_distance_to_agents: torch.Tensor = None, past_left_boundary: torch.Tensor = None, past_right_boundary: torch.Tensor = None):
-        self.is_partial = is_partial    # Local observation
-        self.n_nearing_agents = n_nearing_agents
-        self.nearing_agents_indices = nearing_agents_indices
-        self.noise_level = noise_level              # Whether to add noise to observations
-        self.n_stored_steps = n_stored_steps        # Number of past steps to store
-        self.n_observed_steps = n_observed_steps    # Number of past steps to observe
-
-        self.past_pri = past_pri            # Past priorities
-        self.past_pos = past_pos            # Past positions
-        self.past_rot = past_rot            # Past rotations
-        self.past_vertices = past_vertices    # Past vertices
-        self.past_vel = past_vel            # Past velocites
-        
-        self.past_short_term_ref_points = past_short_term_ref_points    # Past short-term reference points
-        self.past_left_boundary = past_left_boundary  # Past left lanelet boundary
-        self.past_right_boundary = past_right_boundary  # Past right lanelet boundary
-
-        self.past_action_vel = past_action_vel                          # Past velocity action
-        self.past_action_steering = past_action_steering                # Past steering action
-        self.past_distance_to_ref_path = past_distance_to_ref_path      # Past distance to refrence path
-        self.past_distance_to_boundaries = past_distance_to_boundaries  # Past distance to lanelet boundaries
-        self.past_distance_to_left_boundary = past_distance_to_left_boundary  # Past distance to left lanelet boundary
-        self.past_distance_to_right_boundary = past_distance_to_right_boundary  # Past distance to right lanelet boundary
-        self.past_distance_to_agents = past_distance_to_agents  # Past mutual distance between agents
                 
 class Distances:
     def __init__(self, type = None, agents = None, left_boundaries = None, right_boundaries = None, boundaries = None, ref_paths = None, closest_point_on_ref_path = None, closest_point_on_left_b = None, closest_point_on_right_b = None, goal = None, obstacles = None):
@@ -180,27 +152,27 @@ class Collisions:
         
 class Constants:
     # Predefined constants that may be used during simulations
-    def __init__(self, env_idx_broadcasting: torch.Tensor = None, empty_actions: torch.Tensor = None, mask_pos: torch.Tensor = None, mask_vel: torch.Tensor = None, mask_rot: torch.Tensor = None, mask_zero: torch.Tensor = None, mask_one: torch.Tensor = None, reset_agent_min_distance: torch.Tensor = None, reset_scenario_probabilities: torch.Tensor = None):
+    def __init__(self, env_idx_broadcasting: torch.Tensor = None, empty_action_vel: torch.Tensor = None, empty_action_steering: torch.Tensor = None, mask_pos: torch.Tensor = None, mask_vel: torch.Tensor = None, mask_rot: torch.Tensor = None, mask_zero: torch.Tensor = None, mask_one: torch.Tensor = None, reset_agent_min_distance: torch.Tensor = None,):
         self.env_idx_broadcasting = env_idx_broadcasting
-        self.empty_actions = empty_actions
+        self.empty_action_vel = empty_action_vel
+        self.empty_action_steering = empty_action_steering
         self.mask_pos = mask_pos
         self.mask_zero = mask_zero
         self.mask_one = mask_one
         self.mask_vel = mask_vel
         self.mask_rot = mask_rot
         self.reset_agent_min_distance = reset_agent_min_distance   # The minimum distance between agents when being reset
-        self.reset_scenario_probabilities = reset_scenario_probabilities   # Reset the agents to different scenarios with different probability
         
 class Prioritization:
     def __init__(self, values: torch.Tensor = None,):
         self.values = values
 
 class CircularBuffer:
-    def __init__(self, buffer_size: torch.Tensor = None, buffer: torch.Tensor = None,):
+    def __init__(self, buffer: torch.Tensor = None,):
         """Initializes a circular buffer to store initial states. """
-        self.buffer_size = buffer_size # Number of entries to be recorded
         self.buffer = buffer # Buffer
-        self.pointer = 0  # Point to the index where the new recording should be stored
+        self.buffer_size = buffer.shape[0] # Buffer size
+        self.pointer = 0  # Point to the index where the new entry should be stored
         self.valid_size = 0 # Valid size of the buffer, maximum being `buffer_size`
 
     def add(self, recording: torch.Tensor = None):
@@ -237,17 +209,17 @@ class CircularBuffer:
         self.valid_size = 0
 
 class StateBuffer(CircularBuffer):
-    def __init__(self, buffer_size: torch.Tensor = None, buffer: torch.Tensor = None):
+    def __init__(self, buffer: torch.Tensor = None):
         """ Initializes a circular buffer to store initial states. """
-        super().__init__(buffer_size=buffer_size, buffer=buffer)  # Properly initialize the parent class
+        super().__init__(buffer=buffer)  # Properly initialize the parent class
         self.idx_scenario = 5
         self.idx_path = 6
         self.idx_point = 7
         
 class InitialStateBuffer(CircularBuffer):
-    def __init__(self, buffer_size: torch.Tensor = None, buffer: torch.Tensor = None, probability_record: torch.Tensor = None, probability_use_recording: torch.Tensor = None,):
+    def __init__(self, buffer: torch.Tensor = None, probability_record: torch.Tensor = None, probability_use_recording: torch.Tensor = None,):
         """ Initializes a circular buffer to store initial states. """
-        super().__init__(buffer_size=buffer_size, buffer=buffer)  # Properly initialize the parent class
+        super().__init__(buffer=buffer)  # Properly initialize the parent class
         self.probability_record = probability_record
         self.probability_use_recording = probability_use_recording
         self.idx_scenario = 5
@@ -268,13 +240,38 @@ class InitialStateBuffer(CircularBuffer):
 
             return self.buffer[random_index]
 
+class Observations:
+    def __init__(self, is_partial = None, n_nearing_agents = None, nearing_agents_indices = None, noise_level = None, n_stored_steps = None, n_observed_steps = None, past_pos: CircularBuffer = None, past_rot: CircularBuffer = None, past_vertices: CircularBuffer = None, past_vel: CircularBuffer = None, past_short_term_ref_points: CircularBuffer = None, past_action_vel: CircularBuffer = None, past_action_steering: CircularBuffer = None, past_distance_to_ref_path: CircularBuffer = None, past_distance_to_boundaries: CircularBuffer = None, past_distance_to_left_boundary: CircularBuffer = None, past_distance_to_right_boundary: CircularBuffer = None, past_distance_to_agents: CircularBuffer = None, past_left_boundary: CircularBuffer = None, past_right_boundary: CircularBuffer = None):
+        self.is_partial = is_partial    # Local observation
+        self.n_nearing_agents = n_nearing_agents
+        self.nearing_agents_indices = nearing_agents_indices
+        self.noise_level = noise_level              # Whether to add noise to observations
+        self.n_stored_steps = n_stored_steps        # Number of past steps to store
+        self.n_observed_steps = n_observed_steps    # Number of past steps to observe
+
+        self.past_pos = past_pos            # Past positions
+        self.past_rot = past_rot            # Past rotations
+        self.past_vertices = past_vertices    # Past vertices
+        self.past_vel = past_vel            # Past velocites
+        
+        self.past_short_term_ref_points = past_short_term_ref_points    # Past short-term reference points
+        self.past_left_boundary = past_left_boundary  # Past left lanelet boundary
+        self.past_right_boundary = past_right_boundary  # Past right lanelet boundary
+
+        self.past_action_vel = past_action_vel                          # Past velocity action
+        self.past_action_steering = past_action_steering                # Past steering action
+        self.past_distance_to_ref_path = past_distance_to_ref_path      # Past distance to refrence path
+        self.past_distance_to_boundaries = past_distance_to_boundaries  # Past distance to lanelet boundaries
+        self.past_distance_to_left_boundary = past_distance_to_left_boundary  # Past distance to left lanelet boundary
+        self.past_distance_to_right_boundary = past_distance_to_right_boundary  # Past distance to right lanelet boundary
+        self.past_distance_to_agents = past_distance_to_agents  # Past mutual distance between agents
+        
 class Noise:
-    def __init__(self, vel: torch.Tensor = None, ref: torch.Tensor = None, dis_ref: torch.Tensor = None, dis_lanelets: torch.Tensor = None, other_agents_pri: torch.Tensor = None, other_agents_pos: torch.Tensor = None, other_agents_rot: torch.Tensor = None, other_agents_vel: torch.Tensor = None, other_agents_dis: torch.Tensor = None, level_vel: torch.Tensor = None, level_pos: torch.Tensor = None, level_rot: torch.Tensor = None, level_dis: torch.Tensor = None, level_pri: torch.Tensor = None):
+    def __init__(self, vel: torch.Tensor = None, ref: torch.Tensor = None, dis_ref: torch.Tensor = None, dis_lanelets: torch.Tensor = None, other_agents_pos: torch.Tensor = None, other_agents_rot: torch.Tensor = None, other_agents_vel: torch.Tensor = None, other_agents_dis: torch.Tensor = None, level_vel: torch.Tensor = None, level_pos: torch.Tensor = None, level_rot: torch.Tensor = None, level_dis: torch.Tensor = None,):
         self.vel = vel
         self.ref = ref
         self.dis_ref = dis_ref
         self.dis_lanelets = dis_lanelets
-        self.other_agents_pri = other_agents_pri
         self.other_agents_pos = other_agents_pos
         self.other_agents_rot = other_agents_rot
         self.other_agents_vel = other_agents_vel
@@ -283,7 +280,6 @@ class Noise:
         self.level_pos = level_pos
         self.level_rot = level_rot
         self.level_dis = level_dis
-        self.level_pri = level_pri
 
 
 ##################################################

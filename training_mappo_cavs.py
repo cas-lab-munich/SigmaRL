@@ -48,7 +48,7 @@ plt.style.use(['science','ieee']) # The science + ieee styles for IEEE papers (c
 from torchrl.envs.libs.vmas import VmasEnv
 
 # Import custom classes
-from utilities.helper_training import Parameters, SaveData, TransformedEnvCustom, get_path_to_save_model, find_the_highest_reward_among_all_models, save
+from utilities.helper_training import Parameters, SaveData, TransformedEnvCustom, get_path_to_save_model, find_the_highest_reward_among_all_models, save, compute_td_error
 
 from scenarios.road_traffic import ScenarioRoadTraffic
 
@@ -196,7 +196,6 @@ def mappo_cavs(parameters: Parameters):
     )
 
     if parameters.is_prb:
-        print(colored("[INFO] Enable prioritized replay buffer", "red"))
         replay_buffer = TensorDictPrioritizedReplayBuffer(
             alpha=0.7,
             beta=1.1,
@@ -256,7 +255,6 @@ def mappo_cavs(parameters: Parameters):
             .unsqueeze(-1)
             .expand(tensordict_data.get_item_shape(("next", env.reward_key))),
         )
-        # We need to expand the done and terminated to match the reward shape (this is expected by the value estimator)
 
         with torch.no_grad():
             GAE(
@@ -267,48 +265,22 @@ def mappo_cavs(parameters: Parameters):
 
         # Update sample priorities
         if parameters.is_prb:
-            current_state_values = tensordict_data["agents"]["state_value"]  # This could be from critic's output
-            next_rewards = tensordict_data.get(("next", "agents", "reward"))
-            next_state_values = tensordict_data.get(("next", "agents", "state_value"))  # This needs to be calculated or provided
-            gamma = 0.9 # discount factor
-            td_error = next_rewards + gamma * next_state_values - current_state_values # See Eq. (2) of Section B EXPERIMENTAL DETAILS of paper https://doi.org/10.48550/arXiv.1511.05952
-            td_error = td_error.abs() # Magnitude is more interesting than the actual TD error
-            
-            td_error_average_over_agents = td_error.mean(dim=-2) # Cooperative agents
-            
-            # Normalize TD error to [-1, 1] (priorities must be positive)
-            td_min = td_error_average_over_agents.min()
-            td_max = td_error_average_over_agents.max()
-            td_error_range = td_max - td_min
-            if td_error_range <= 1e-3:
-                print(colored("[WARNING] TD error may not work. Double check it."))
-                td_error_range = 1e-3 # For numerical stability
-            td_error_average_over_agents = (td_error_average_over_agents - td_min) / td_error_range
-            td_error_average_over_agents = torch.clamp(td_error_average_over_agents, 1e-3, 1) # For numerical stability
-
-            tensordict_data.set(("td_error"), td_error_average_over_agents)  # Adding TD error to the tensordict_data
+            td_error = compute_td_error(tensordict_data, gamma=0.9)
+            tensordict_data.set(("td_error"), td_error)  # Adding TD error to the tensordict_data
             
             assert tensordict_data["td_error"].min() >= 0, "TD error must be greater than 0"
             
         data_view = tensordict_data.reshape(-1)  # Flatten the batch size to shuffle data
         replay_buffer.extend(data_view)
         # replay_buffer.update_tensordict_priority() # Not necessary, as priorities were updated automatically when calling `replay_buffer.extend()`
-        
-        data_view = tensordict_data.reshape(-1)  # Flatten the batch size to shuffle data
-        replay_buffer.extend(data_view)
 
         for _ in range(parameters.num_epochs):
             # print("[DEBUG] for _ in range(parameters.num_epochs):")
             for _ in range(parameters.frames_per_batch // parameters.minibatch_size):
                 # sample a batch of data
-                data,  info = replay_buffer.sample(return_info=True)
+                mini_batch_data, info = replay_buffer.sample(return_info=True)
 
-                if parameters.is_prb:
-                    loss_vals, abs_error = loss_module(data)
-                    replay_buffer.update_priority(index=info.get('index'), priority=abs_error)
-                else:
-                    loss_vals = loss_module(data)
-
+                loss_vals = loss_module(mini_batch_data)
 
                 loss_value = (
                     loss_vals["loss_objective"]
@@ -327,7 +299,19 @@ def mappo_cavs(parameters: Parameters):
 
                 optim.step()
                 optim.zero_grad()
-
+                
+                if parameters.is_prb:
+                    # Recalculate loss
+                    with torch.no_grad():
+                        GAE(
+                            mini_batch_data,
+                            params=loss_module.critic_params,
+                            target_params=loss_module.target_critic_params,
+                        )
+                    # Recalculate the TD errors of the sampled minibatch with updated model weights and update priorities in the buffer
+                    new_td_errors = compute_td_error(mini_batch_data, gamma=0.9)
+                    mini_batch_data.set("td_error", new_td_errors)
+                    replay_buffer.update_tensordict_priority(mini_batch_data)
         collector.update_policy_weights_()
 
         # Logging
@@ -335,8 +319,9 @@ def mappo_cavs(parameters: Parameters):
         episode_reward_mean = (
             tensordict_data.get(("next", "agents", "episode_reward"))[done].mean().item()
         )
+        episode_reward_mean = round(episode_reward_mean, 2)
         episode_reward_mean_list.append(episode_reward_mean)
-        pbar.set_description(f"episode_reward_mean = {episode_reward_mean:.3f}", refresh=False)
+        pbar.set_description(f"episode_reward_mean = {episode_reward_mean:.2f}", refresh=False)
 
         # env.scenario.iter = pbar.n # A way to pass the information from the training algorithm to the environment
         
@@ -404,7 +389,7 @@ if __name__ == "__main__":
         lmbda=0.9,              # lambda for generalised advantage estimation,
         entropy_eps=1e-4,       # Coefficient of the entropy term in the PPO loss,
         max_steps=2**7,         # Episode steps before done
-        training_strategy='4',  # One of {'1', '2', '3', '4'}. 
+        training_strategy='2',  # One of {'1', '2', '3', '4'}. 
                                     # 1 for vanilla
                                     # 2 for vanilla with prioritized replay buffer
                                     # 3 for vanilla with challenging initial state buffer
@@ -432,17 +417,18 @@ if __name__ == "__main__":
         is_save_eval_results=True,
         
         is_prb=False,       # Whether to enable prioritized replay buffer
-        reset_scenario_probabilities=[1.0, 0.0, 0.0],
+        scenario_probabilities=[1.0, 0.0, 0.0],
         
         is_use_mtv_distance=False,
 
-        # Ablation study        
-        is_ego_view=True,                   # Ego view or bird view
+        # Ablation studies
+        is_ego_view=True,                   # Eago view or bird view
         is_apply_mask=True,                 # Whether to mask distant agents
         is_observe_distance_to_agents=True,      
-        is_observe_CG=True,
+        is_observe_vertices=True,
         is_observe_distance_to_boundaries=True,  
         is_observe_distance_to_center_line=True,
+        
         is_add_noise=True,
         is_observe_ref_path_other_agents=False,
     )

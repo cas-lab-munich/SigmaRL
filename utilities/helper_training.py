@@ -32,14 +32,7 @@ import re
 
 def get_model_name(parameters):
     # model_name = f"nags{parameters.n_agents}_it{parameters.n_iters}_fpb{parameters.frames_per_batch}_tfrms{parameters.total_frames}_neps{parameters.num_epochs}_mnbsz{parameters.minibatch_size}_lr{parameters.lr}_mgn{parameters.max_grad_norm}_clp{parameters.clip_epsilon}_gm{parameters.gamma}_lmbda{parameters.lmbda}_etp{parameters.entropy_eps}_mstp{parameters.max_steps}_nenvs{parameters.num_vmas_envs}"
-    if "road" in parameters.scenario_name:
-        model_name = f"reward{parameters.episode_reward_mean_current:.2f}"
-    elif "path" in parameters.scenario_name:
-        model_name = f"reward{parameters.episode_reward_mean_current:.2f}"
-    elif "obstacle_avoidance" in parameters.scenario_name:
-        model_name = f"reward{parameters.episode_reward_mean_current:.2f}"
-    else:
-        raise ValueError(f"Required scenario ('{parameters.scenario_name}') is not found.")
+    model_name = f"reward{parameters.episode_reward_mean_current:.2f}"
 
     return model_name
 
@@ -281,7 +274,7 @@ class Parameters():
                 episode_reward_intermediate: float = -1e3, # A arbitrary, small initial value
                 
                 is_prb: bool = False,       # # Whether to enable prioritized replay buffer
-                reset_scenario_probabilities = [1.0, 0.0, 0.0], # 1 for intersection, 2 for merge-in, 3 for merge-out scenario
+                scenario_probabilities = [1.0, 0.0, 0.0], # Probabilities of training agents in intersection, merge-in, or merge-out scenario
                 
                 # Observation
                 n_points_short_term: int = 3,            # Number of points that build a short-term reference path
@@ -289,15 +282,16 @@ class Parameters():
                 is_partial_observation: bool = True,     # Whether to enable partial observation
                 n_nearing_agents_observed: int = 2,      # Number of nearing agents to be observed (consider limited sensor range)
 
-                is_ego_view: bool = True,      # Global or local coordinate system
+                # Parameters for ablation studies
+                is_ego_view: bool = True,                           # Ego view or bird view
                 is_apply_mask: bool = True,                         # Whether to mask distant agents
                 is_observe_distance_to_agents: bool = True,         # Whether to observe the distance to other agents
                 is_observe_distance_to_boundaries: bool = True,     # Whether to observe points on lanelet boundaries or observe the distance to labelet boundaries
-                is_observe_distance_to_center_line: bool = True,       # Whether to observe the distance to reference path
-                is_observe_CG: bool = True,                         # Whether to observe the center of gravity of other agents or the vertices of them
+                is_observe_distance_to_center_line: bool = True,    # Whether to observe the distance to reference path
+                is_observe_vertices: bool = True,                         # Whether to observe the vertices of other agents (or center point)
+                
                 is_add_noise: bool = True,                          # Whether to add noise to observations
                 is_observe_ref_path_other_agents: bool = False,     # Whether to observe the reference paths of other agents
-                
                 is_use_mtv_distance: bool = True,           # Whether to use MTV-based (Minimum Translation Vector) distance or c2c-based (center-to-center) distance.
                 
                 # Visu
@@ -375,7 +369,7 @@ class Parameters():
         self.is_use_mtv_distance = is_use_mtv_distance
         self.is_observe_distance_to_boundaries = is_observe_distance_to_boundaries
         self.is_observe_distance_to_center_line = is_observe_distance_to_center_line
-        self.is_observe_CG = is_observe_CG
+        self.is_observe_vertices = is_observe_vertices
         self.is_add_noise = is_add_noise 
         self.is_observe_ref_path_other_agents = is_observe_ref_path_other_agents 
 
@@ -387,7 +381,7 @@ class Parameters():
         self.render_title = render_title
 
         self.is_prb = is_prb
-        self.reset_scenario_probabilities = reset_scenario_probabilities
+        self.scenario_probabilities = scenario_probabilities
         
         if (mode_name is None) and (scenario_name is not None):
             self.mode_name = get_model_name(self)
@@ -465,10 +459,7 @@ def find_the_highest_reward_among_all_models(path):
     return highest_reward
 
 
-def save(parameters: Parameters, save_data: SaveData, policy=None, critic=None):
-    # Delete files with lower mean episode reward
-    delete_files_with_lower_mean_reward(parameters=parameters)
-    
+def save(parameters: Parameters, save_data: SaveData, policy=None, critic=None):    
     # Get paths
     PATH_POLICY, PATH_CRITIC, PATH_FIG, PATH_JSON = get_path_to_save_model(parameters=parameters)
     
@@ -495,5 +486,33 @@ def save(parameters: Parameters, save_data: SaveData, policy=None, critic=None):
         # Save current models
         torch.save(policy.state_dict(), PATH_POLICY)
         torch.save(critic.state_dict(), PATH_CRITIC)
-        
+        # Delete files with lower mean episode reward
+        delete_files_with_lower_mean_reward(parameters=parameters)
+
     print(f"Saved model: {parameters.episode_reward_mean_current:.2f}.")
+
+def compute_td_error(tensordict_data: TensorDict, gamma = 0.9):
+    """
+    Computes TD error.
+    
+    Args:
+        gamma: discount factor
+    """
+    current_state_values = tensordict_data["agents"]["state_value"]
+    next_rewards = tensordict_data.get(("next", "agents", "reward"))
+    next_state_values = tensordict_data.get(("next", "agents", "state_value"))
+    td_error = next_rewards + gamma * next_state_values - current_state_values # See Eq. (2) of Section B EXPERIMENTAL DETAILS of paper https://doi.org/10.48550/arXiv.1511.05952
+    td_error = td_error.abs() # Magnitude is more interesting than the actual TD error
+    
+    td_error_average_over_agents = td_error.mean(dim=-2) # Cooperative agents
+    
+    # Normalize TD error to [-1, 1] (priorities must be positive)
+    td_min = td_error_average_over_agents.min()
+    td_max = td_error_average_over_agents.max()
+    td_error_range = td_max - td_min
+    td_error_range = max(td_error_range, 1e-3) # For numerical stability
+    
+    td_error_average_over_agents = (td_error_average_over_agents - td_min) / td_error_range
+    td_error_average_over_agents = torch.clamp(td_error_average_over_agents, 1e-3, 1) # For numerical stability
+    
+    return td_error_average_over_agents
