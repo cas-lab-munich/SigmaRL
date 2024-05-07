@@ -28,6 +28,7 @@ git config --global user.email "you-email-address"
 - Write code comments! Write code comments!! Write code comments!!!
 
 ## Logs
+- [2024-05-07] Version for the submission to ITSC 2024 on May 1, 2024. See branch `ITSC24`.
 - [2024-04-10] Traffic-road scenario works. See branch `traffic-road` and save files in directory `outputs_saved/traffic_road`.
 - [2024-01-26] Line-path-tracking scenario works. See branch `path-tracking-scenarios` and saved files in directory `outputs_saved/line`.
 - [2024-01-26] Sine-path-tracking scenario works. See branch `path-tracking-scenarios` and saved files in directory `outputs_saved/sine`.
