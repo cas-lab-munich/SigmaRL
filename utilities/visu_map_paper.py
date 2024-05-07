@@ -1,6 +1,10 @@
 import xml.etree.ElementTree as ET
 import torch
 import matplotlib.pyplot as plt
+# Set Matplotlib to use Type 1 or TrueType fonts instead of Type 3
+plt.rcParams['pdf.fonttype'] = 42  # Ensures TrueType font (TT) is used
+# plt.rcParams['ps.fonttype'] = 42   # Same setting for PostScript (PS) output
+
 import numpy as np
 
 # Scientific plotting
@@ -10,7 +14,7 @@ import numpy as np
 
 import os
 import sys
-script_dir = os.path.dirname(__file__) # Directory of the current script
+script_dir = os.path.dirname(__file__) # Directory of the current scrit
 project_root = os.path.dirname(script_dir) # Project root directory
 if project_root not in sys.path:
     sys.path.append(project_root)
@@ -141,7 +145,7 @@ def visualize_and_save_map(lanelets, intersection_info, is_save_fig = False, is_
 
     line_width = 0.35
     fontsize = 11
-    fontname = "Time New Roman"
+    # fontname = "Time New Roman"
 
     for i in range(len(lanelets)):
         lanelet = lanelets[i]
@@ -236,7 +240,7 @@ def visualize_and_save_map(lanelets, intersection_info, is_save_fig = False, is_
                 color_veh = Color.black50
             
             plt.fill(vertices[:, 0], vertices[:, 1], color=color_veh)
-            plt.text(pos[0] + 0.08, pos[1], k+1, color='black', fontname=fontname, fontsize=fontsize)
+            plt.text(pos[0] + 0.08, pos[1], k+1, color='black', fontsize=fontsize)
 
     # plt.xlabel(r"$x$ [m]", fontsize=18)
     # plt.ylabel(r"$y$ [m]", fontsize=18)
