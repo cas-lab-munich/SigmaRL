@@ -31,9 +31,10 @@ J. Xu, P. Hu, B. Alrifaee, "A Sample Efficient and Generalizable Multi-Agent Rei
 <br>
 
 <!-- icons from https://simpleicons.org/ -->
-[![Paper](https://img.shields.io/badge/Preprint-Paper-00629B)](http://dx.doi.org/10.13140/RG.2.2.28845.70886)
-[![Video](https://img.shields.io/badge/-Video-FF0000?logo=YouTube)](https://youtu.be/36gCamoqEcA)
-[![Repository](https://img.shields.io/badge/-GitHub-181717?logo=GitHub)](https://github.com/cas-lab-munich/generalizable-marl)
+<a href="http://dx.doi.org/10.13140/RG.2.2.28845.70886" target="_blank"><img src="https://img.shields.io/badge/Preprint-Paper-00629B"></a>
+<a href="https://youtu.be/36gCamoqEcA" target="_blank"><img src="https://img.shields.io/badge/-Video-FF0000?logo=YouTube"></a>
+<a href="https://github.com/cas-lab-munich/generalizable-marl" target="_blank"><img src="https://img.shields.io/badge/-GitHub-181717?logo=GitHub"></a>
+
 </summary>
 
 <summary>
