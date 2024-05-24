@@ -1,5 +1,8 @@
 # A Sample Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning
 This repository provides the full code for the paper “A Sample Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning”.
+
+<img src="assets/generalizable-MARL.gif" width="360" height="320" />
+
 ## Install
 Open a terminal and navigate to where you want to clone this repo. Then run the following commands:
 ```
