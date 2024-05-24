@@ -53,7 +53,7 @@ References in Bibtex format
     author  = {Jianye Xu and Pan Hu and Bassam Alrifaee},
     title   = {A Sample Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning},
     year    = {2024},
-    doi     = {10.13140/RG.2.2.28845.70886}}
+    doi     = {10.13140/RG.2.2.28845.70886}
 }
 ```
 
