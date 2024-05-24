@@ -42,7 +42,7 @@ import matplotlib.pyplot as plt
 # Scientific plotting
 import scienceplots # Do not remove (https://github.com/garrettj403/SciencePlots)
 plt.rcParams.update({'figure.dpi': '100'}) # Avoid DPI problem (https://github.com/garrettj403/SciencePlots/issues/60)
-plt.style.use(['science','ieee']) # The science + ieee styles for IEEE papers (can also be one of 'ieee' and 'science' )
+plt.style.use(['science','ieee','no-latex']) # The science + ieee styles for IEEE papers (can also be one of 'ieee' and 'science' )
 # print(plt.style.available) # List all available style
 
 from torchrl.envs.libs.vmas import VmasEnv
@@ -271,7 +271,7 @@ def mappo_cavs(parameters: Parameters):
             assert tensordict_data["td_error"].min() >= 0, "TD error must be greater than 0"
             
         data_view = tensordict_data.reshape(-1)  # Flatten the batch size to shuffle data
-        replay_buffer.extend(data_view)
+        replay_buffer.extend(data_view) 
         # replay_buffer.update_tensordict_priority() # Not necessary, as priorities were updated automatically when calling `replay_buffer.extend()`
 
         for _ in range(parameters.num_epochs):
