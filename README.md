@@ -1,9 +1,18 @@
 # A Sample Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning
-This repository provides the full code for the paper “A Sample Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning”.
+<!-- icons from https://simpleicons.org/ -->
+<a href="http://dx.doi.org/10.13140/RG.2.2.28845.70886" target="_blank"><img src="https://img.shields.io/badge/Preprint-Paper-00629B"></a>
+<a href="https://youtu.be/36gCamoqEcA" target="_blank"><img src="https://img.shields.io/badge/-Video-FF0000?logo=YouTube"></a>
+<a href="https://github.com/cas-lab-munich/generalizable-marl" target="_blank"><img src="https://img.shields.io/badge/-GitHub-181717?logo=GitHub"></a>
 
-<img src="assets/generalizable-MARL.gif" width="360" height="320" />
+This repository provides the full code for the paper "A Sample Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning".
 
-## Install
+We use <a href="https://github.com/proroklab/VectorizedMultiAgentSimulator" target="_blank">VMAS</a>, a vectorized differentiable simulator designed for efficient Multi-Agent Reinforcement Learning benchmarking, as our simulator und customize a reinforcement learning environment to suit the case of our Cyber-Physical Mobility Lab (<a href="https://cpm.embedded.rwth-aachen.de/">CPM Lab</a>) (see Fig. 1 for a visualization).
+
+
+<img src="assets/generalizable-MARL.gif" width="360" height="320"/>
+<p>Fig. 1: Demonstrating the risk awareness learned by our agents: agent 4 braked timely to avoid a collision with agent 11.</p>
+
+## Install (tested in macOS and Windows)
 Open a terminal and navigate to where you want to clone this repo. Then run the following commands:
 ```
 git clone git@git.rwth-aachen.de:CPM/Project/jianye/software/marl_for_cavs.git
@@ -32,11 +41,6 @@ We would be grateful if you would refer to the paper below if you find this repo
 <summary>
 J. Xu, P. Hu, B. Alrifaee, "A Sample Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning," ResearchGate, Preprint, 2024, doi: 10.13140/RG.2.2.28845.70886
 <br>
-
-<!-- icons from https://simpleicons.org/ -->
-<a href="http://dx.doi.org/10.13140/RG.2.2.28845.70886" target="_blank"><img src="https://img.shields.io/badge/Preprint-Paper-00629B"></a>
-<a href="https://youtu.be/36gCamoqEcA" target="_blank"><img src="https://img.shields.io/badge/-Video-FF0000?logo=YouTube"></a>
-<a href="https://github.com/cas-lab-munich/generalizable-marl" target="_blank"><img src="https://img.shields.io/badge/-GitHub-181717?logo=GitHub"></a>
 
 </summary>
 
