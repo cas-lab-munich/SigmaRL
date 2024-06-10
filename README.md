@@ -1,6 +1,6 @@
 # A Sample Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning
 <!-- icons from https://simpleicons.org/ -->
-<a href="http://dx.doi.org/10.13140/RG.2.2.28845.70886" target="_blank"><img src="https://img.shields.io/badge/Preprint-Paper-00629B"></a>
+<a href="http://dx.doi.org/10.13140/RG.2.2.24505.17769" target="_blank"><img src="https://img.shields.io/badge/Preprint-Paper-00629B"></a>
 <a href="https://youtu.be/36gCamoqEcA" target="_blank"><img src="https://img.shields.io/badge/-Video-FF0000?logo=YouTube"></a>
 <a href="https://github.com/cas-lab-munich/generalizable-marl" target="_blank"><img src="https://img.shields.io/badge/-GitHub-181717?logo=GitHub"></a>
 
@@ -39,7 +39,7 @@ We would be grateful if you would refer to the paper below if you find this repo
 
 
 <summary>
-J. Xu, P. Hu, B. Alrifaee, "A Sample Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning," ResearchGate, Preprint, 2024, doi: 10.13140/RG.2.2.28845.70886
+J. Xu, P. Hu, B. Alrifaee, "A Sample Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning," ResearchGate, Preprint, 2024, doi: 10.13140/RG.2.2.24505.17769
 <br>
 
 </summary>
@@ -54,7 +54,7 @@ References in Bibtex format
     author  = {Jianye Xu and Pan Hu and Bassam Alrifaee},
     title   = {A Sample Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning},
     year    = {2024},
-    doi     = {10.13140/RG.2.2.28845.70886}
+    doi     = {10.13140/RG.2.2.24505.17769}
 }
 ```
 
