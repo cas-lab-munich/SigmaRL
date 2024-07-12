@@ -389,7 +389,7 @@ if __name__ == "__main__":
         lmbda=0.9,              # lambda for generalised advantage estimation,
         entropy_eps=1e-4,       # Coefficient of the entropy term in the PPO loss,
         max_steps=2**7,         # Episode steps before done
-        training_strategy='2',  # One of {'1', '2', '3', '4'}. 
+        training_strategy='4',  # One of {'1', '2', '3', '4'}. 
                                     # 1 for vanilla
                                     # 2 for vanilla with prioritized replay buffer
                                     # 3 for vanilla with challenging initial state buffer
