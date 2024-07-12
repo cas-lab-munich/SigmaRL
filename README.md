@@ -8,9 +8,11 @@ This repository provides the full code for the paper "A Sample Efficient and Gen
 
 We use <a href="https://github.com/proroklab/VectorizedMultiAgentSimulator" target="_blank">VMAS</a>, a vectorized differentiable simulator designed for efficient Multi-Agent Reinforcement Learning benchmarking, as our simulator und customize a reinforcement learning environment to suit the case of our Cyber-Physical Mobility Lab (<a href="https://cpm.embedded.rwth-aachen.de/">CPM Lab</a>) (see Fig. 1 for a visualization).
 
-
 <img src="assets/generalizable-MARL.gif" width="360" height="320"/>
 <p>Fig. 1: Demonstrating the risk awareness learned by our agents: agent 4 braked timely to avoid a collision with agent 11.</p>
+
+### News
+Our scenario is now available as a MARL benchmark scenario in <a href="https://github.com/proroklab/VectorizedMultiAgentSimulator" target="_blank">VMAS</a> for Connected and Automated Vehicles (CAVs) (see <a href="https://github.com/proroklab/VectorizedMultiAgentSimulator/blob/main/vmas/scenarios/road_traffic.py">here</a>)!
 
 ## Install (tested in macOS and Windows)
 Open a terminal and navigate to where you want to clone this repo. Then run the following commands:
