@@ -1,4 +1,4 @@
-# Adapted from https://pytorch.org/rl/tutorials/multiagent_ppo.html
+# Adapted from https://pytorch.org/rl/stable/tutorials/multiagent_ppo.html
 import time
 import multiprocessing
 
@@ -433,7 +433,7 @@ if __name__ == "__main__":
         is_observe_ref_path_other_agents=False,
     )
     
-    if parameters.training_strategy == "2":
+    if parameters.training_strategy == "4":
         parameters.is_prb=True
         
     env, policy, parameters = mappo_cavs(parameters=parameters)
