@@ -1209,7 +1209,7 @@ class ScenarioRoadTraffic(BaseScenario):
             ),  
             obs_vel_other_agents_flat,                                              # [others] velocities
             obs_distance_other_agents_flat if self.parameters.is_observe_distance_to_agents else None, # [others] mutual distances
-            obs_ref_path_other_agents_flat if is_observe_ref_path_other_agents else None,               # [others] reference paths
+            obs_ref_path_other_agents_flat if self.parameters.is_observe_ref_path_other_agents else None,               # [others] reference paths
         ]
         obs_others_list = [o for o in obs_others_list if o is not None] # Filter out None values
         obs_other_agents = torch.cat(obs_others_list, dim=-1).reshape(self.world.batch_dim, -1) # [batch_size, -1]        
