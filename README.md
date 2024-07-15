@@ -16,6 +16,8 @@ git config --global user.name "first_name last_name"
 git config --global user.email "you-email-address"
 ```
 
+<img src="assets/generalizable-MARL.gif" width="360" height="320" />
+
 ## How to Use
 - Run `/training_mappo_cavs.py`. During training, all the intermediate models that have higher performance than the saved one will be saved.
 - After training, run `/testing_mappo_cavs.py` to test your model. Adjust the parameter `path` therein to tell which folder the target model was saved.
@@ -65,6 +67,7 @@ You can also run `/testing_mappo_cavs.py` to intuitively evaluate the trained mo
 </p>
 
 ## Logs
+- [2024-07-10] Our scenario is now available as a MARL benchmark scenario in VMAS (see <a href="https://github.com/proroklab/VectorizedMultiAgentSimulator/releases/tag/1.4.2" target="_blank">here</a>)! 
 - [2024-05-07] Version for the submission to ITSC 2024 on May 1, 2024. See branch `ITSC24`.
 - [2024-04-10] Traffic-road scenario works. See branch `traffic-road` and save files in directory `outputs_saved/traffic_road`.
 - [2024-01-26] Line-path-tracking scenario works. See branch `path-tracking-scenarios` and saved files in directory `outputs_saved/line`.
