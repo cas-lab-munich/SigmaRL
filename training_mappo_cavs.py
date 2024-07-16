@@ -312,7 +312,7 @@ def mappo_cavs(parameters: Parameters):
                     new_td_errors = compute_td_error(mini_batch_data, gamma=0.9)
                     mini_batch_data.set("td_error", new_td_errors)
                     replay_buffer.update_tensordict_priority(mini_batch_data)
-        collector.update_policy_weights_()
+        collector.update_policy_weights_()  # Updates the policy weights if the policy of the data collector and the trained policy live on different devices
 
         # Logging
         done = tensordict_data.get(("next", "agents", "done"))
