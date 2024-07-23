@@ -30,6 +30,9 @@ from utilities.helper_training import Parameters
 
 from utilities.helper_scenario import Distances, Normalizers, Observations, Penalties, ReferencePathsAgentRelated, ReferencePathsMapRelated, Rewards, Thresholds, Collisions, Timer, Constants, CircularBuffer, StateBuffer, InitialStateBuffer, Noise, Evaluation, exponential_decreasing_fcn, get_distances_between_agents, get_perpendicular_distances, get_rectangle_vertices, get_short_term_reference_path, interX, angle_eliminate_two_pi, transform_from_global_to_local_coordinate
 
+from utilities.parse_osm import ParseOSM
+from utilities.parse_xml import ParseXML
+
 from utilities.get_cpm_lab_map import get_map_data
 from utilities.get_reference_paths import get_reference_paths
 
@@ -115,11 +118,12 @@ n_stored_steps = 5      # The number of steps to store (include the current step
 n_observed_steps = 1    # The number of steps to observe (include the current step). At least one, and at most `n_stored_steps`
 
 # Training parameters
-training_strategy = "1" # One of {"1", "2", "3", "4"}
+training_strategy = "5" # One of {"1", "2", "3", "4", "5"}
                             # "1": Train in a single, comprehensive scenario
                             # "2": Train in a single, comprehensive scenario with prioritized replay buffer
                             # "3": Train in a single, comprehensive scenario with challenging initial state buffer
                             # "4": Train in a specific scenario (our)
+                            # "5": Train in another intersection (T-Intersection)
 buffer_size = 100               # Used only when training_strategy == "3"
 n_steps_before_recording = 10   # The states of agents at time step `current_time_step - n_steps_before_recording` before collisions will be recorded and used later when resetting the envs
 n_steps_stored = n_steps_before_recording # Store previous `n_steps_stored` steps of states
@@ -229,51 +233,65 @@ class ScenarioRoadTraffic(BaseScenario):
             dt=self.parameters.dt
         )
         
-        # Get map data 
-        self.map_data = get_map_data(device=device)
-        # Long-term reference path
-        reference_paths_all, reference_paths_intersection, reference_paths_merge_in, reference_paths_merge_out = get_reference_paths(self.n_agents, self.map_data) 
+        
+        # Get map data
+        if self.parameters.training_strategy in {"1", "2", "3", "4"}:
+            parser = ParseXML(
+                map_path="assets/maps/cpm_lab_map.xml",
+                scale=1e5,
+                device=device,
+            )
+        elif self.parameters.training_strategy in {"5"}:
+            parser = ParseOSM(
+                map_path="assets/maps/T_intersection_horizontal.osm",
+                width=0.15,  # [m]
+                scale=1e5,
+                device="cpu" if not torch.cuda.is_available() else "cuda:0",
+                reference_paths_ids=[[1], [2, 3], [2, 7], [4], [5, 6], [8, 6]],
+            )
+
+        self.map_data = parser.map_data
 
         # Determine the maximum number of points on the reference path
         if self.parameters.training_strategy in ("1", "2", "3"):
             # Train in one single, comprehensive scenario
             max_ref_path_points = max([
-                ref_p["center_line"].shape[0] for ref_p in reference_paths_all
+                ref_p["center_line"].shape[0] for ref_p in parser.reference_paths
             ]) + self.parameters.n_points_short_term * sample_interval_ref_path + 2 # Append a smaller buffer
-        else:
+        elif self.parameters.training_strategy in ("4"):
             # Train in mixed scenarios 
             max_ref_path_points = max([
-                ref_p["center_line"].shape[0] for ref_p in reference_paths_intersection + reference_paths_merge_in + reference_paths_merge_out
+                ref_p["center_line"].shape[0] for ref_p in parser.reference_paths_intersection + parser.reference_paths_merge_in + parser.reference_paths_merge_out
             ]) + self.parameters.n_points_short_term * sample_interval_ref_path + 2 # Append a smaller buffer
             
         # Get all reference paths
         self.ref_paths_map_related = ReferencePathsMapRelated(
-            long_term_all=reference_paths_all,
-            long_term_intersection=reference_paths_intersection,
-            long_term_merge_in=reference_paths_merge_in,
-            long_term_merge_out=reference_paths_merge_out,
-            point_extended_all=torch.zeros((len(reference_paths_all), self.parameters.n_points_short_term * sample_interval_ref_path, 2), device=device, dtype=torch.float32), # Not interesting, may be useful in the future
-            point_extended_intersection=torch.zeros((len(reference_paths_intersection), self.parameters.n_points_short_term * sample_interval_ref_path, 2), device=device, dtype=torch.float32),
-            point_extended_merge_in=torch.zeros((len(reference_paths_merge_in), self.parameters.n_points_short_term * sample_interval_ref_path, 2), device=device, dtype=torch.float32),
-            point_extended_merge_out=torch.zeros((len(reference_paths_merge_out), self.parameters.n_points_short_term * sample_interval_ref_path, 2), device=device, dtype=torch.float32),
+            long_term_all=parser.reference_paths,
+            long_term_intersection=parser.reference_paths_intersection,
+            long_term_merge_in=parser.reference_paths_merge_in,
+            long_term_merge_out=parser.reference_paths_merge_out,
+            point_extended_all=torch.zeros((len(parser.reference_paths), self.parameters.n_points_short_term * sample_interval_ref_path, 2), device=device, dtype=torch.float32), # Not interesting, may be useful in the future
+            point_extended_intersection=torch.zeros((len(parser.reference_paths_intersection), self.parameters.n_points_short_term * sample_interval_ref_path, 2), device=device, dtype=torch.float32),
+            point_extended_merge_in=torch.zeros((len(parser.reference_paths_merge_in), self.parameters.n_points_short_term * sample_interval_ref_path, 2), device=device, dtype=torch.float32),
+            point_extended_merge_out=torch.zeros((len(parser.reference_paths_merge_out), self.parameters.n_points_short_term * sample_interval_ref_path, 2), device=device, dtype=torch.float32),
             sample_interval=torch.tensor(sample_interval_ref_path, device=device, dtype=torch.int32),
         )
         
         # Extended the reference path by several points along the last vector of the center line 
         idx_broadcasting_entend = torch.arange(1, self.parameters.n_points_short_term * sample_interval_ref_path + 1, device=device, dtype=torch.int32).unsqueeze(1)
-        for idx, i_path in enumerate(reference_paths_all):
+        for idx, i_path in enumerate(parser.reference_paths):
             center_line_i = i_path["center_line"]
             direction = center_line_i[-1] - center_line_i[-2]
             self.ref_paths_map_related.point_extended_all[idx, :] = center_line_i[-1] + idx_broadcasting_entend * direction
-        for idx, i_path in enumerate(reference_paths_intersection):
+        for idx, i_path in enumerate(parser.reference_paths_intersection):
             center_line_i = i_path["center_line"]
             direction = center_line_i[-1] - center_line_i[-2]
             self.ref_paths_map_related.point_extended_intersection[idx, :] = center_line_i[-1] + idx_broadcasting_entend * direction            
-        for idx, i_path in enumerate(reference_paths_merge_in):
+        for idx, i_path in enumerate(parser.reference_paths_merge_in):
             center_line_i = i_path["center_line"]
             direction = center_line_i[-1] - center_line_i[-2]
             self.ref_paths_map_related.point_extended_merge_in[idx, :] = center_line_i[-1] + idx_broadcasting_entend * direction
-        for idx, i_path in enumerate(reference_paths_merge_out):
+        for idx, i_path in enumerate(parser.reference_paths_merge_out):
             center_line_i = i_path["center_line"]
             direction = center_line_i[-1] - center_line_i[-2]
             self.ref_paths_map_related.point_extended_merge_out[idx, :] = center_line_i[-1] + idx_broadcasting_entend * direction
@@ -316,7 +334,7 @@ class ScenarioRoadTraffic(BaseScenario):
 
         self.penalties = Penalties(
             deviate_from_ref_path=torch.tensor(penalty_deviate_from_ref_path, device=device, dtype=torch.float32),
-            weighting_deviate_from_ref_path=self.map_data["mean_lane_width"] / 2,
+            weighting_deviate_from_ref_path=self.mean_lane_width / 2,
             near_boundary=torch.tensor(penalty_near_boundary, device=device, dtype=torch.float32),
             near_other_agents=torch.tensor(penalty_near_other_agents, device=device, dtype=torch.float32),
             collide_with_agents=torch.tensor(penalty_collide_with_agents, device=device, dtype=torch.float32),
@@ -1369,8 +1387,8 @@ class ScenarioRoadTraffic(BaseScenario):
         geoms = []
         
         # Visualize all lanelets
-        for i in range(len(self.map_data["lanelets"])):
-            lanelet = self.map_data["lanelets"][i]
+        for i in range(len(self.map_data)):
+            lanelet = self.map_data[i]
             
             geom = rendering.PolyLine(
                 v = lanelet["left_boundary"],

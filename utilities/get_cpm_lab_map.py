@@ -190,7 +190,7 @@ def visualize_and_save_map(lanelets, is_save_fig = False, is_visualize = False, 
 
 # Parse the XML file
 def get_map_data(is_save_fig = False, is_visualize = False, is_show_a_vehicle = True, **kwargs):
-    xml_file_path = kwargs.get("xml_file_path", "./assets/cpm_lab_map.xml")
+    xml_file_path = kwargs.get("xml_file_path", "./assets/maps/cpm_lab_map.xml")
     device = kwargs.get("device", torch.device("cpu"))
     
     tree = ET.parse(xml_file_path)
@@ -224,8 +224,8 @@ def get_map_data(is_save_fig = False, is_visualize = False, is_show_a_vehicle = 
 
 if __name__ == "__main__":
     map_data = get_map_data(
-        is_visualize=False, # Rendering may be slow due to the usage of the package `scienceplots`. You may want to disable it by commenting the related codes out.
-        is_save_fig=True, 
+        is_visualize=True, # Rendering may be slow due to the usage of the package `scienceplots`. You may want to disable it by commenting the related codes out.
+        is_save_fig=False, 
         is_show_a_vehicle=True,
     )
     print(map_data)

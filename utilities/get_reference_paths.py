@@ -200,7 +200,7 @@ def calculate_reference_path(reference_lanelets_index, map_data, lanelets_share_
     return reference_path
 
 
-def get_reference_paths(n_agents, map_data, IS_VISUALIZE: bool = False):
+def get_reference_paths(n_agents, map_data, IS_VISUALIZE: bool = True):
     reference_paths_all = []
     reference_paths_intersection = []
     reference_paths_merge_in = []
@@ -240,4 +240,4 @@ if __name__ == "__main__":
     map_data = get_map_data()
     n_agents = 7
     reference_paths_all, reference_paths_intersection, reference_paths_merge_in, reference_paths_merge_out = get_reference_paths(n_agents, map_data)
-    # print(reference_paths)
+    print(reference_paths_all)
