@@ -3,8 +3,8 @@
 ## Install
 Open a terminal and navigate to where you want to clone this repo. Then run the following commands:
 ```
-git clone https://github.com/cas-lab-munich/generalizable-marl.git
-cd generalizable-marl/
+git clone git@git.rwth-aachen.de:CPM/Project/jianye/software/marl_for_cavs.git
+cd marl_for_cavs/
 conda create --name your-env-name python=3.9
 conda activate your-env-name
 pip install -r requirements.txt
@@ -54,7 +54,8 @@ References in Bibtex format
     author  = {Jianye Xu and Pan Hu and Bassam Alrifaee},
     title   = {A Sample Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning},
     year    = {2024},
-    doi     = {10.13140/RG.2.2.28845.70886}
+    doi     = {10.13140/RG.2.2.28845.70886},
+    note    = {Accepted by 27th IEEE International Conference on Intelligent Transportation Systems (IEEE ITSC 2024)},
 }
 ```
 
