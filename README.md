@@ -3,12 +3,11 @@
 ## Install
 Open a terminal and navigate to where you want to clone this repo. Then run the following commands:
 ```
-git clone git@git.rwth-aachen.de:CPM/Project/jianye/software/marl_for_cavs.git
-cd marl_for_cavs/
+git clone https://github.com/cas-lab-munich/generalizable-marl.git
+cd generalizable-marl/
 conda create --name your-env-name python=3.9
 conda activate your-env-name
 pip install -r requirements.txt
-conda list
 ```
 If you are a developer of this repo, set your username and email in terminal using
 ```
@@ -16,7 +15,7 @@ git config --global user.name "first_name last_name"
 git config --global user.email "you-email-address"
 ```
 
-<img src="assets/generalizable-MARL.gif" width="360" height="320" />
+<img src="assets/figs/generalizable-MARL.gif" width="360" height="320" />
 
 ## How to Use
 - Run `/training_mappo_cavs.py`. During training, all the intermediate models that have higher performance than the saved one will be saved.
