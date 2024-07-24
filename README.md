@@ -12,17 +12,16 @@ We use <a href="https://github.com/proroklab/VectorizedMultiAgentSimulator" targ
 <p>Fig. 1: Demonstrating the risk awareness learned by our agents: agent 4 braked timely to avoid a collision with agent 11.</p>
 
 ### News
-Our scenario is now available as a MARL benchmark scenario in <a href="https://github.com/proroklab/VectorizedMultiAgentSimulator" target="_blank">VMAS</a> for Connected and Automated Vehicles (CAVs) (see <a href="https://github.com/proroklab/VectorizedMultiAgentSimulator/blob/main/vmas/scenarios/road_traffic.py">here</a>)!
+[2024-07-10] Our scenario is now available as a MARL benchmark scenario in VMAS for Connected and Automated Vehicles (CAVs) (see <a href="https://github.com/proroklab/VectorizedMultiAgentSimulator/releases/tag/1.4.2">here</a>)!
 
 ## Install (tested in macOS and Windows)
 Open a terminal and navigate to where you want to clone this repo. Then run the following commands:
 ```
-git clone git@git.rwth-aachen.de:CPM/Project/jianye/software/marl_for_cavs.git
-cd marl_for_cavs/
+git clone https://github.com/cas-lab-munich/generalizable-marl.git
+cd generalizable-marl/
 conda create --name your-env-name python=3.9
 conda activate your-env-name
 pip install -r requirements.txt
-conda list
 ```
 
 ## How to Use
@@ -41,7 +40,7 @@ We would be grateful if you would refer to the paper below if you find this repo
 
 
 <summary>
-J. Xu, P. Hu, B. Alrifaee, "A Sample Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning," ResearchGate, Preprint, 2024, doi: 10.13140/RG.2.2.24505.17769
+J. Xu, P. Hu, B. Alrifaee, "A Sample Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning," Accepted by 27th IEEE International Conference on Intelligent Transportation Systems (IEEE ITSC 2024), doi: 10.13140/RG.2.2.24505.17769
 <br>
 
 </summary>
@@ -56,7 +55,8 @@ References in Bibtex format
     author  = {Jianye Xu and Pan Hu and Bassam Alrifaee},
     title   = {A Sample Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning},
     year    = {2024},
-    doi     = {10.13140/RG.2.2.24505.17769}
+    doi     = {10.13140/RG.2.2.24505.17769},
+    note    = {Accepted by 27th IEEE International Conference on Intelligent Transportation Systems (IEEE ITSC 2024)},
 }
 ```
 
