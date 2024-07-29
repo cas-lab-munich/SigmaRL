@@ -265,15 +265,18 @@ class Parameters():
                 max_steps: int = 2**7,          # Episode steps before done
                 total_frames: int = None,       # Total frame for one training, equals `frames_per_batch * n_iters`
                 num_vmas_envs: int = None,      # Number of vectorized environments
-                training_strategy: str = "4",  # One of {'1', '2', '3', '4'}. 
-                                            # 1 for vanilla
-                                            # 2 for vanilla with prioritized replay buffer
-                                            # 3 for vanilla with challenging initial state buffer
-                                            # 4 for mixed training
+                scenario_type: str = "T_intersection_1",  # One of {"CPM_entire", "CPM_mixed", "T_intersection_1", "design you own map and name it here"}
+                                                     # "CPM_entire": Entire map of the CPM Lab
+                                                     # "CPM_mixed": Intersection, merge-in, and merge-out of the CPM Lab. Probability defined in `scenario_probabilities`
+                                                     # "T_intersection_1": T-Intersection with ID 1
+                                                     # "design you own map and name it here"
+                                            
                 episode_reward_mean_current: float = 0.00,  # Achieved mean episode reward (total/n_agents)
                 episode_reward_intermediate: float = -1e3, # A arbitrary, small initial value
                 
-                is_prb: bool = False,       # # Whether to enable prioritized replay buffer
+                is_prb: bool = False,       # Whether to enable prioritized replay buffer
+                is_challenging_initial_state_buffer = False,  # Whether to enable challenging initial state buffer
+                
                 scenario_probabilities = [1.0, 0.0, 0.0], # Probabilities of training agents in intersection, merge-in, or merge-out scenario
                 
                 # Observation
@@ -339,7 +342,8 @@ class Parameters():
         self.lmbda = lmbda
         self.entropy_eps = entropy_eps
         self.max_steps = max_steps
-        self.training_strategy = training_strategy
+        
+        self.scenario_type = scenario_type
         
         if (frames_per_batch is not None) and (max_steps is not None):
             self.num_vmas_envs = frames_per_batch // max_steps # Number of vectorized envs. frames_per_batch should be divisible by this number,
@@ -381,6 +385,8 @@ class Parameters():
         self.render_title = render_title
 
         self.is_prb = is_prb
+        self.is_challenging_initial_state_buffer = is_challenging_initial_state_buffer
+        
         self.scenario_probabilities = scenario_probabilities
         
         if (mode_name is None) and (scenario_name is not None):

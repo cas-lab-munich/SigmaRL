@@ -24,15 +24,15 @@ try:
         parameters.is_load_model = True
         parameters.is_load_final_model = False
         parameters.is_load_out_td  = False
-        parameters.n_agents = 12
+        parameters.n_agents = 3
         parameters.max_steps = 1200 # 1200 -> 1 min
         if parameters.is_load_out_td:
             parameters.num_vmas_envs = 32
         else:
             parameters.num_vmas_envs = 1
-        parameters.training_strategy = "1"
+        parameters.scenario_type = "T_intersection_1"
         parameters.is_save_simulation_video = False
-        parameters.is_visualize_short_term_path = False
+        parameters.is_visualize_short_term_path = True
         parameters.is_visualize_lane_boundary = False
         parameters.is_visualize_extra_info = True
 

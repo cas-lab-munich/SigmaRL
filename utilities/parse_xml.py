@@ -11,30 +11,43 @@ project_root = os.path.dirname(script_dir) # Project root directory
 if project_root not in sys.path:
     sys.path.append(project_root)
 
-from utilities.map_parse_base import MapParseBase
+from utilities.parse_map_base import ParseMapBase
 
 from utilities.colors import Color
 
 
-class ParseXML(MapParseBase):
-    def __init__(self, map_path, device="cpu"):
-        super().__init__(map_path, device)  # Initialize base class
+class ParseXML(ParseMapBase):
+    def __init__(self, map_path, device="cpu", **kwargs):
+        super().__init__(map_path, device, **kwargs)  # Initialize base class
         
+        # Define reference paths
+        self._reference_paths_ids = [
+            [4, 6, 8, 60, 58, 56, 54, 80, 82, 84, 86, 34, 32, 30, 28, 2], # Loop 1
+            [1, 3, 23, 10, 12, 17, 43, 38, 36, 49, 29, 27], # Loop 2
+            [64, 62, 75, 55, 53, 79, 81, 101, 88, 90, 95, 69], # Loop 3
+            [40, 45, 97, 92, 94, 100, 83, 85, 33, 31, 48, 42], # Loop 4
+            [5, 7, 59, 57, 74, 68, 66, 71, 19, 14, 16, 22], # Loop 5
+            [41, 39, 20, 63, 61, 57, 55, 67, 65, 98, 37, 35, 31, 29], # Loop 6
+            [3, 5, 9, 11, 72, 91, 93, 81, 83, 87, 89, 46, 13, 15], # Loop 7
+        ]
+        
+        # Hard code the size of the map in the CPM Lab
         self.bounds["min_x"] = 0
         self.bounds["max_x"] = 4.5
         self.bounds["min_y"] = 0
         self.bounds["max_y"] = 4.0
         
         # Visualization
-        self.is_visu_lane_ids = False  # Whether to visualize the IDs of the lanes
+        self._is_visu_lane_ids = False  # Whether to visualize the IDs of the lanes
         self._linewidth = 1.0
         self._fontsize = 12
-        
-        self.mean_lane_width = None
-        self.intersection_info = None
+
         
         self._parse_map_file()
-        self.visualize_map(is_save_fig=True, is_show=False, is_show_an_agent=False)
+        
+        if self._is_visualize_map:
+            self.visualize_map(is_show_an_agent=False)
+
         self._get_reference_paths(is_show_each_ref_path=False)
         
     def _parse_map_file(self):
@@ -44,15 +57,10 @@ class ParseXML(MapParseBase):
         for child in root:
             if child.tag == "lanelet":
                 lanelets.append(self._parse_lanelet(child))
-            elif child.tag == "intersection":
-                self.intersection_info = self._parse_intersections(child)
 
         # Storing all the map data
-        self.map_data = lanelets
-        
-        # Calculate the mean lane width
-        self.mean_lane_width = torch.mean(torch.norm(torch.vstack([lanelets[i]["left_boundary"] for i in range(len(lanelets))]) - torch.vstack([lanelets[i]["right_boundary"] for i in range(len(lanelets))]), dim=1))
-        
+        self.lanelets_all = lanelets
+                
     def _parse_lanelet(self, element):
         """ Parses a lanelet element to extract detailed information. """
         lanelet_data = {
@@ -106,9 +114,9 @@ class ParseXML(MapParseBase):
 
         lanelet_data["center_line"] = (lanelet_data["left_boundary"] + lanelet_data["right_boundary"]) / 2
         
-        lanelet_data["center_line_center_points"], lanelet_data["center_line_lengths"], lanelet_data["center_line_yaws"], _ = MapParseBase.get_center_length_yaw_polyline(polyline=lanelet_data["center_line"])
-        lanelet_data["left_boundary_center_points"], lanelet_data["left_boundary_lengths"], lanelet_data["left_boundary_yaws"], _ = MapParseBase.get_center_length_yaw_polyline(polyline=lanelet_data["left_boundary"])
-        lanelet_data["right_boundary_center_points"], lanelet_data["right_boundary_lengths"], lanelet_data["right_boundary_yaws"], _ = MapParseBase.get_center_length_yaw_polyline(polyline=lanelet_data["right_boundary"])
+        lanelet_data["center_line_center_points"], lanelet_data["center_line_lengths"], lanelet_data["center_line_yaws"], _ = ParseMapBase.get_center_length_yaw_polyline(polyline=lanelet_data["center_line"])
+        lanelet_data["left_boundary_center_points"], lanelet_data["left_boundary_lengths"], lanelet_data["left_boundary_yaws"], _ = ParseMapBase.get_center_length_yaw_polyline(polyline=lanelet_data["left_boundary"])
+        lanelet_data["right_boundary_center_points"], lanelet_data["right_boundary_lengths"], lanelet_data["right_boundary_yaws"], _ = ParseMapBase.get_center_length_yaw_polyline(polyline=lanelet_data["right_boundary"])
         
         return lanelet_data
     
@@ -125,22 +133,7 @@ class ParseXML(MapParseBase):
         y = float(element.find("y").text) if element.find("y") is not None else None
         return torch.tensor([x, y], device=self._device)
     
-    def _parse_intersections(self, element):
-        """Function to parse intersections. """
-        intersection_info = []
-
-        for incoming in element.findall("incoming"):
-            incoming_info = {
-                "incomingLanelet": int(incoming.find("incomingLanelet").get("ref")), # The starting lanelet of a part of the intersection
-                "successorsRight": int(incoming.find("successorsRight").get("ref")), # The successor right lanelet of the incoming lanelet
-                "successorsStraight": [int(s.get("ref")) for s in incoming.findall("successorsStraight")], # The successor lanelet(s) of the incoming lanelet
-                "successorsLeft": int(incoming.find("successorsLeft").get("ref")), # The successor left lanelet of the incoming lanelet
-            }
-            intersection_info.append(incoming_info)
-
-        return intersection_info
-    
-    def visualize_map(self, is_save_fig, is_show, is_show_an_agent):
+    def visualize_map(self, is_show_an_agent):
         x_lim = 4.5 # [m] Dimension in x-direction 
         y_lim = 4.0 # [m] Dimension in y-direction 
 
@@ -148,7 +141,7 @@ class ParseXML(MapParseBase):
         plt.figure(figsize=(x_lim*3, y_lim*3))  # Size in inches, adjusted for 4.0m x 4.5m dimensions
         plt.axis("equal")  # Ensure x and y dimensions are equally scaled
 
-        for lanelet in self.map_data:
+        for lanelet in self.lanelets_all:
             # Extract coordinates for left, right, and center lines
             left_bound = lanelet["left_boundary"]
             right_bound = lanelet["right_boundary"]
@@ -170,7 +163,7 @@ class ParseXML(MapParseBase):
             # Plot center line
             # plt.plot(center_line[:, 0], center_line[:, 1], linestyle="--" if center_line_marking == "dashed" else "-", color=color, linewidth=self._linewidth)
             # Adding lanelet ID as text
-            if self.is_visu_lane_ids:
+            if self._is_visu_lane_ids:
                 plt.text(center_line[int(len(center_line)/2), 0], center_line[int(len(center_line)/2), 1], str(lanelet["id"]), color=color, fontsize=self._fontsize)
                 
         if is_show_an_agent:
@@ -190,11 +183,11 @@ class ParseXML(MapParseBase):
         plt.title("CPM Map Visualization", fontsize=18)
 
         # Save fig
-        if is_save_fig:
+        if self._is_save_fig:
             plt.tight_layout() # Set the layout to be tight to minimize white space
             plt.savefig(self._file_name + ".pdf", format="pdf", bbox_inches="tight")
             
-        if is_show:
+        if self._is_plt_show:
             plt.show()
 
     def _get_reference_paths(self, is_show_each_ref_path):        
@@ -289,10 +282,10 @@ class ParseXML(MapParseBase):
             assert(lanelets_share_same_boundaries != None)
             
             # Extracting left and right boundaries
-            left_bound = self.map_data[lanelet - 1]["left_boundary"] # Lanelet IDs start from 1, while the index of a list in Python starts from 0 
-            right_bound = self.map_data[lanelet - 1]["right_boundary"]
-            left_bound_shared = self.map_data[lanelets_share_same_boundaries[0] - 1]["left_boundary"]
-            right_bound_shared = self.map_data[lanelets_share_same_boundaries[-1] - 1]["right_boundary"]
+            left_bound = self.lanelets_all[lanelet - 1]["left_boundary"] # Lanelet IDs start from 1, while the index of a list in Python starts from 0 
+            right_bound = self.lanelets_all[lanelet - 1]["right_boundary"]
+            left_bound_shared = self.lanelets_all[lanelets_share_same_boundaries[0] - 1]["left_boundary"]
+            right_bound_shared = self.lanelets_all[lanelets_share_same_boundaries[-1] - 1]["right_boundary"]
 
             if left_boundaries is None:
                 left_boundaries = left_bound
@@ -370,24 +363,13 @@ class ParseXML(MapParseBase):
         Returns:
         list: List of lanelets indices.
         """
-        # Define loops of paths (successive lanelets)
-        reference_lanelets_loops = [
-            [4, 6, 8, 60, 58, 56, 54, 80, 82, 84, 86, 34, 32, 30, 28, 2], # Loop 1
-            [1, 3, 23, 10, 12, 17, 43, 38, 36, 49, 29, 27], # Loop 2
-            [64, 62, 75, 55, 53, 79, 81, 101, 88, 90, 95, 69], # Loop 3
-            [40, 45, 97, 92, 94, 100, 83, 85, 33, 31, 48, 42], # Loop 4
-            [5, 7, 59, 57, 74, 68, 66, 71, 19, 14, 16, 22], # Loop 5
-            [41, 39, 20, 63, 61, 57, 55, 67, 65, 98, 37, 35, 31, 29], # Loop 6
-            [3, 5, 9, 11, 72, 91, 93, 81, 83, 87, 89, 46, 13, 15], # Loop 7
-        ]
-
         # Get loop index and starting lanelet for the given agent
         assert (ref_path_id >= 1) & (ref_path_id <= len(path_to_loop)), f"Reference ID should be in the range [1, {len(path_to_loop)}]"
         loop_index, starting_lanelet = path_to_loop.get(ref_path_id, (None, None))
 
         if loop_index is not None:
             # Take loop from all defined loops
-            reference_lanelets_loop = reference_lanelets_loops[loop_index - 1]  # Adjust for 0-based index
+            reference_lanelets_loop = self._reference_paths_ids[loop_index - 1]  # Adjust for 0-based index
             # Find index of defined starting lanelet
             index_starting_lanelet = reference_lanelets_loop.index(starting_lanelet)
             # Shift loop according to starting lanelet
@@ -399,10 +381,10 @@ class ParseXML(MapParseBase):
 
 
 if __name__ == "__main__":
-    parse_xml = ParseXML(
+    parser = ParseXML(
         map_path="assets/maps/cpm_lab_map.xml",
-        device="cpu",
+        device="cpu" if not torch.cuda.is_available() else "cuda:0",
     )
     
-    print(parse_xml.map_data)
-    print(parse_xml.reference_paths)
+    print(parser.lanelets_all)
+    print(parser.reference_paths)

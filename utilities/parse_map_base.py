@@ -19,7 +19,7 @@ if project_root not in sys.path:
 from utilities.colors import Color # Do not remove (https://github.com/garrettj403/SciencePlots)
 # print(plt.style.available) # List all available style
 
-class MapParseBase(ABC):
+class ParseMapBase(ABC):
     """Base class for map parse.
 
     This is the class that map parse inherit from.
@@ -38,9 +38,14 @@ class MapParseBase(ABC):
     - :class:`process_action`
 
     """
-    def __init__(self, map_path: str, device = "cpu"):
+    def __init__(self, map_path, device, **kwargs):
         self._map_path = map_path  # Path to the map data
         self._device = device  # Torch device
+        
+        self._is_visualize_map = kwargs.pop("is_visualize_map", False)
+        self._is_save_fig = kwargs.pop("is_save_fig", False)
+        self._is_plt_show = kwargs.pop("is_plt_show", False)
+        
         self.bounds = {
             "min_x": float("inf"),
             "min_y": float("inf"),
@@ -48,13 +53,19 @@ class MapParseBase(ABC):
             "max_y": float("-inf"),
         }  # Bounds of the map
         
-        self.map_data = []  # A list of dict
+        self._reference_paths_ids = []  # A list of lists. Each sub-list stores the IDs of lanelets building a reference path
+        
+        self.lanelets_all = []  # A list of dict. Each dict stores relevant data of a lane such as its center line, left boundary, and right boundary
         
         self.reference_paths = []
         self.reference_paths_intersection = []
         self.reference_paths_merge_in = []
         self.reference_paths_merge_out = []
-                
+        
+        self._is_visualize_map = False
+        self._is_save_fig = False
+        self._is_plt_show = False
+
         self._linewidth = 0.5
         self._fontsize = 12
         

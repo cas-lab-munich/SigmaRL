@@ -389,11 +389,11 @@ if __name__ == "__main__":
         lmbda=0.9,              # lambda for generalised advantage estimation,
         entropy_eps=1e-4,       # Coefficient of the entropy term in the PPO loss,
         max_steps=2**7,         # Episode steps before done
-        training_strategy='2',  # One of {'1', '2', '3', '4'}. 
-                                    # 1 for vanilla
-                                    # 2 for vanilla with prioritized replay buffer
-                                    # 3 for vanilla with challenging initial state buffer
-                                    # 4 for our
+        scenario_type='T_intersection_1',  # One of {"CPM_entire", "CPM_mixed", "T_intersection_1", "design you own map and name it here"}
+                                            # "CPM_entire": Entire map of the CPM Lab
+                                            # "CPM_mixed": Intersection, merge-in, and merge-out of the CPM Lab. Probability defined in `scenario_probabilities`
+                                            # "T_intersection_1": T-Intersection with ID 1
+                                            # "design you own map and name it here"
         is_save_intermediate_model=True, # Is this is true, the model with the highest mean episode reward will be saved,
         
         episode_reward_mean_current=0.00,
@@ -433,8 +433,9 @@ if __name__ == "__main__":
         is_observe_ref_path_other_agents=False,
     )
     
-    if parameters.training_strategy == "4":
-        parameters.is_prb=True
+    parameters.is_prb = False
+    
+    parameters.is_challenging_initial_state_buffer = False
         
     env, policy, parameters = mappo_cavs(parameters=parameters)
 

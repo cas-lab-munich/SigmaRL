@@ -486,7 +486,8 @@ class Evaluation:
             else:
                 self.parameters.num_vmas_envs = 32
             self.parameters.frames_per_batch = self.parameters.max_steps * self.parameters.num_vmas_envs
-            self.parameters.training_strategy = "1"
+            self.parameters.is_prb = False
+            self.parameters.is_challenging_initial_state_buffer = False
             
             self.parameters.is_visualize_short_term_path = False
             self.parameters.is_visualize_lane_boundary = False

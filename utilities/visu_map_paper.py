@@ -272,7 +272,7 @@ def visualize_and_save_map(lanelets, intersection_info, is_save_fig = False, is_
 
 
 # Parse the XML file
-def get_map_data(is_save_fig = False, is_visualize = False, is_show_vehicles = True, **kwargs):
+def get_lanelets_data(is_save_fig = False, is_visualize = False, is_show_vehicles = True, **kwargs):
     xml_file_path = kwargs.get("xml_file_path", "./assets/maps/cpm_lab_map.xml")
     device = kwargs.get("device", torch.device("cpu"))
     
@@ -290,7 +290,7 @@ def get_map_data(is_save_fig = False, is_visualize = False, is_show_vehicles = T
     mean_lane_width = torch.mean(torch.norm(torch.vstack([lanelets[i]["left_boundary"] for i in range(len(lanelets))]) - torch.vstack([lanelets[i]["right_boundary"] for i in range(len(lanelets))]), dim=1))
 
     # Storing all the data in a single tree variable
-    map_data = {
+    lanelets_all = {
         "lanelets": lanelets,
         "intersection_info": intersection_info,
         "mean_lane_width": mean_lane_width,
@@ -302,18 +302,18 @@ def get_map_data(is_save_fig = False, is_visualize = False, is_show_vehicles = T
     if is_visualize | is_save_fig:
         visualize_and_save_map(lanelets, intersection_info, is_save_fig, is_visualize, is_show_vehicles)
         
-    return map_data
+    return lanelets_all
 
 
 if __name__ == "__main__":
-    map_data = get_map_data(
+    lanelets_all = get_lanelets_data(
         is_visualize=False, # Rendering may be slow due to the usage of the package `scienceplots`. You may want to disable it by commenting the related codes out.
         is_save_fig=True, 
         is_show_vehicles=True,
     )
-    print(map_data)
+    print(lanelets_all)
 
 # Example of how to use 
-# map_data["lanelets"][4] # Access all the information about the lanelet with ID 5
-# map_data["lanelets"][4]["left_boundary"] # Access the coordinates of the left boundary of the lanelet with ID 5
-# map_data["intersection_info"][1] # Access the information about the second part of the intersection
+# lanelets_all["lanelets"][4] # Access all the information about the lanelet with ID 5
+# lanelets_all["lanelets"][4]["left_boundary"] # Access the coordinates of the left boundary of the lanelet with ID 5
+# lanelets_all["intersection_info"][1] # Access the information about the second part of the intersection
