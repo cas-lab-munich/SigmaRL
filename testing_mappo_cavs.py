@@ -7,7 +7,16 @@ import json
 
 from training_mappo_cavs import mappo_cavs
 
-path = "checkpoints/our"
+# path = "checkpoints/our"
+# path = "outputs/test_not_apply_mask_obs_2_agents"
+# path = "outputs/test_not_apply_mask_obs_3_agents"
+# path = "outputs/test_our_obs_2_agents"
+# path = "outputs/test_our_obs_3_agents"
+# path = "outputs/v2/our/"
+# path = "outputs/v3/our/"
+# path = "outputs/v3/vanilla/"
+# path = "outputs/v4/our/"
+path = "outputs/v5/our/"
 
 try:
     path_to_json_file = next(os.path.join(path, file) for file in os.listdir(path) if file.endswith('.json')) # Find the first json file in the folder
@@ -19,18 +28,18 @@ try:
         
         # Adjust parameters 
         parameters.is_testing_mode = True
-        parameters.is_real_time_rendering = False
+        parameters.is_real_time_rendering = True
         parameters.is_save_eval_results = False
         parameters.is_load_model = True
         parameters.is_load_final_model = False
         parameters.is_load_out_td  = False
-        parameters.n_agents = 3
+        parameters.n_agents = 20
         parameters.max_steps = 1200 # 1200 -> 1 min
         if parameters.is_load_out_td:
             parameters.num_vmas_envs = 32
         else:
             parameters.num_vmas_envs = 1
-        parameters.scenario_type = "T_intersection_1"
+        parameters.scenario_type = "CPM_entire"  # merge_in_1, roundabout_1, intersection_1, CPM_entire
         parameters.is_save_simulation_video = False
         parameters.is_visualize_short_term_path = True
         parameters.is_visualize_lane_boundary = False

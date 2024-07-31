@@ -273,7 +273,7 @@ def visualize_and_save_map(lanelets, intersection_info, is_save_fig = False, is_
 
 # Parse the XML file
 def get_lanelets_data(is_save_fig = False, is_visualize = False, is_show_vehicles = True, **kwargs):
-    xml_file_path = kwargs.get("xml_file_path", "./assets/maps/cpm_lab_map.xml")
+    xml_file_path = kwargs.get("xml_file_path", "./assets/maps/cpm.xml")
     device = kwargs.get("device", torch.device("cpu"))
     
     tree = ET.parse(xml_file_path)

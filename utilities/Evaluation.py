@@ -59,12 +59,8 @@ class Evaluation:
         self.models_selected = models_selected
         self.num_models_selected = len(self.models_selected)
         
-        if self.num_models_selected == 10:
-            self.idx_our = 6 # Index of our model
-        elif self.num_models_selected == 7:
-            self.idx_our = 6
-        elif self.num_models_selected == 4:
-            self.idx_our = 0
+        self.idx_our = next((i for i, path in enumerate(model_paths) if "our" in path), -1) # Index of our model
+        print(f"Index of our model: {self.idx_our}")
 
         self.render_titles = render_titles
         self.video_save_paths = video_save_paths
@@ -475,17 +471,21 @@ class Evaluation:
             self.parameters.is_load_model = True
             self.parameters.is_load_final_model = False
             self.parameters.is_load_out_td  = True
-            self.parameters.n_agents = 12
+            self.parameters.n_agents = 20
             self.parameters.max_steps = 1200 # 1200 -> 1 min
             
             self.parameters.is_save_simulation_video = False
             
             if self.parameters.is_save_simulation_video:
+                # Only one env is needed if video should be exported
                 self.parameters.num_vmas_envs = 1
                 self.parameters.is_load_out_td = False
             else:
+                # Otherwise run multiple parallel envs and average the evaluation results
                 self.parameters.num_vmas_envs = 32
             self.parameters.frames_per_batch = self.parameters.max_steps * self.parameters.num_vmas_envs
+            
+            # The two parameters below are only used in training. Set them to False so that they do not effect testing
             self.parameters.is_prb = False
             self.parameters.is_challenging_initial_state_buffer = False
             
@@ -516,52 +516,53 @@ if __name__ == "__main__":
     # parameters = Parameters()
 
     model_paths = [
-        "checkpoints/use bird-eye view/",
-        "checkpoints/do not use mask/",
-        "checkpoints/do not observe vertices of surrounding agents/",
-        "checkpoints/do not observe distance to surrounding agents/",
-        "checkpoints/do not observe distance to boundaries/",
-        "checkpoints/do not observe distance to center line/",
-        "checkpoints/our/",
-        "checkpoints/vanilla/",
-        "checkpoints/use challenging initial state buffer/",
-        "checkpoints/use prioritized experience replay/",
+        # "outputs/use bird-eye view/",
+        # "outputs/do not use mask/",
+        # "outputs/do not observe vertices of surrounding agents/",
+        # "outputs/do not observe distance to surrounding agents/",
+        # "outputs/do not observe distance to boundaries/",
+        # "outputs/do not observe distance to center line/",
+        "outputs/v5/our/",
+        "outputs/v5/vanilla/",
+        "outputs/v5/use challenging initial state buffer/",
+        "outputs/v5/use prioritized experience replay/",
     ]
 
     render_titles = [
-        "M1 (use bird-eye view)",
-        "M2 (do not use mask)",
-        "M3 (do not observe vertices of surrounding agents)",
-        "M4 (do not observe distance to surrounding agents)",
-        "M5 (do not observe distance to boundaries)",
-        "M6 (do not observe distance to center line)",
-        "M7 (our)",
-        "M8 (vanilla)",
-        "M9 (use challenging initial state buffer)",
-        "M10 (use prioritized experience replay)",
+        # "M1 (use bird-eye view)",
+        # "M2 (do not use mask)",
+        # "M3 (do not observe vertices of surrounding agents)",
+        # "M4 (do not observe distance to surrounding agents)",
+        # "M5 (do not observe distance to boundaries)",
+        # "M6 (do not observe distance to center line)",
+        "M1 (our)",
+        "M2 (vanilla)",
+        "M3 (use challenging initial state buffer)",
+        "M4 (use prioritized experience replay)",
     ]
     
     video_save_paths = [
-        "M1 - use bird-eye view",
-        "M2 - do not use mask",
-        "M3 - do not observe vertices of surrounding agents",
-        "M4 - do not observe distance to surrounding agents",
-        "M5 - do not observe distance to boundaries",
-        "M6 - do not observe distance to center line",
-        "M7 - our",
-        "M8 - vanilla",
-        "M9 - use challenging initial state buffer",
-        "M10 - use prioritized experience replay",
+        # "M1 - use bird-eye view",
+        # "M2 - do not use mask",
+        # "M3 - do not observe vertices of surrounding agents",
+        # "M4 - do not observe distance to surrounding agents",
+        # "M5 - do not observe distance to boundaries",
+        # "M6 - do not observe distance to center line",
+        "M1 - our",
+        "M2 - vanilla",
+        "M3 - use challenging initial state buffer",
+        "M4 - use prioritized experience replay",
     ]
 
-    models_selected = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] # All
+    models_selected = [0, 1, 2, 3] # All
     # models_selected = [0, 1, 2, 3, 4, 5, 6] # Ablation studies
     # models_selected = [6, 7, 8, 9] # Comparisons with state of the arts
     
     # Define the directory path
-    where_to_save_eva_results = "checkpoints/eva"
+    where_to_save_eva_results = "outputs/v5/eva/"
 
     evaluator = Evaluation(model_paths, where_to_save_eva_results, models_selected, render_titles, video_save_paths)
     
     evaluator.run_evaluation()
     evaluator.plot()
+    

@@ -30,8 +30,7 @@ from utilities.helper_training import Parameters
 
 from utilities.helper_scenario import Distances, Normalizers, Observations, Penalties, ReferencePathsAgentRelated, ReferencePathsMapRelated, Rewards, Thresholds, Collisions, Timer, Constants, CircularBuffer, StateBuffer, InitialStateBuffer, Noise, Evaluation, exponential_decreasing_fcn, get_distances_between_agents, get_perpendicular_distances, get_rectangle_vertices, get_short_term_reference_path, interX, angle_eliminate_two_pi, transform_from_global_to_local_coordinate
 
-from utilities.parse_osm import ParseOSM
-from utilities.parse_xml import ParseXML
+from utilities.map_manager import MapManager
 
 ## Simulation parameters 
 n_agents = 8                    # The number of agents
@@ -115,7 +114,7 @@ n_stored_steps = 5      # The number of steps to store (include the current step
 n_observed_steps = 1    # The number of steps to observe (include the current step). At least one, and at most `n_stored_steps`
 
 # Training parameters
-scenario_type = "T_intersection_1"
+scenario_type = "intersection_1"  # One of {"CPM_entire", "CPM_mixed", "intersection_1", "design you own map and name it here"}
 
 buffer_size = 100               # Used only when `is_challenging_initial_state_buffer` is True
 n_steps_before_recording = 10   # The states of agents at time step `current_time_step - n_steps_before_recording` before collisions will be recorded and used later when resetting the envs
@@ -123,7 +122,7 @@ n_steps_stored = n_steps_before_recording # Store previous `n_steps_stored` step
 probability_record = 1.0            # Probability of recording a collision-event into the buffer
 probability_use_recording = 0.2     # Probability of using an recording when resetting an env
 
-scenario_probabilities = [1.0, 0.0, 0.0] # 1 for intersection, 2 for merge-in, 3 for merge-out scenario
+cpm_scenario_probabilities = [1.0, 0.0, 0.0] # 1 for intersection, 2 for merge-in, 3 for merge-out scenario
 
 is_ego_view = True                  # Global coordinate system (bird view) or local coordinate system (ego view)
 is_apply_mask = True
@@ -180,7 +179,7 @@ class ScenarioRoadTraffic(BaseScenario):
                 is_observe_distance_to_center_line=is_observe_distance_to_center_line,
                 
                 is_use_mtv_distance=is_use_mtv_distance,
-                scenario_probabilities=scenario_probabilities,
+                cpm_scenario_probabilities=cpm_scenario_probabilities,
                 is_add_noise=is_add_noise,
                 is_observe_ref_path_other_agents=is_observe_ref_path_other_agents,
                 is_visualize_extra_info=is_visualize_extra_info,
@@ -193,7 +192,7 @@ class ScenarioRoadTraffic(BaseScenario):
         print(colored(f"[INFO] Scenario type: {self.parameters.scenario_type}", "red"))
         # Parameter adjustment to meet simulation requirements
         if self.parameters.scenario_type in "CPM_mixed":
-            self.parameters.n_agents = 4
+            self.parameters.n_agents = 5
             print(colored(f"[INFO] Changed the number of agents to {self.parameters.n_agents}", "black"))
         if self.parameters.is_prb:
             print(colored("[INFO] Enable prioritized replay buffer", "red"))
@@ -223,65 +222,52 @@ class ScenarioRoadTraffic(BaseScenario):
         )
         
         # Get map data
-        if "CPM" in self.parameters.scenario_type:
-            # Load the map data of the CPM Lab
-            parser = ParseXML(
-                map_path="assets/maps/cpm_lab_map.xml",
-                device=device,
-            )
-        elif self.parameters.scenario_type == "T_intersection_1":
-            parser = ParseOSM(
-                map_path="assets/maps/T_intersection_1.osm",
-                width=0.17,  # [m]
-                scale=1e5,
-                device="cpu" if not torch.cuda.is_available() else "cuda:0",
-                reference_paths_ids=[[1], [2, 3], [2, 7], [4], [5, 6], [8, 6]],
-            )
-        else:
-            raise ValueError("Wrong scenario type. No map data found.")
-
-        self.lanelets_all = parser.lanelets_all
-
+        self.map = MapManager(
+            scenario_type = self.parameters.scenario_type, 
+            device = device,
+        )
+        
+        cprint("[INFO] Map parsed.", "blue")
         # Determine the maximum number of points on the reference path
         if "CPM_mixed" in self.parameters.scenario_type:
             # Mixed scenarios including intersection, merge in, and merge out
             max_ref_path_points = max([
-                ref_p["center_line"].shape[0] for ref_p in parser.reference_paths_intersection + parser.reference_paths_merge_in + parser.reference_paths_merge_out
+                ref_p["center_line"].shape[0] for ref_p in self.map.parser.reference_paths_intersection + self.map.parser.reference_paths_merge_in + self.map.parser.reference_paths_merge_out
             ]) + self.parameters.n_points_short_term * sample_interval_ref_path + 2 # Append a smaller buffer
         else:
             # Single scenario
             max_ref_path_points = max([
-                ref_p["center_line"].shape[0] for ref_p in parser.reference_paths
+                ref_p["center_line"].shape[0] for ref_p in self.map.parser.reference_paths
             ]) + self.parameters.n_points_short_term * sample_interval_ref_path + 2 # Append a smaller buffer
             
         # Get all reference paths
         self.ref_paths_map_related = ReferencePathsMapRelated(
-            long_term_all=parser.reference_paths,
-            long_term_intersection=parser.reference_paths_intersection,
-            long_term_merge_in=parser.reference_paths_merge_in,
-            long_term_merge_out=parser.reference_paths_merge_out,
-            point_extended_all=torch.zeros((len(parser.reference_paths), self.parameters.n_points_short_term * sample_interval_ref_path, 2), device=device, dtype=torch.float32), # Not interesting, may be useful in the future
-            point_extended_intersection=torch.zeros((len(parser.reference_paths_intersection), self.parameters.n_points_short_term * sample_interval_ref_path, 2), device=device, dtype=torch.float32),
-            point_extended_merge_in=torch.zeros((len(parser.reference_paths_merge_in), self.parameters.n_points_short_term * sample_interval_ref_path, 2), device=device, dtype=torch.float32),
-            point_extended_merge_out=torch.zeros((len(parser.reference_paths_merge_out), self.parameters.n_points_short_term * sample_interval_ref_path, 2), device=device, dtype=torch.float32),
+            long_term_all=self.map.parser.reference_paths,
+            long_term_intersection=self.map.parser.reference_paths_intersection,
+            long_term_merge_in=self.map.parser.reference_paths_merge_in,
+            long_term_merge_out=self.map.parser.reference_paths_merge_out,
+            point_extended_all=torch.zeros((len(self.map.parser.reference_paths), self.parameters.n_points_short_term * sample_interval_ref_path, 2), device=device, dtype=torch.float32), # Not interesting, may be useful in the future
+            point_extended_intersection=torch.zeros((len(self.map.parser.reference_paths_intersection), self.parameters.n_points_short_term * sample_interval_ref_path, 2), device=device, dtype=torch.float32),
+            point_extended_merge_in=torch.zeros((len(self.map.parser.reference_paths_merge_in), self.parameters.n_points_short_term * sample_interval_ref_path, 2), device=device, dtype=torch.float32),
+            point_extended_merge_out=torch.zeros((len(self.map.parser.reference_paths_merge_out), self.parameters.n_points_short_term * sample_interval_ref_path, 2), device=device, dtype=torch.float32),
             sample_interval=torch.tensor(sample_interval_ref_path, device=device, dtype=torch.int32),
         )
         
         # Extended the reference path by several points along the last vector of the center line 
         idx_broadcasting_entend = torch.arange(1, self.parameters.n_points_short_term * sample_interval_ref_path + 1, device=device, dtype=torch.int32).unsqueeze(1)
-        for idx, i_path in enumerate(parser.reference_paths):
+        for idx, i_path in enumerate(self.map.parser.reference_paths):
             center_line_i = i_path["center_line"]
             direction = center_line_i[-1] - center_line_i[-2]
             self.ref_paths_map_related.point_extended_all[idx, :] = center_line_i[-1] + idx_broadcasting_entend * direction
-        for idx, i_path in enumerate(parser.reference_paths_intersection):
+        for idx, i_path in enumerate(self.map.parser.reference_paths_intersection):
             center_line_i = i_path["center_line"]
             direction = center_line_i[-1] - center_line_i[-2]
             self.ref_paths_map_related.point_extended_intersection[idx, :] = center_line_i[-1] + idx_broadcasting_entend * direction            
-        for idx, i_path in enumerate(parser.reference_paths_merge_in):
+        for idx, i_path in enumerate(self.map.parser.reference_paths_merge_in):
             center_line_i = i_path["center_line"]
             direction = center_line_i[-1] - center_line_i[-2]
             self.ref_paths_map_related.point_extended_merge_in[idx, :] = center_line_i[-1] + idx_broadcasting_entend * direction
-        for idx, i_path in enumerate(parser.reference_paths_merge_out):
+        for idx, i_path in enumerate(self.map.parser.reference_paths_merge_out):
             center_line_i = i_path["center_line"]
             direction = center_line_i[-1] - center_line_i[-2]
             self.ref_paths_map_related.point_extended_merge_out[idx, :] = center_line_i[-1] + idx_broadcasting_entend * direction
@@ -324,7 +310,6 @@ class ScenarioRoadTraffic(BaseScenario):
 
         self.penalties = Penalties(
             deviate_from_ref_path=torch.tensor(penalty_deviate_from_ref_path, device=device, dtype=torch.float32),
-            weighting_deviate_from_ref_path=width,  # Agent width
             near_boundary=torch.tensor(penalty_near_boundary, device=device, dtype=torch.float32),
             near_other_agents=torch.tensor(penalty_near_other_agents, device=device, dtype=torch.float32),
             collide_with_agents=torch.tensor(penalty_collide_with_agents, device=device, dtype=torch.float32),
@@ -520,7 +505,7 @@ class ScenarioRoadTraffic(BaseScenario):
                     scenario_id = self.ref_paths_agent_related.scenario_id[env_i, agent_index] # Keep the same scenario
                 else:
                     scenario_id = torch.multinomial(
-                        torch.tensor(self.parameters.scenario_probabilities, device=self.world.device, dtype=torch.float32), 
+                        torch.tensor(self.parameters.cpm_scenario_probabilities, device=self.world.device, dtype=torch.float32), 
                         1, 
                         replacement=True
                     ).item() + 1 # A random interger {1, 2, 3}
@@ -552,9 +537,11 @@ class ScenarioRoadTraffic(BaseScenario):
                 self.ref_paths_agent_related.path_id[env_i] = initial_state[:, self.initial_state_buffer.idx_path] # Update
                 self.ref_paths_agent_related.point_id[env_i] = initial_state[:, self.initial_state_buffer.idx_point] # Update
                 # print(colored(f"[LOG] Reset with path ids: {initial_state[:, -2]}", "red"))
+            else:
+                is_use_state_buffer = False
                 
             for i_agent in range(self.n_agents) if not is_reset_single_agent else agent_index.unsqueeze(0):
-                if self.parameters.is_challenging_initial_state_buffer:
+                if is_use_state_buffer:
                     path_id = initial_state[i_agent, self.initial_state_buffer.idx_path].int()
                     ref_path = ref_paths_scenario[path_id]
                 
@@ -567,18 +554,25 @@ class ScenarioRoadTraffic(BaseScenario):
                     random_count = 0
                     # Ramdomly generate initial states for each agent
                     while not is_feasible_initial_position_found:
-                        # if random_count >= 4:
-                        #     print(f"Reset agent(s): random_count = {random_count}.")
-                        # random_count += 1
+                        if random_count >= 10:
+                            cprint(f"Reset agent(s): random_count = {random_count}.", "grey")
+                        random_count += 1
                         path_id = torch.randint(0, len(ref_paths_scenario), (1,)).item() # Select randomly a path
                         self.ref_paths_agent_related.path_id[env_i, i_agent] = path_id # Update
                         ref_path = ref_paths_scenario[path_id]
                         
                         num_points = ref_path["center_line"].shape[0]
-                        if (self.parameters.scenario_probabilities[1] == 0) & (self.parameters.scenario_probabilities[2] == 0): # Train only in intersection scenario
-                            random_point_id = torch.randint(6, int(num_points/2), (1,)).item()
+                        
+                        if self.parameters.scenario_type == "CPM_mixed":
+                            # In the mixed scenarios of the CPM case, we aovid using the beginning part of a path, making agents encounter each other more frequently. Additionally, We avoid initializing agents to be at a very end of a path.
+                            start_point_idx = 6
+                            end_point_idx = int(num_points / 2)
                         else:
-                            random_point_id = torch.randint(3, num_points-5, (1,)).item()
+                            start_point_idx = 3  # Do not set to an overly small value to make sure agents are fully inside its lane 
+                            end_point_idx = num_points - 3
+                            
+                        random_point_id = torch.randint(start_point_idx, end_point_idx, (1,)).item()
+                        
                         self.ref_paths_agent_related.point_id[env_i, i_agent] = random_point_id # Update
                         position_start = ref_path["center_line"][random_point_id]
                         agents[i_agent].set_pos(position_start, batch_index=env_i)
@@ -939,7 +933,7 @@ class ScenarioRoadTraffic(BaseScenario):
         ##################################################
         ## [penalty] deviating from reference path
         ##################################################
-        self.rew += self.distances.ref_paths[:, agent_index] / self.penalties.weighting_deviate_from_ref_path * self.penalties.deviate_from_ref_path
+        self.rew += self.distances.ref_paths[:, agent_index] / self.thresholds.deviate_from_ref_path * self.penalties.deviate_from_ref_path
 
         ##################################################
         ## [penalty] changing steering too quick
@@ -1146,6 +1140,10 @@ class ScenarioRoadTraffic(BaseScenario):
             else:
                 self.observations.past_action_vel.add(torch.stack([a.action.u[:, 0] for a in self.world.agents], dim=1) / self.normalizers.action_vel)
                 self.observations.past_action_steering.add(torch.stack([a.action.u[:, 1] for a in self.world.agents], dim=1) / self.normalizers.action_steering)
+                
+            if self.parameters.is_apply_mask:
+                # Determine the current lanelet IDs of all agents of all envs for later use 
+                self.map.determine_current_lanelet(positions_global)
 
         ##################################################
         ## Observation of other agents
@@ -1155,11 +1153,22 @@ class ScenarioRoadTraffic(BaseScenario):
             nearing_agents_distances, nearing_agents_indices = torch.topk(self.distances.agents[:, agent_index], k=self.observations.n_nearing_agents, largest=False)
 
             if self.parameters.is_apply_mask:
-                # Nearing agents that are distant will be masked
-                mask_nearing_agents_too_far = (nearing_agents_distances >= self.thresholds.distance_mask_agents)
+                # Two kinds of agents will be masked by ego agents:
+                # 1. By distance: agents that are distant to the ego agents
+                # 2. By lanelet relation: agents whose lanelets are not the neighboring lanelets or the same lanelets of the ego agents
+                masked_agents_by_distance = (nearing_agents_distances >= self.thresholds.distance_mask_agents)
+                # print(f"masked_agents_by_distance = {masked_agents_by_distance}")
+                if len(self.map.parser.neighboring_lanelets_idx) != 0:
+                    # Mask agents by lanelets
+                    masked_agents_by_lanelets = self.map.determine_masked_agents_by_lanelets(agent_index, nearing_agents_indices)
+                else:
+                    masked_agents_by_lanelets = torch.zeros((self.world.batch_dim, self.parameters.n_nearing_agents_observed), device=self.world.device, dtype=torch.bool)
+                    
+                masked_agents = masked_agents_by_distance | masked_agents_by_lanelets               
+                    
             else:
                 # Otherwise no agents will be masked
-                mask_nearing_agents_too_far = torch.zeros((self.world.batch_dim, self.parameters.n_nearing_agents_observed), device=self.world.device, dtype=torch.bool)
+                masked_agents = torch.zeros((self.world.batch_dim, self.parameters.n_nearing_agents_observed), device=self.world.device, dtype=torch.bool)
             
             indexing_tuple_1 = (self.constants.env_idx_broadcasting,) + \
                             ((agent_index,) if self.parameters.is_ego_view else ()) + \
@@ -1167,27 +1176,27 @@ class ScenarioRoadTraffic(BaseScenario):
             
             # Positions of nearing agents
             obs_pos_other_agents = self.observations.past_pos.get_latest()[indexing_tuple_1] # [batch_size, n_nearing_agents, 2]
-            obs_pos_other_agents[mask_nearing_agents_too_far] = self.constants.mask_one # Position mask
+            obs_pos_other_agents[masked_agents] = self.constants.mask_one # Position mask
 
             # Rotations of nearing agents
             obs_rot_other_agents = self.observations.past_rot.get_latest()[indexing_tuple_1] # [batch_size, n_nearing_agents]
-            obs_rot_other_agents[mask_nearing_agents_too_far] = self.constants.mask_zero # Rotation mask
+            obs_rot_other_agents[masked_agents] = self.constants.mask_zero # Rotation mask
 
             # Velocities of nearing agents
             obs_vel_other_agents = self.observations.past_vel.get_latest()[indexing_tuple_1] # [batch_size, n_nearing_agents]
-            obs_vel_other_agents[mask_nearing_agents_too_far] = self.constants.mask_zero # Velocity mask
+            obs_vel_other_agents[masked_agents] = self.constants.mask_zero # Velocity mask
             
             # Reference paths of nearing agents
             obs_ref_path_other_agents = self.observations.past_short_term_ref_points.get_latest()[indexing_tuple_1] # [batch_size, n_nearing_agents, n_points_short_term, 2]
-            obs_ref_path_other_agents[mask_nearing_agents_too_far] = self.constants.mask_one # Reference-path mask
+            obs_ref_path_other_agents[masked_agents] = self.constants.mask_one # Reference-path mask
 
             # vertices of nearing agents
             obs_vertices_other_agents = self.observations.past_vertices.get_latest()[indexing_tuple_1] # [batch_size, n_nearing_agents, 4, 2]
-            obs_vertices_other_agents[mask_nearing_agents_too_far] = self.constants.mask_one # Reference-path mask
+            obs_vertices_other_agents[masked_agents] = self.constants.mask_one # Reference-path mask
             
             # Distances to nearing agents
             obs_distance_other_agents = self.observations.past_distance_to_agents.get_latest()[self.constants.env_idx_broadcasting, agent_index, nearing_agents_indices] # [batch_size, n_nearing_agents]
-            obs_distance_other_agents[mask_nearing_agents_too_far] = self.constants.mask_one # Distance mask
+            obs_distance_other_agents[masked_agents] = self.constants.mask_one # Distance mask
 
         else:
             obs_pos_other_agents = self.observations.past_pos.get_latest()[:, agent_index] # [batch_size, n_agents, 2]
@@ -1375,8 +1384,8 @@ class ScenarioRoadTraffic(BaseScenario):
         geoms = []
         
         # Visualize all lanelets
-        for i in range(len(self.lanelets_all)):
-            lanelet = self.lanelets_all[i]
+        for i in range(len(self.map.parser.lanelets_all)):
+            lanelet = self.map.parser.lanelets_all[i]
             
             geom = rendering.PolyLine(
                 v = lanelet["left_boundary"],

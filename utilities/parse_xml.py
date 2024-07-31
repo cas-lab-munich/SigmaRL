@@ -17,8 +17,8 @@ from utilities.colors import Color
 
 
 class ParseXML(ParseMapBase):
-    def __init__(self, map_path, device="cpu", **kwargs):
-        super().__init__(map_path, device, **kwargs)  # Initialize base class
+    def __init__(self, scenario_type, device="cpu", **kwargs):
+        super().__init__(scenario_type, device, **kwargs)  # Initialize base class
         
         # Define reference paths
         self._reference_paths_ids = [
@@ -185,7 +185,7 @@ class ParseXML(ParseMapBase):
         # Save fig
         if self._is_save_fig:
             plt.tight_layout() # Set the layout to be tight to minimize white space
-            plt.savefig(self._file_name + ".pdf", format="pdf", bbox_inches="tight")
+            plt.savefig(self._scenario_type + ".pdf", format="pdf", bbox_inches="tight")
             
         if self._is_plt_show:
             plt.show()
@@ -340,7 +340,7 @@ class ParseXML(ParseMapBase):
             plt.show()
             
         reference_path = {   
-            "reference_lanelets": reference_lanelets_index,
+            "lanelet_IDs": reference_lanelets_index,
             "left_boundary": left_boundaries,
             "right_boundary": right_boundaries,
             "left_boundary_shared": left_boundaries_shared,
@@ -382,7 +382,7 @@ class ParseXML(ParseMapBase):
 
 if __name__ == "__main__":
     parser = ParseXML(
-        map_path="assets/maps/cpm_lab_map.xml",
+        map_path="assets/maps/cpm.xml",
         device="cpu" if not torch.cuda.is_available() else "cuda:0",
     )
     

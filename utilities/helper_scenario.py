@@ -29,10 +29,9 @@ class Rewards:
 
 
 class Penalties:
-    def __init__(self, deviate_from_ref_path = None, deviate_from_goal = None, weighting_deviate_from_ref_path = None, near_boundary = None, near_other_agents = None, collide_with_agents = None, collide_with_boundaries = None, collide_with_obstacles = None, leave_world = None, time = None, change_steering = None):
+    def __init__(self, deviate_from_ref_path = None, deviate_from_goal = None, near_boundary = None, near_other_agents = None, collide_with_agents = None, collide_with_boundaries = None, collide_with_obstacles = None, leave_world = None, time = None, change_steering = None):
         self.deviate_from_ref_path = deviate_from_ref_path  # Penalty for deviating from reference path
         self.deviate_from_goal = deviate_from_goal          # Penalty for deviating from goal position 
-        self.weighting_deviate_from_ref_path = weighting_deviate_from_ref_path
         self.near_boundary = near_boundary                  # Penalty for being too close to lanelet boundaries
         self.near_other_agents = near_other_agents          # Penalty for being too close to other agents
         self.collide_with_agents = collide_with_agents      # Penalty for colliding with other agents

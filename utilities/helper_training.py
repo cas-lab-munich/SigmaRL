@@ -265,10 +265,10 @@ class Parameters():
                 max_steps: int = 2**7,          # Episode steps before done
                 total_frames: int = None,       # Total frame for one training, equals `frames_per_batch * n_iters`
                 num_vmas_envs: int = None,      # Number of vectorized environments
-                scenario_type: str = "T_intersection_1",  # One of {"CPM_entire", "CPM_mixed", "T_intersection_1", "design you own map and name it here"}
+                scenario_type: str = "intersection_1",  # One of {"CPM_entire", "CPM_mixed", "intersection_1", "design you own map and name it here"}
                                                      # "CPM_entire": Entire map of the CPM Lab
-                                                     # "CPM_mixed": Intersection, merge-in, and merge-out of the CPM Lab. Probability defined in `scenario_probabilities`
-                                                     # "T_intersection_1": T-Intersection with ID 1
+                                                     # "CPM_mixed": Intersection, merge-in, and merge-out of the CPM Lab. Probability defined in `cpm_scenario_probabilities`
+                                                     # "intersection_1": T-Intersection with ID 1
                                                      # "design you own map and name it here"
                                             
                 episode_reward_mean_current: float = 0.00,  # Achieved mean episode reward (total/n_agents)
@@ -277,7 +277,7 @@ class Parameters():
                 is_prb: bool = False,       # Whether to enable prioritized replay buffer
                 is_challenging_initial_state_buffer = False,  # Whether to enable challenging initial state buffer
                 
-                scenario_probabilities = [1.0, 0.0, 0.0], # Probabilities of training agents in intersection, merge-in, or merge-out scenario
+                cpm_scenario_probabilities = [1.0, 0.0, 0.0], # Probabilities of training agents in intersection, merge-in, or merge-out scenario
                 
                 # Observation
                 n_points_short_term: int = 3,            # Number of points that build a short-term reference path
@@ -387,7 +387,7 @@ class Parameters():
         self.is_prb = is_prb
         self.is_challenging_initial_state_buffer = is_challenging_initial_state_buffer
         
-        self.scenario_probabilities = scenario_probabilities
+        self.cpm_scenario_probabilities = cpm_scenario_probabilities
         
         if (mode_name is None) and (scenario_name is not None):
             self.mode_name = get_model_name(self)
@@ -507,18 +507,27 @@ def compute_td_error(tensordict_data: TensorDict, gamma = 0.9):
     current_state_values = tensordict_data["agents"]["state_value"]
     next_rewards = tensordict_data.get(("next", "agents", "reward"))
     next_state_values = tensordict_data.get(("next", "agents", "state_value"))
-    td_error = next_rewards + gamma * next_state_values - current_state_values # See Eq. (2) of Section B EXPERIMENTAL DETAILS of paper https://doi.org/10.48550/arXiv.1511.05952
+    done = tensordict_data.get(("next", "agents", "done"))
+    
+    # To mask out terminal states since TD error for terminal states should only consider the immediate reward without any future value
+    not_done = ~done
+    
+    # See Eq. (2) of Section B EXPERIMENTAL DETAILS of paper https://doi.org/10.48550/arXiv.1511.05952
+    td_error = next_rewards + gamma * next_state_values * not_done - current_state_values
+
     td_error = td_error.abs() # Magnitude is more interesting than the actual TD error
     
     td_error_average_over_agents = td_error.mean(dim=-2) # Cooperative agents
     
-    # Normalize TD error to [-1, 1] (priorities must be positive)
+    # Normalize TD error to [0, 1] (priorities must be positive)
     td_min = td_error_average_over_agents.min()
     td_max = td_error_average_over_agents.max()
     td_error_range = td_max - td_min
     td_error_range = max(td_error_range, 1e-3) # For numerical stability
     
-    td_error_average_over_agents = (td_error_average_over_agents - td_min) / td_error_range
-    td_error_average_over_agents = torch.clamp(td_error_average_over_agents, 1e-3, 1) # For numerical stability
+    target_range = 10
+    
+    td_error_average_over_agents = (td_error_average_over_agents - td_min) / td_error_range * target_range
+    td_error_average_over_agents = torch.clamp(td_error_average_over_agents, 1e-3, target_range) # For numerical stability
     
     return td_error_average_over_agents

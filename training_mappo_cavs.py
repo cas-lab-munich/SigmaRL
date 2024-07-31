@@ -198,7 +198,7 @@ def mappo_cavs(parameters: Parameters):
     if parameters.is_prb:
         replay_buffer = TensorDictPrioritizedReplayBuffer(
             alpha=0.7,
-            beta=1.1,
+            beta=0.6,
             storage=LazyTensorStorage(
                 parameters.frames_per_batch, device=parameters.device
             ),
@@ -242,6 +242,7 @@ def mappo_cavs(parameters: Parameters):
 
     episode_reward_mean_list = []
 
+    t_start = time.time()
     for tensordict_data in collector:
         tensordict_data.set(
             ("next", "agents", "done"),
@@ -362,6 +363,9 @@ def mappo_cavs(parameters: Parameters):
     print(colored("[INFO] All files have been saved under:", "black"), colored(f"{parameters.where_to_save}", "red"))
     # plt.show()
     
+    training_duration = (time.time() - t_start) / 3600  # seconds to hours
+    print(colored(f"[INFO] Training duration: {training_duration:.2f} hours.", "blue"))
+    
     return env, policy, parameters
 
 if __name__ == "__main__":
@@ -389,10 +393,10 @@ if __name__ == "__main__":
         lmbda=0.9,              # lambda for generalised advantage estimation,
         entropy_eps=1e-4,       # Coefficient of the entropy term in the PPO loss,
         max_steps=2**7,         # Episode steps before done
-        scenario_type='T_intersection_1',  # One of {"CPM_entire", "CPM_mixed", "T_intersection_1", "design you own map and name it here"}
+        scenario_type='CPM_mixed',  # One of {"CPM_entire", "CPM_mixed", "intersection_1", "design you own map and name it here"}
                                             # "CPM_entire": Entire map of the CPM Lab
-                                            # "CPM_mixed": Intersection, merge-in, and merge-out of the CPM Lab. Probability defined in `scenario_probabilities`
-                                            # "T_intersection_1": T-Intersection with ID 1
+                                            # "CPM_mixed": Intersection, merge-in, and merge-out of the CPM Lab. Probability defined in `cpm_scenario_probabilities`
+                                            # "intersection_1": T-Intersection with ID 1
                                             # "design you own map and name it here"
         is_save_intermediate_model=True, # Is this is true, the model with the highest mean episode reward will be saved,
         
@@ -404,7 +408,7 @@ if __name__ == "__main__":
         mode_name=None, 
         episode_reward_intermediate=-1e3, # The initial value should be samll enough
         
-        where_to_save=f"outputs/{scenario_name}_ppo/test/", # folder where to save the trained models, fig, data, etc.
+        where_to_save="outputs/v2/test/", # folder where to save the trained models, fig, data, etc.
 
         # Scenario parameters
         is_partial_observation=True,
@@ -417,13 +421,13 @@ if __name__ == "__main__":
         is_save_eval_results=True,
         
         is_prb=False,       # Whether to enable prioritized replay buffer
-        scenario_probabilities=[1.0, 0.0, 0.0],
+        cpm_scenario_probabilities=[1.0, 0.0, 0.0],
         
         is_use_mtv_distance=False,
 
         # Ablation studies
         is_ego_view=True,                   # Eago view or bird view
-        is_apply_mask=True,                 # Whether to mask distant agents
+        is_apply_mask=False,                 # Whether to mask distant agents
         is_observe_distance_to_agents=True,      
         is_observe_vertices=True,
         is_observe_distance_to_boundaries=True,  
@@ -432,19 +436,5 @@ if __name__ == "__main__":
         is_add_noise=True,
         is_observe_ref_path_other_agents=False,
     )
-    
-    parameters.is_prb = False
-    
-    parameters.is_challenging_initial_state_buffer = False
         
     env, policy, parameters = mappo_cavs(parameters=parameters)
-
-    # Evaluate the model
-    # with torch.no_grad():
-    #     out_td = env.rollout(
-    #         max_steps=parameters.max_steps,
-    #         policy=policy,
-    #         callback=lambda env, _: env.render(),
-    #         auto_cast_to_device=True,
-    #         break_when_any_done=False,
-    #     )

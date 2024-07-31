@@ -20,32 +20,24 @@ from utilities.colors import Color # Do not remove (https://github.com/garrettj4
 # print(plt.style.available) # List all available style
 
 class ParseMapBase(ABC):
-    """Base class for map parse.
-
-    This is the class that map parse inherit from.
-
-    The methods that are **compulsory to instantiate** are:
-
-    - :class:`_parse_xml`
-    - :class:`reset_world_at`
-    - :class:`observation`
-    - :class:`reward`
-
-    The methods that are **optional to instantiate** are:
-
-    - :class:`info`
-    - :class:`extra_render`
-    - :class:`process_action`
-
     """
-    def __init__(self, map_path, device, **kwargs):
-        self._map_path = map_path  # Path to the map data
+    Base class for map parse.
+    """
+    def __init__(self, scenario_type, device, **kwargs):
+        self._scenario_type = scenario_type  # Path to the map data
         self._device = device  # Torch device
+        
+        self._get_map_path()
         
         self._is_visualize_map = kwargs.pop("is_visualize_map", False)
         self._is_save_fig = kwargs.pop("is_save_fig", False)
         self._is_plt_show = kwargs.pop("is_plt_show", False)
+        self._is_visu_lane_ids = kwargs.pop("is_visu_lane_ids", False)
         
+        self._width = kwargs.pop("width", [])  # Width of the lane
+        self._scale = kwargs.pop("scale", [])  # Scale of the map
+        self._is_share_lanelets = kwargs.pop("is_share_lanelets", False)  # Whether agents can move to nearing lanelets
+
         self.bounds = {
             "min_x": float("inf"),
             "min_y": float("inf"),
@@ -53,26 +45,32 @@ class ParseMapBase(ABC):
             "max_y": float("-inf"),
         }  # Bounds of the map
         
-        self._reference_paths_ids = []  # A list of lists. Each sub-list stores the IDs of lanelets building a reference path
-        
         self.lanelets_all = []  # A list of dict. Each dict stores relevant data of a lane such as its center line, left boundary, and right boundary
+        self.neighboring_lanelets_idx = []  # Neighboring lanelets of each lanelet
         
         self.reference_paths = []
         self.reference_paths_intersection = []
         self.reference_paths_merge_in = []
         self.reference_paths_merge_out = []
-        
-        self._is_visualize_map = False
-        self._is_save_fig = False
-        self._is_plt_show = False
 
         self._linewidth = 0.5
         self._fontsize = 12
         
-        # Extract file name
-        file_name_with_extension = os.path.basename(map_path)
-        self._file_name, file_extension = os.path.splitext(file_name_with_extension)
-    
+        # Use the same name for data to be stored as the scenario type
+        self._scenario_type = self._scenario_type
+        
+    def _get_map_path(self):
+        # Get the path to the corresponding map for the given scenario type
+        # The most easy way to get the path of the target scenario type is to name the map file with `scenario_type` and store it at assets/maps/
+        map_path_tentative_osm = f"assets/maps/{self._scenario_type}.osm"
+        
+        if ("cpm" in self._scenario_type) or ("CPM" in self._scenario_type):
+            self._map_path = "assets/maps/cpm.xml"
+        elif os.path.exists(map_path_tentative_osm):
+            self._map_path = map_path_tentative_osm
+        else:
+            raise ValueError(f"No map file can be found for {self._scenario_type}. The map file must have the same name as the scenario type and stored at 'assets/maps/'")
+        
     staticmethod
     def get_center_length_yaw_polyline(polyline: torch.Tensor):
         """

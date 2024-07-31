@@ -49,7 +49,7 @@
         "is_visualize_extra_info": true,
         "render_title": "",
         "is_prb": false,
-        "scenario_probabilities": [
+        "cpm_scenario_probabilities": [
             1.0,
             0.0,
             0.0
