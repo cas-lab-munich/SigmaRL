@@ -44,37 +44,44 @@ class Evaluation:
     """
     A class for handling the evaluation of simulation outputs.
     """
-    def __init__(self, model_paths, where_to_save_eva_results, models_selected = None, render_titles = None, video_save_paths = None):
+    def __init__(self, scenario_type, model_paths, where_to_save_eva_results, **kwargs):
         """
         Initializes the Evaluation object with model paths and titles for rendering.
 
         Args:
         model_paths (list): List of paths to the model directories.
+        where_to_save_eva_results (str): Where to save evaluation results.
         render_titles (list): Titles for rendering the plots.
+        video_names (list): Video names.
         """
-        self.model_paths = model_paths
+        self.scenario_type = scenario_type
+        
+        self.model_i_paths = model_paths
         
         self.where_to_save_eva_results = where_to_save_eva_results
         
-        self.models_selected = models_selected
+        self.models_selected = kwargs.pop("models_selected", None)
+        if (self.models_selected is None) or (self.models_selected == []):
+            # If not specified, select all
+            self.models_selected = list(range(len(model_paths)))
+            
+        self.render_titles = kwargs.pop("render_titles", None)
+        self.num_simulations_per_model = kwargs.pop("num_simulations_per_model", 32)
+        self.num_agents = kwargs.pop("num_agents", 15)
+        self.simulation_steps = kwargs.pop("simulation_steps", 15)
+        
+        self.is_save_simulation_video = kwargs.pop("is_save_simulation_video", False)
+        self.video_names = kwargs.pop("video_names", None)
+        self.is_render_video = kwargs.pop("is_render_video", False)
+        
         self.num_models_selected = len(self.models_selected)
         
         self.idx_our = next((i for i, path in enumerate(model_paths) if "our" in path), -1) # Index of our model
         print(f"Index of our model: {self.idx_our}")
-
-        self.render_titles = render_titles
-        self.video_save_paths = video_save_paths
         
         self.parameters = None  # This will be set when loading model parameters
 
         self.saved_data = None
-
-        self.velocity_average = None
-        self.collision_rate_with_agents = None
-        self.collision_rate_with_lanelets = None
-        self.distance_ref_average = None
-        self.episode_reward = None
-        
         
         num_models = len(model_paths)
 
@@ -87,15 +94,12 @@ class Evaluation:
         self.labels_with_numbers = [self.labels_short[idx] + " (" + l + ")" for idx, l in enumerate(self.labels)]
         self.labels_with_numbers[idx_our_model] = self.labels_with_numbers[idx_our_model][0:8]        
 
-    def load(self, model_path):
+    def _load_parameters(self):
         """
         Loads parameters from a JSON file located in the model path.
-
-        Args:
-            model_path (str): Path to the model directory.
         """
         try:
-            path_to_json_file = next(os.path.join(model_path, file) for file in os.listdir(model_path) if file.endswith('.json')) # Find the first json file in the folder
+            path_to_json_file = next(os.path.join(self.model_i_path, file) for file in os.listdir(self.model_i_path) if file.endswith('.json')) # Find the first json file in the folder
             # Load parameters from the saved json file
             with open(path_to_json_file, 'r') as file:
                 data = json.load(file)
@@ -104,12 +108,44 @@ class Evaluation:
         except StopIteration:
             raise FileNotFoundError("No json file found.")
         
+    def _adjust_parameters(self):
+        # Adjust parameters
+        self.parameters.scenario_type = self.scenario_type
+        self.parameters.is_testing_mode = True
+        self.parameters.is_real_time_rendering = False
+        self.parameters.is_save_eval_results = True
+        self.parameters.is_load_model = True
+        self.parameters.is_load_final_model = False
+        self.parameters.is_load_out_td  = True
+        self.parameters.n_agents = self.num_agents
+        self.parameters.max_steps = self.simulation_steps
+        
+        self.parameters.is_save_simulation_video = self.is_save_simulation_video
+        
+        if self.parameters.is_save_simulation_video:
+            # Only one env is needed if video should be exported
+            self.parameters.num_vmas_envs = 1
+            self.parameters.is_load_out_td = False
+        else:
+            # Otherwise run multiple parallel envs and average the evaluation results
+            self.parameters.num_vmas_envs = self.num_simulations_per_model
+        self.parameters.frames_per_batch = self.parameters.max_steps * self.parameters.num_vmas_envs
+        
+        # The two parameters below are only used in training. Set them to False so that they do not effect testing
+        self.parameters.is_prb = False
+        self.parameters.is_challenging_initial_state_buffer = False
+        
+        self.parameters.is_visualize_short_term_path = False
+        self.parameters.is_visualize_lane_boundary = False
+        self.parameters.is_visualize_extra_info = False
+        self.parameters.render_title = self.render_titles[self.model_i]
 
-    def evaluate_outputs(self, model_path, i_model_selected, i_model):
+
+    def _evaluate_model_i(self):
         """
-        Evaluate the outputs for the given TensorDict.
+        Evaluate a model.
         """
-        out_td = self.get_simulation_outputs(model_path, i_model)
+        out_td = self._get_simulation_outputs()
         
         positions = out_td["agents","info","pos"]
         velocities = out_td["agents","info","vel"]
@@ -121,16 +157,16 @@ class Evaluation:
         
         num_steps = positions.shape[1]
 
-        self.velocity_average[i_model_selected, :] = velocities.norm(dim=-1).mean(dim=(-2, -1))
-        self.collision_rate_with_agents[i_model_selected, :] = is_collision_with_agents.squeeze(-1).any(dim=-1).sum(dim=-1) / num_steps
-        self.collision_rate_with_lanelets[i_model_selected, :] = is_collision_with_lanelets.squeeze(-1).any(dim=-1).sum(dim=-1) / num_steps
-        self.distance_ref_average[i_model_selected, :] = distance_ref.squeeze(-1).mean(dim=(-2, -1))
+        self.velocity_average[self.model_idx, :] = velocities.norm(dim=-1).mean(dim=(-2, -1))
+        self.collision_rate_with_agents[self.model_idx, :] = is_collision_with_agents.squeeze(-1).any(dim=-1).sum(dim=-1) / num_steps
+        self.collision_rate_with_lanelets[self.model_idx, :] = is_collision_with_lanelets.squeeze(-1).any(dim=-1).sum(dim=-1) / num_steps
+        self.distance_ref_average[self.model_idx, :] = distance_ref.squeeze(-1).mean(dim=(-2, -1))
         
-    def get_simulation_outputs(self, model_path: str, i_model):
+    def _get_simulation_outputs(self):
         # Load the model with the highest reward
-        self.parameters.episode_reward_mean_current = find_the_highest_reward_among_all_models(model_path)
-        self.parameters.mode_name = get_model_name(parameters=self.parameters)
-        path_eval_out_td = self.parameters.where_to_save + self.parameters.mode_name + "_out_td.pth"
+        self.parameters.episode_reward_mean_current = find_the_highest_reward_among_all_models(self.model_i_path)
+        self.parameters.model_name = get_model_name(parameters=self.parameters)
+        path_eval_out_td = self.parameters.where_to_save + self.parameters.model_name + "_out_td.pth"
         # Load simulation outputs if exist; otherwise run simulation
         if os.path.exists(path_eval_out_td) & (not self.parameters.is_save_simulation_video):
             print(colored("[INFO] Simulation outputs exist and will be loaded.", "grey"))
@@ -144,19 +180,19 @@ class Evaluation:
                     out_td, frame_list = env.rollout(
                         max_steps=self.parameters.max_steps-1,
                         policy=policy,
-                        callback=lambda env, _: env.render(mode="rgb_array", visualize_when_rgb=False), # mode \in {"human", "rgb_array"}
+                        callback=lambda env, _: env.render(mode="human", visualize_when_rgb=False), # mode \in {"human", "rgb_array"}
                         auto_cast_to_device=True,
                         break_when_any_done=False,
                         is_save_simulation_video=self.parameters.is_save_simulation_video,
                     )
                     sim_end = time.time() - sim_begin
-                    save_video(f"{model_path}{self.video_save_paths[i_model]}", frame_list, fps=1 / self.parameters.dt)
-                    print(colored(f"[INFO] Video saved under ", "grey"), colored(f"{model_path}.", "blue"))
+                    save_video(f"{self.model_i_path}{self.video_names[self.model_i]}", frame_list, fps=1 / self.parameters.dt)
+                    print(colored(f"[INFO] Video saved under ", "grey"), colored(f"{self.model_i_path}.", "blue"))
                 else:
                     out_td = env.rollout(
                         max_steps=self.parameters.max_steps-1,
                         policy=policy,
-                        callback=(lambda env, _: env.render(mode="human")) if self.parameters.num_vmas_envs == 1 else None, # mode \in {"human", "rgb_array"}
+                        callback=(lambda env, _: env.render(mode="human")) if self.parameters.num_vmas_envs == 1 else None, # mode should be one of {"human", "rgb_array"}
                         auto_cast_to_device=True,
                         break_when_any_done=False,
                         is_save_simulation_video=False,
@@ -293,7 +329,7 @@ class Evaluation:
                 
                 # Smoothed data
                 smoothed_reward = self.smooth_data(data_np[i, :])
-                plt.plot(smoothed_reward, label=self.render_titles[models_selected[i]], color=colors[i], linestyle="-", linewidth=0.7)
+                plt.plot(smoothed_reward, label=self.render_titles[self.models_selected[i]], color=colors[i], linestyle="-", linewidth=0.7)
 
             plt.xlim([0, data_np.shape[1]])
             plt.xlabel('Episode')
@@ -346,7 +382,7 @@ class Evaluation:
 
             # Setting ticks and labels
             ax.set_xticks(positions)
-            ax.set_xticklabels(itemgetter(*models_selected)(self.labels_short), rotation=45, ha="right", fontsize='small')
+            ax.set_xticklabels(itemgetter(*self.models_selected)(self.labels_short), rotation=45, ha="right", fontsize='small')
             ax.set_ylabel(r'Collision rate [$\%$]')
             ax.set_ylim([0, 2.0]) # [%]
             ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f')) # Set y-axis tick labels to have two digits after the comma
@@ -391,7 +427,7 @@ class Evaluation:
             
             ax.violinplot(dataset = data_np.T, showmeans=False, showmedians=True)
             ax.set_xticks(np.arange(1,num_models_selected + 1))
-            ax.set_xticklabels(itemgetter(*models_selected)(self.labels_short), rotation=45, ha="right", fontsize='small')
+            ax.set_xticklabels(itemgetter(*self.models_selected)(self.labels_short), rotation=45, ha="right", fontsize='small')
             ax.set_ylabel(r'Center line deviation [m]')
             ax.set_ylim([0.04, 0.1]) # [m]
             ax.xaxis.set_minor_locator(ticker.NullLocator()) # Make minor x-ticks invisible
@@ -427,7 +463,7 @@ class Evaluation:
             
             ax.violinplot(dataset = data_np.T, showmeans=False, showmedians=True)
             ax.set_xticks(np.arange(1, num_models_selected + 1))
-            ax.set_xticklabels(itemgetter(*models_selected)(self.labels_short), rotation=45, ha="right", fontsize='small')
+            ax.set_xticklabels(itemgetter(*self.models_selected)(self.labels_short), rotation=45, ha="right", fontsize='small')
             ax.set_ylabel(r'Speed [m/s]')
             ax.set_ylim([0.6, 0.8]) # [m/s]
             ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f')) # Set y-axis tick labels to have two digits after the comma
@@ -449,72 +485,45 @@ class Evaluation:
                 print(colored(f"[INFO] A fig has been saved under", "black"), colored(f"{path_save_eval_fig}", "cyan"))
             # plt.show()
 
+    def _init_eva_matrices(self):
+        """
+        Initialize evaluation matrices.
+        """
+        self.velocity_average = torch.zeros((self.num_models_selected, self.parameters.num_vmas_envs), device=self.parameters.device, dtype=torch.float32)
+        # collision_rate_sum = torch.zeros((num_models_selected, parameters.num_vmas_envs), device=parameters.device, dtype=torch.float32)
+        self.collision_rate_with_agents = torch.zeros((self.num_models_selected, self.parameters.num_vmas_envs), device=self.parameters.device, dtype=torch.float32)
+        self.collision_rate_with_lanelets = torch.zeros((self.num_models_selected, self.parameters.num_vmas_envs), device=self.parameters.device, dtype=torch.float32)
+        self.distance_ref_average = torch.zeros((self.num_models_selected, self.parameters.num_vmas_envs), device=self.parameters.device, dtype=torch.float32)
+        self.episode_reward = torch.zeros((self.num_models_selected, self.parameters.n_iters), device=self.parameters.device, dtype=torch.float32)
+        
     def run_evaluation(self):
         """
         Main method to run evaluation over all provided model paths.
         """
-        i_model_selected = 0
+        self.model_idx = 0
         
-        for i_model in models_selected:
+        for model_i in self.models_selected:
             print("------------------------------------------")
-            print(colored("-- [INFO] Model ", "black"), colored(f"{i_model + 1}", "blue"), colored(f"({self.labels[i_model]})", color="grey"))
+            print(colored("-- [INFO] Model ", "black"), colored(f"{model_i + 1}", "blue"), colored(f"({self.labels[model_i]})", color="grey"))
             print("------------------------------------------")
             
-            model_path = model_paths[i_model]
+            self.model_i = model_i
+            self.model_i_path = model_paths[model_i]
             
-            self.load(model_path)
+            self._load_parameters()
+            self._adjust_parameters()
             
-            # Adjust parameters 
-            self.parameters.is_testing_mode = True
-            self.parameters.is_real_time_rendering = False
-            self.parameters.is_save_eval_results = True
-            self.parameters.is_load_model = True
-            self.parameters.is_load_final_model = False
-            self.parameters.is_load_out_td  = True
-            self.parameters.n_agents = 20
-            self.parameters.max_steps = 1200 # 1200 -> 1 min
-            
-            self.parameters.is_save_simulation_video = False
-            
-            if self.parameters.is_save_simulation_video:
-                # Only one env is needed if video should be exported
-                self.parameters.num_vmas_envs = 1
-                self.parameters.is_load_out_td = False
-            else:
-                # Otherwise run multiple parallel envs and average the evaluation results
-                self.parameters.num_vmas_envs = 32
-            self.parameters.frames_per_batch = self.parameters.max_steps * self.parameters.num_vmas_envs
-            
-            # The two parameters below are only used in training. Set them to False so that they do not effect testing
-            self.parameters.is_prb = False
-            self.parameters.is_challenging_initial_state_buffer = False
-            
-            self.parameters.is_visualize_short_term_path = False
-            self.parameters.is_visualize_lane_boundary = False
-            self.parameters.is_visualize_extra_info = False
-            self.parameters.render_title = self.render_titles[i_model]
-
-            if self.velocity_average is None:
-                # Initialize
-                self.velocity_average = torch.zeros((self.num_models_selected, self.parameters.num_vmas_envs), device=self.parameters.device, dtype=torch.float32)
-                # collision_rate_sum = torch.zeros((num_models_selected, parameters.num_vmas_envs), device=parameters.device, dtype=torch.float32)
-                self.collision_rate_with_agents = torch.zeros((self.num_models_selected, self.parameters.num_vmas_envs), device=self.parameters.device, dtype=torch.float32)
-                self.collision_rate_with_lanelets = torch.zeros((self.num_models_selected, self.parameters.num_vmas_envs), device=self.parameters.device, dtype=torch.float32)
-                self.distance_ref_average = torch.zeros((self.num_models_selected, self.parameters.num_vmas_envs), device=self.parameters.device, dtype=torch.float32)
-                self.episode_reward = torch.zeros((self.num_models_selected, self.parameters.n_iters), device=self.parameters.device, dtype=torch.float32)
+            if self.model_idx == 0:
+                self._init_eva_matrices()  # Only need to be done once
                 
-            self.episode_reward[i_model_selected, :] = torch.tensor([self.saved_data.episode_reward_mean_list])
+            self.episode_reward[self.model_idx, :] = torch.tensor([self.saved_data.episode_reward_mean_list])
             
-            self.evaluate_outputs(model_path, i_model_selected, i_model)
+            self._evaluate_model_i()
             
-            i_model_selected += 1
+            self.model_idx += 1
             
             
 if __name__ == "__main__":
-    scenario_name = "road_traffic" # road_traffic, path_tracking, obstacle_avoidance
-
-    # parameters = Parameters()
-
     model_paths = [
         # "outputs/use bird-eye view/",
         # "outputs/do not use mask/",
@@ -522,10 +531,12 @@ if __name__ == "__main__":
         # "outputs/do not observe distance to surrounding agents/",
         # "outputs/do not observe distance to boundaries/",
         # "outputs/do not observe distance to center line/",
-        "outputs/v5/our/",
-        "outputs/v5/vanilla/",
-        "outputs/v5/use challenging initial state buffer/",
-        "outputs/v5/use prioritized experience replay/",
+        # "outputs/v6/our/",
+        # "outputs/v6/vanilla/",
+        # "outputs/v6/use challenging initial state buffer/",
+        # "outputs/v6/use prioritized experience replay/",
+        "outputs/v7/our_with_mask/",
+        "outputs/v7/our_without_mask/",
     ]
 
     render_titles = [
@@ -535,33 +546,42 @@ if __name__ == "__main__":
         # "M4 (do not observe distance to surrounding agents)",
         # "M5 (do not observe distance to boundaries)",
         # "M6 (do not observe distance to center line)",
-        "M1 (our)",
-        "M2 (vanilla)",
-        "M3 (use challenging initial state buffer)",
-        "M4 (use prioritized experience replay)",
+        # "M1 (our)",
+        # "M2 (vanilla)",
+        # "M3 (use challenging initial state buffer)",
+        # "M4 (use prioritized experience replay)",
+        "M1 (our_with_mask)",
+        "M2 (our_without_mask)",
     ]
     
-    video_save_paths = [
+    video_names = [
         # "M1 - use bird-eye view",
         # "M2 - do not use mask",
         # "M3 - do not observe vertices of surrounding agents",
         # "M4 - do not observe distance to surrounding agents",
         # "M5 - do not observe distance to boundaries",
         # "M6 - do not observe distance to center line",
-        "M1 - our",
-        "M2 - vanilla",
-        "M3 - use challenging initial state buffer",
-        "M4 - use prioritized experience replay",
+        # "M1 - our",
+        # "M2 - vanilla",
+        # "M3 - use challenging initial state buffer",
+        # "M4 - use prioritized experience replay",
+        "M1 (our_with_mask)",
+        "M2 (our_without_mask)",
     ]
 
-    models_selected = [0, 1, 2, 3] # All
-    # models_selected = [0, 1, 2, 3, 4, 5, 6] # Ablation studies
-    # models_selected = [6, 7, 8, 9] # Comparisons with state of the arts
-    
-    # Define the directory path
-    where_to_save_eva_results = "outputs/v5/eva/"
-
-    evaluator = Evaluation(model_paths, where_to_save_eva_results, models_selected, render_titles, video_save_paths)
+    evaluator = Evaluation(
+        scenario_type="CPM_entire",  # Specify which scenario should be used to do the evaluation. One of {"CPM_entire", "CPM_mixed", "intersection_1a", "intersection_1b", "marge_in_1", "roundabout_1"}
+        model_paths=model_paths,
+        num_agents=15,  # Number of agents to be used in the evaluation
+        simulation_steps=1200,  # Number of time steps of each simulation. 1200 -> 1 min if sample time is 50 ms
+        where_to_save_eva_results="outputs/v7/eva",
+        models_selected=[],  # Leave empty if all the models should be evaluated
+        render_titles=render_titles,
+        num_simulations_per_model=32,
+        is_save_simulation_video=False,
+        video_names=video_names,
+        is_render_video=False,
+    )
     
     evaluator.run_evaluation()
     evaluator.plot()
