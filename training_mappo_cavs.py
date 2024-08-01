@@ -369,7 +369,7 @@ def mappo_cavs(parameters: Parameters):
     return env, policy, parameters
 
 if __name__ == "__main__":
-    scenario_name = "road_traffic" # road_traffic, path_tracking, obstacle_avoidance
+    scenario_name = "road_traffic"
     
     parameters = Parameters(
         n_agents=4,
@@ -385,7 +385,7 @@ if __name__ == "__main__":
                                     # sub_batch_size = frames_per_batch // minibatch_size
         num_epochs=60,          # Optimization steps per batch of data collected,
         minibatch_size=2**9,    # Size of the mini-batches in each optimization step (2**9 - 2**12?),
-        lr=2e-4,                # Learning rate,
+        lr=2e-4,                # Initial learning rate,
         lr_min=1e-5,            # Min Learning rate,
         max_grad_norm=1.0,      # Maximum norm for the gradients,
         clip_epsilon=0.2,       # Clip value for PPO loss,
@@ -405,10 +405,10 @@ if __name__ == "__main__":
         is_load_model=False,        # Load offline model if available. The offline model in `where_to_save` whose name contains `episode_reward_mean_current` will be loaded
         is_load_final_model=False,  # Whether to load the final model instead of the intermediate model with the highest episode reward
         is_continue_train=False,    # If offline models are loaded, whether to continue to train the model
-        mode_name=None, 
+        model_name=None, 
         episode_reward_intermediate=-1e3, # The initial value should be samll enough
         
-        where_to_save="outputs/v2/test/", # folder where to save the trained models, fig, data, etc.
+        where_to_save="outputs/v8/test/", # folder where to save the trained models, fig, data, etc.
 
         # Scenario parameters
         is_partial_observation=True,
@@ -421,17 +421,20 @@ if __name__ == "__main__":
         is_save_eval_results=True,
         
         is_prb=False,       # Whether to enable prioritized replay buffer
+        is_challenging_initial_state_buffer=False,  # Whether to enable challenging initial state buffer
+        
         cpm_scenario_probabilities=[1.0, 0.0, 0.0],
         
         is_use_mtv_distance=False,
 
         # Ablation studies
         is_ego_view=True,                   # Eago view or bird view
-        is_apply_mask=False,                 # Whether to mask distant agents
-        is_observe_distance_to_agents=True,      
         is_observe_vertices=True,
+        is_observe_distance_to_agents=True,
         is_observe_distance_to_boundaries=True,  
         is_observe_distance_to_center_line=True,
+        
+        is_apply_mask=False,                 # Whether to mask distant agents
         
         is_add_noise=True,
         is_observe_ref_path_other_agents=False,

@@ -190,10 +190,6 @@ class ScenarioRoadTraffic(BaseScenario):
         if self.parameters.is_testing_mode:
             print(colored(f"[INFO] Testing mode", "red"))
         print(colored(f"[INFO] Scenario type: {self.parameters.scenario_type}", "red"))
-        # Parameter adjustment to meet simulation requirements
-        if self.parameters.scenario_type in "CPM_mixed":
-            self.parameters.n_agents = 5
-            print(colored(f"[INFO] Changed the number of agents to {self.parameters.n_agents}", "black"))
         if self.parameters.is_prb:
             print(colored("[INFO] Enable prioritized replay buffer", "red"))
         if self.parameters.is_challenging_initial_state_buffer:
@@ -405,7 +401,7 @@ class ScenarioRoadTraffic(BaseScenario):
             change_steering=torch.tensor(threshold_change_steering, device=device, dtype=torch.float32).deg2rad(),
             no_reward_if_too_close_to_boundaries=torch.tensor(threshold_no_reward_if_too_close_to_boundaries, device=device, dtype=torch.float32),
             no_reward_if_too_close_to_other_agents=torch.tensor(threshold_no_reward_if_too_close_to_other_agents, device=device, dtype=torch.float32),
-            distance_mask_agents=self.normalizers.pos[0],
+            distance_mask_agents=agent_length * 5,
         )
         
         # Create agents

@@ -53,7 +53,7 @@
             0.0,
             0.0
         ],
-        "mode_name": "reward5.55"
+        "model_name": "reward5.55"
     },
     "episode_reward_mean_list": [
         -0.64,

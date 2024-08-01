@@ -308,7 +308,7 @@ class Parameters():
                 is_save_intermediate_model: bool = True,    # Whether to save intermediate model (also called checkpoint) with the hightest episode reward
                 is_load_model: bool = False,                # Whether to load saved model
                 is_load_final_model: bool = False,          # Whether to load the final model (last iteration)
-                mode_name: str = None,
+                model_name: str = None,
                 where_to_save: str = "outputs/",            # Define where to save files such as intermediate models
                 is_continue_train: bool = False,            # Whether to continue training after loading an offline model
                 is_save_eval_results: bool = True,          # Whether to save evaluation results such as figures and evaluation outputs
@@ -389,8 +389,8 @@ class Parameters():
         
         self.cpm_scenario_probabilities = cpm_scenario_probabilities
         
-        if (mode_name is None) and (scenario_name is not None):
-            self.mode_name = get_model_name(self)
+        if (model_name is None) and (scenario_name is not None):
+            self.model_name = get_model_name(self)
             
             
     def to_dict(self):
@@ -422,12 +422,12 @@ class SaveData():
 ## Helper Functions
 ##################################################
 def get_path_to_save_model(parameters: Parameters):
-    parameters.mode_name = get_model_name(parameters=parameters)
+    parameters.model_name = get_model_name(parameters=parameters)
     
-    PATH_POLICY = parameters.where_to_save + parameters.mode_name + "_policy.pth"
-    PATH_CRITIC = parameters.where_to_save + parameters.mode_name + "_critic.pth"
-    PATH_FIG = parameters.where_to_save + parameters.mode_name + "_training_process.pdf"
-    PATH_JSON = parameters.where_to_save + parameters.mode_name + "_data.json"
+    PATH_POLICY = parameters.where_to_save + parameters.model_name + "_policy.pth"
+    PATH_CRITIC = parameters.where_to_save + parameters.model_name + "_critic.pth"
+    PATH_FIG = parameters.where_to_save + parameters.model_name + "_training_process.pdf"
+    PATH_JSON = parameters.where_to_save + parameters.model_name + "_data.json"
     
     return PATH_POLICY, PATH_CRITIC, PATH_FIG, PATH_JSON
 
