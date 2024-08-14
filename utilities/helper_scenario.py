@@ -29,10 +29,9 @@ class Rewards:
 
 
 class Penalties:
-    def __init__(self, deviate_from_ref_path = None, deviate_from_goal = None, weighting_deviate_from_ref_path = None, near_boundary = None, near_other_agents = None, collide_with_agents = None, collide_with_boundaries = None, collide_with_obstacles = None, leave_world = None, time = None, change_steering = None):
+    def __init__(self, deviate_from_ref_path = None, deviate_from_goal = None, near_boundary = None, near_other_agents = None, collide_with_agents = None, collide_with_boundaries = None, collide_with_obstacles = None, leave_world = None, time = None, change_steering = None):
         self.deviate_from_ref_path = deviate_from_ref_path  # Penalty for deviating from reference path
         self.deviate_from_goal = deviate_from_goal          # Penalty for deviating from goal position 
-        self.weighting_deviate_from_ref_path = weighting_deviate_from_ref_path
         self.near_boundary = near_boundary                  # Penalty for being too close to lanelet boundaries
         self.near_other_agents = near_other_agents          # Penalty for being too close to other agents
         self.collide_with_agents = collide_with_agents      # Penalty for colliding with other agents
@@ -241,8 +240,7 @@ class InitialStateBuffer(CircularBuffer):
             return self.buffer[random_index]
 
 class Observations:
-    def __init__(self, is_partial = None, n_nearing_agents = None, nearing_agents_indices = None, noise_level = None, n_stored_steps = None, n_observed_steps = None, past_pos: CircularBuffer = None, past_rot: CircularBuffer = None, past_vertices: CircularBuffer = None, past_vel: CircularBuffer = None, past_short_term_ref_points: CircularBuffer = None, past_action_vel: CircularBuffer = None, past_action_steering: CircularBuffer = None, past_distance_to_ref_path: CircularBuffer = None, past_distance_to_boundaries: CircularBuffer = None, past_distance_to_left_boundary: CircularBuffer = None, past_distance_to_right_boundary: CircularBuffer = None, past_distance_to_agents: CircularBuffer = None, past_left_boundary: CircularBuffer = None, past_right_boundary: CircularBuffer = None):
-        self.is_partial = is_partial    # Local observation
+    def __init__(self, n_nearing_agents = None, nearing_agents_indices = None, noise_level = None, n_stored_steps = None, n_observed_steps = None, past_pos: CircularBuffer = None, past_rot: CircularBuffer = None, past_vertices: CircularBuffer = None, past_vel: CircularBuffer = None, past_short_term_ref_points: CircularBuffer = None, past_action_vel: CircularBuffer = None, past_action_steering: CircularBuffer = None, past_distance_to_ref_path: CircularBuffer = None, past_distance_to_boundaries: CircularBuffer = None, past_distance_to_left_boundary: CircularBuffer = None, past_distance_to_right_boundary: CircularBuffer = None, past_distance_to_agents: CircularBuffer = None, past_lengths: CircularBuffer = None, past_widths: CircularBuffer = None, past_left_boundary: CircularBuffer = None, past_right_boundary: CircularBuffer = None):
         self.n_nearing_agents = n_nearing_agents
         self.nearing_agents_indices = nearing_agents_indices
         self.noise_level = noise_level              # Whether to add noise to observations
@@ -265,6 +263,8 @@ class Observations:
         self.past_distance_to_left_boundary = past_distance_to_left_boundary  # Past distance to left lanelet boundary
         self.past_distance_to_right_boundary = past_distance_to_right_boundary  # Past distance to right lanelet boundary
         self.past_distance_to_agents = past_distance_to_agents  # Past mutual distance between agents
+        self.past_lengths = past_lengths  # Past lengths of agents (although they do not change, but for the reason of keeping consistence)
+        self.past_widths = past_widths  # Past widths of agents (although they do not change, but for the reason of keeping consistence)
         
 class Noise:
     def __init__(self, vel: torch.Tensor = None, ref: torch.Tensor = None, dis_ref: torch.Tensor = None, dis_lanelets: torch.Tensor = None, other_agents_pos: torch.Tensor = None, other_agents_rot: torch.Tensor = None, other_agents_vel: torch.Tensor = None, other_agents_dis: torch.Tensor = None, level_vel: torch.Tensor = None, level_pos: torch.Tensor = None, level_rot: torch.Tensor = None, level_dis: torch.Tensor = None,):
@@ -443,53 +443,6 @@ def get_short_term_reference_path(polyline: torch.Tensor, index_closest_point: t
         
     return short_term_path, future_points_idx
 
-def calculate_projected_movement(agent_pos_cur, agent_pos_next, line_segments):
-    """
-    Calculate the minimum perpendicular distance from the agent to line segments,
-    and the projected movement of the agent along these line segments.
-    """
-    batch_size = agent_pos_cur.shape[0]
-    num_segments = line_segments.shape[1] - 1
-
-    # Expand line segments to match the batch size
-    line_segments_expanded = line_segments.unsqueeze(0).expand(batch_size, -1, -1)
-
-    # Split the line segments
-    line_starts = line_segments_expanded[:, :-1, :]
-    line_ends = line_segments_expanded[:, 1:, :]
-
-    # Create vectors for each line segment
-    line_vecs = line_ends - line_starts
-
-    # Calculate agent movement vector
-    agent_movement_vec = agent_pos_next - agent_pos_cur
-    agent_movement_vec_expanded = agent_movement_vec.unsqueeze(1)
-
-    # Project agent movement vector onto line segment vectors
-    line_lens_squared = torch.sum(line_vecs ** 2, dim=2)
-    projected_movement_lengths = torch.sum(agent_movement_vec_expanded * line_vecs, dim=2) / line_lens_squared
-
-    # Expand agent positions for perpendicular distance calculation
-    point_expanded = agent_pos_cur.unsqueeze(1)  # Shape: [batch_size, 1, 2]
-
-    # Vectors from agent positions to the start of each line segment
-    point_vecs = point_expanded - line_starts
-
-    # Project point_vecs onto line_vecs
-    projected_lengths = torch.sum(point_vecs * line_vecs, dim=2) / line_lens_squared
-
-    # Clamp the projections to lie within the line segments
-    clamped_lengths = torch.clamp(projected_lengths, 0, 1)
-
-    # Find the closest points on the line segments to each agent position
-    closest_points = line_starts + (line_vecs * clamped_lengths.unsqueeze(2))
-
-    # Calculate the distances from each agent position to these closest points
-    distances = torch.norm(closest_points - point_expanded, dim=2)
-
-    # Return the minimum distance for each agent and projected movements
-    return torch.min(distances, dim=1), projected_movement_lengths
-
 def exponential_decreasing_fcn(x, x0, x1):
     """
     Exponential function y(x) = (e^( -(x-x0) / (x1-x0) ) - e^-1) / (1 - e^-1), so that y decreases exponentially from 1 to 0 when x increases from x0 to x1, where 
@@ -656,99 +609,6 @@ def interX(L1, L2, is_return_points=False):
     else:
         # Simply return whether collisions occur or not
         return collision_index
-
-def get_point_line_distance(points: torch.Tensor, lines_start_points: torch.Tensor, lines_end_points: torch.Tensor):
-    """
-    Calculate the distance from multiple points (or a single point) to a line.
-
-    Args:
-        points: [batch_size, num_points, 2] representing the x- and y-coordinates of the points. Both `num_points` and `batch_size` could potentially be 1.
-        lines_start_points: [batch_size, 2] representing the start points of the lines
-        lines_end_points: [batch_size, 2] representing the end points of the lines
-
-    Returns:
-        torch.Tensor: [num_points] containing distances from the points to the line.
-    """
-    batch_size = max(points.shape[0], lines_start_points.shape[0])
-    num_distances = max(points.shape[1], 1)
-    distances = torch.zeros((batch_size, num_distances), device=points.device, dtype=torch.float32)
-    
-    # Match dimension
-    lines_start_points = lines_start_points.unsqueeze(1)
-    lines_end_points = lines_end_points.unsqueeze(1)
-
-    # Compute the vectors
-    line_vec = lines_end_points - lines_start_points
-    points_vec = points - lines_start_points
-
-    # Calculate the projection of points_vec onto line_vec
-    line_len = (line_vec * line_vec).sum(dim=2)
-    projected = (points_vec * line_vec).sum(dim=2) / line_len
-
-    # Clamp the projection between 0 and 1 to find the nearest point on the line
-    nearest = torch.clamp(projected, 0, 1)
-    is_projection_inside_line = (projected >= 0) & (projected <= 1)
-
-    # Find the nearest point on the line to the point
-    nearest_point = lines_start_points + nearest.unsqueeze(2) * line_vec
-
-    # Calculate the distance from the point to the nearest point on the line
-    distances = (points - nearest_point).norm(dim=2)
-    
-    are_two_points_overlapping = ((lines_start_points - lines_end_points).norm(dim=2) == 0).squeeze(1)
-    distances[are_two_points_overlapping] = (points - lines_start_points)[are_two_points_overlapping].norm(dim=2)
-
-    return distances, is_projection_inside_line
-
-
-def visualize_path(tracking_path, start_pos, goal_pos, start_rot, agent_width, agent_length, is_ref_path_loop: bool = False, is_save_fig: bool = False, path_save_fig: str = "fig.pdf", obstacles = None):
-    plt.plot(tracking_path[:,0], tracking_path[:,1], color=Color.black100, linewidth=0.5)
-
-    vertices = get_rectangle_vertices(
-        center=start_pos,
-        yaw=start_rot,
-        width=agent_width,
-        length=agent_length,
-        is_close_shape=True
-    )
-    if vertices.shape[0] == 1:
-        vertices = vertices.squeeze(0)
-
-    plt.fill(vertices[:, 0], vertices[:, 1], color=Color.blue100, linewidth=0.2, edgecolor='black') #  , alpha=0.5, 
-    
-    # Calculate the end point of the arrow based on the rotation angle
-    dx = agent_length / 2 * torch.cos(start_rot)
-    dy = agent_length / 2 * torch.sin(start_rot)
-    
-    # Draw an arrow from the center of the agent to the calculated end point
-    plt.arrow(start_pos[0], start_pos[1], dx, dy, width=0.01, head_width=0.03, color=Color.black100)
-
-    if not is_ref_path_loop:
-        # Goal only exists if the reference path is not a loop
-        plt.scatter(goal_pos[0], goal_pos[1], s=12, color=Color.red100, edgecolors="black", linewidths=0.2)
-
-    # Visualize obstacles if any
-    if obstacles is not None:
-        if "dynamic" in path_save_fig:
-            # Many dynamics obstacles
-            max_steps = obstacles.shape[1]
-            for i_obs in range(obstacles.shape[0]):
-                plt.fill(obstacles[i_obs, -1, :, 0], obstacles[i_obs, -1, :, 1], color=Color.green100, linestyle="-")
-        else:
-            # One static obstacle
-            plt.fill(obstacles[:, 0], obstacles[:, 1], color=Color.green100, linestyle="-")
-        
-    plt.axis("equal")
-    plt.xlabel(r"$x$ [m]")
-    plt.ylabel(r"$y$ [m]")
-    
-    if is_save_fig:
-        plt.tight_layout(rect=[0, 0, 1, 1]) # left, bottom, right, top in normalized (0,1) figure coordinates
-        plt.savefig(path_save_fig, format="pdf", bbox_inches="tight")
-        print(f"An visualization of the path is saved under {path_save_fig}.")
-        
-    plt.show()
-       
 
 def remove_overlapping_points(polyline: torch.Tensor, threshold: float = 1e-4):
     remove = polyline.diff(dim=0).norm(dim=1) <= threshold

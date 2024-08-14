@@ -265,16 +265,19 @@ class Parameters():
                 max_steps: int = 2**7,          # Episode steps before done
                 total_frames: int = None,       # Total frame for one training, equals `frames_per_batch * n_iters`
                 num_vmas_envs: int = None,      # Number of vectorized environments
-                training_strategy: str = "4",  # One of {'1', '2', '3', '4'}. 
-                                            # 1 for vanilla
-                                            # 2 for vanilla with prioritized replay buffer
-                                            # 3 for vanilla with challenging initial state buffer
-                                            # 4 for mixed training
+                scenario_type: str = "intersection_1",  # One of {"CPM_entire", "CPM_mixed", "intersection_1", "design you own map and name it here"}
+                                                     # "CPM_entire": Entire map of the CPM Lab
+                                                     # "CPM_mixed": Intersection, merge-in, and merge-out of the CPM Lab. Probability defined in `cpm_scenario_probabilities`
+                                                     # "intersection_1": T-Intersection with ID 1
+                                                     # "design you own map and name it here"
+                                            
                 episode_reward_mean_current: float = 0.00,  # Achieved mean episode reward (total/n_agents)
                 episode_reward_intermediate: float = -1e3, # A arbitrary, small initial value
                 
-                is_prb: bool = False,       # # Whether to enable prioritized replay buffer
-                scenario_probabilities = [1.0, 0.0, 0.0], # Probabilities of training agents in intersection, merge-in, or merge-out scenario
+                is_prb: bool = False,       # Whether to enable prioritized replay buffer
+                is_challenging_initial_state_buffer = False,  # Whether to enable challenging initial state buffer
+                
+                cpm_scenario_probabilities = [1.0, 0.0, 0.0], # Probabilities of training agents in intersection, merge-in, or merge-out scenario
                 
                 # Observation
                 n_points_short_term: int = 3,            # Number of points that build a short-term reference path
@@ -305,7 +308,7 @@ class Parameters():
                 is_save_intermediate_model: bool = True,    # Whether to save intermediate model (also called checkpoint) with the hightest episode reward
                 is_load_model: bool = False,                # Whether to load saved model
                 is_load_final_model: bool = False,          # Whether to load the final model (last iteration)
-                mode_name: str = None,
+                model_name: str = None,
                 where_to_save: str = "outputs/",            # Define where to save files such as intermediate models
                 is_continue_train: bool = False,            # Whether to continue training after loading an offline model
                 is_save_eval_results: bool = True,          # Whether to save evaluation results such as figures and evaluation outputs
@@ -339,7 +342,8 @@ class Parameters():
         self.lmbda = lmbda
         self.entropy_eps = entropy_eps
         self.max_steps = max_steps
-        self.training_strategy = training_strategy
+        
+        self.scenario_type = scenario_type
         
         if (frames_per_batch is not None) and (max_steps is not None):
             self.num_vmas_envs = frames_per_batch // max_steps # Number of vectorized envs. frames_per_batch should be divisible by this number,
@@ -381,10 +385,12 @@ class Parameters():
         self.render_title = render_title
 
         self.is_prb = is_prb
-        self.scenario_probabilities = scenario_probabilities
+        self.is_challenging_initial_state_buffer = is_challenging_initial_state_buffer
         
-        if (mode_name is None) and (scenario_name is not None):
-            self.mode_name = get_model_name(self)
+        self.cpm_scenario_probabilities = cpm_scenario_probabilities
+        
+        if (model_name is None) and (scenario_name is not None):
+            self.model_name = get_model_name(self)
             
             
     def to_dict(self):
@@ -416,12 +422,12 @@ class SaveData():
 ## Helper Functions
 ##################################################
 def get_path_to_save_model(parameters: Parameters):
-    parameters.mode_name = get_model_name(parameters=parameters)
+    parameters.model_name = get_model_name(parameters=parameters)
     
-    PATH_POLICY = parameters.where_to_save + parameters.mode_name + "_policy.pth"
-    PATH_CRITIC = parameters.where_to_save + parameters.mode_name + "_critic.pth"
-    PATH_FIG = parameters.where_to_save + parameters.mode_name + "_training_process.pdf"
-    PATH_JSON = parameters.where_to_save + parameters.mode_name + "_data.json"
+    PATH_POLICY = parameters.where_to_save + parameters.model_name + "_policy.pth"
+    PATH_CRITIC = parameters.where_to_save + parameters.model_name + "_critic.pth"
+    PATH_FIG = parameters.where_to_save + parameters.model_name + "_training_process.pdf"
+    PATH_JSON = parameters.where_to_save + parameters.model_name + "_data.json"
     
     return PATH_POLICY, PATH_CRITIC, PATH_FIG, PATH_JSON
 
@@ -501,18 +507,27 @@ def compute_td_error(tensordict_data: TensorDict, gamma = 0.9):
     current_state_values = tensordict_data["agents"]["state_value"]
     next_rewards = tensordict_data.get(("next", "agents", "reward"))
     next_state_values = tensordict_data.get(("next", "agents", "state_value"))
-    td_error = next_rewards + gamma * next_state_values - current_state_values # See Eq. (2) of Section B EXPERIMENTAL DETAILS of paper https://doi.org/10.48550/arXiv.1511.05952
+    done = tensordict_data.get(("next", "agents", "done"))
+    
+    # To mask out terminal states since TD error for terminal states should only consider the immediate reward without any future value
+    not_done = ~done
+    
+    # See Eq. (2) of Section B EXPERIMENTAL DETAILS of paper https://doi.org/10.48550/arXiv.1511.05952
+    td_error = next_rewards + gamma * next_state_values * not_done - current_state_values
+
     td_error = td_error.abs() # Magnitude is more interesting than the actual TD error
     
     td_error_average_over_agents = td_error.mean(dim=-2) # Cooperative agents
     
-    # Normalize TD error to [-1, 1] (priorities must be positive)
+    # Normalize TD error to [0, 1] (priorities must be positive)
     td_min = td_error_average_over_agents.min()
     td_max = td_error_average_over_agents.max()
     td_error_range = td_max - td_min
     td_error_range = max(td_error_range, 1e-3) # For numerical stability
     
-    td_error_average_over_agents = (td_error_average_over_agents - td_min) / td_error_range
-    td_error_average_over_agents = torch.clamp(td_error_average_over_agents, 1e-3, 1) # For numerical stability
+    target_range = 10
+    
+    td_error_average_over_agents = (td_error_average_over_agents - td_min) / td_error_range * target_range
+    td_error_average_over_agents = torch.clamp(td_error_average_over_agents, 1e-3, target_range) # For numerical stability
     
     return td_error_average_over_agents

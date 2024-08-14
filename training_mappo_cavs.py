@@ -1,4 +1,4 @@
-# Adapted from https://pytorch.org/rl/tutorials/multiagent_ppo.html
+# Adapted from https://pytorch.org/rl/stable/tutorials/multiagent_ppo.html
 import time
 import multiprocessing
 
@@ -42,7 +42,7 @@ import matplotlib.pyplot as plt
 # Scientific plotting
 import scienceplots # Do not remove (https://github.com/garrettj403/SciencePlots)
 plt.rcParams.update({'figure.dpi': '100'}) # Avoid DPI problem (https://github.com/garrettj403/SciencePlots/issues/60)
-plt.style.use(['science','ieee','no-latex']) # The science + ieee styles for IEEE papers (can also be one of 'ieee' and 'science' )
+plt.style.use(['science','ieee']) # The science + ieee styles for IEEE papers (can also be one of 'ieee' and 'science' )
 # print(plt.style.available) # List all available style
 
 from torchrl.envs.libs.vmas import VmasEnv
@@ -198,7 +198,7 @@ def mappo_cavs(parameters: Parameters):
     if parameters.is_prb:
         replay_buffer = TensorDictPrioritizedReplayBuffer(
             alpha=0.7,
-            beta=1.1,
+            beta=0.6,
             storage=LazyTensorStorage(
                 parameters.frames_per_batch, device=parameters.device
             ),
@@ -242,6 +242,7 @@ def mappo_cavs(parameters: Parameters):
 
     episode_reward_mean_list = []
 
+    t_start = time.time()
     for tensordict_data in collector:
         tensordict_data.set(
             ("next", "agents", "done"),
@@ -271,7 +272,7 @@ def mappo_cavs(parameters: Parameters):
             assert tensordict_data["td_error"].min() >= 0, "TD error must be greater than 0"
             
         data_view = tensordict_data.reshape(-1)  # Flatten the batch size to shuffle data
-        replay_buffer.extend(data_view) 
+        replay_buffer.extend(data_view)
         # replay_buffer.update_tensordict_priority() # Not necessary, as priorities were updated automatically when calling `replay_buffer.extend()`
 
         for _ in range(parameters.num_epochs):
@@ -312,7 +313,7 @@ def mappo_cavs(parameters: Parameters):
                     new_td_errors = compute_td_error(mini_batch_data, gamma=0.9)
                     mini_batch_data.set("td_error", new_td_errors)
                     replay_buffer.update_tensordict_priority(mini_batch_data)
-        collector.update_policy_weights_()
+        collector.update_policy_weights_()  # Updates the policy weights if the policy of the data collector and the trained policy live on different devices
 
         # Logging
         done = tensordict_data.get(("next", "agents", "done"))
@@ -362,10 +363,13 @@ def mappo_cavs(parameters: Parameters):
     print(colored("[INFO] All files have been saved under:", "black"), colored(f"{parameters.where_to_save}", "red"))
     # plt.show()
     
+    training_duration = (time.time() - t_start) / 3600  # seconds to hours
+    print(colored(f"[INFO] Training duration: {training_duration:.2f} hours.", "blue"))
+    
     return env, policy, parameters
 
 if __name__ == "__main__":
-    scenario_name = "road_traffic" # road_traffic, path_tracking, obstacle_avoidance
+    scenario_name = "road_traffic"
     
     parameters = Parameters(
         n_agents=4,
@@ -381,7 +385,7 @@ if __name__ == "__main__":
                                     # sub_batch_size = frames_per_batch // minibatch_size
         num_epochs=60,          # Optimization steps per batch of data collected,
         minibatch_size=2**9,    # Size of the mini-batches in each optimization step (2**9 - 2**12?),
-        lr=2e-4,                # Learning rate,
+        lr=2e-4,                # Initial learning rate,
         lr_min=1e-5,            # Min Learning rate,
         max_grad_norm=1.0,      # Maximum norm for the gradients,
         clip_epsilon=0.2,       # Clip value for PPO loss,
@@ -389,11 +393,11 @@ if __name__ == "__main__":
         lmbda=0.9,              # lambda for generalised advantage estimation,
         entropy_eps=1e-4,       # Coefficient of the entropy term in the PPO loss,
         max_steps=2**7,         # Episode steps before done
-        training_strategy='4',  # One of {'1', '2', '3', '4'}. 
-                                    # 1 for vanilla
-                                    # 2 for vanilla with prioritized replay buffer
-                                    # 3 for vanilla with challenging initial state buffer
-                                    # 4 for our
+        scenario_type='CPM_mixed',  # One of {"CPM_entire", "CPM_mixed", "intersection_1", "design you own map and name it here"}
+                                            # "CPM_entire": Entire map of the CPM Lab
+                                            # "CPM_mixed": Intersection, merge-in, and merge-out of the CPM Lab. Probability defined in `cpm_scenario_probabilities`
+                                            # "intersection_1": T-Intersection with ID 1
+                                            # "design you own map and name it here"
         is_save_intermediate_model=True, # Is this is true, the model with the highest mean episode reward will be saved,
         
         episode_reward_mean_current=0.00,
@@ -401,10 +405,10 @@ if __name__ == "__main__":
         is_load_model=False,        # Load offline model if available. The offline model in `where_to_save` whose name contains `episode_reward_mean_current` will be loaded
         is_load_final_model=False,  # Whether to load the final model instead of the intermediate model with the highest episode reward
         is_continue_train=False,    # If offline models are loaded, whether to continue to train the model
-        mode_name=None, 
+        model_name=None, 
         episode_reward_intermediate=-1e3, # The initial value should be samll enough
         
-        where_to_save=f"outputs/{scenario_name}_ppo/test/", # folder where to save the trained models, fig, data, etc.
+        where_to_save="outputs/v8/test/", # folder where to save the trained models, fig, data, etc.
 
         # Scenario parameters
         is_partial_observation=True,
@@ -417,33 +421,23 @@ if __name__ == "__main__":
         is_save_eval_results=True,
         
         is_prb=False,       # Whether to enable prioritized replay buffer
-        scenario_probabilities=[1.0, 0.0, 0.0],
+        is_challenging_initial_state_buffer=False,  # Whether to enable challenging initial state buffer
+        
+        cpm_scenario_probabilities=[1.0, 0.0, 0.0],
         
         is_use_mtv_distance=False,
 
         # Ablation studies
         is_ego_view=True,                   # Eago view or bird view
-        is_apply_mask=True,                 # Whether to mask distant agents
-        is_observe_distance_to_agents=True,      
         is_observe_vertices=True,
+        is_observe_distance_to_agents=True,
         is_observe_distance_to_boundaries=True,  
         is_observe_distance_to_center_line=True,
+        
+        is_apply_mask=False,                 # Whether to mask distant agents
         
         is_add_noise=True,
         is_observe_ref_path_other_agents=False,
     )
-    
-    if parameters.training_strategy == "2":
-        parameters.is_prb=True
         
     env, policy, parameters = mappo_cavs(parameters=parameters)
-
-    # Evaluate the model
-    # with torch.no_grad():
-    #     out_td = env.rollout(
-    #         max_steps=parameters.max_steps,
-    #         policy=policy,
-    #         callback=lambda env, _: env.render(),
-    #         auto_cast_to_device=True,
-    #         break_when_any_done=False,
-    #     )

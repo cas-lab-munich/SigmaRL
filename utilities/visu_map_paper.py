@@ -8,19 +8,21 @@ plt.rcParams['pdf.fonttype'] = 42  # Ensures TrueType font (TT) is used
 import numpy as np
 
 # Scientific plotting
-# import scienceplots
-# plt.rcParams.update({'figure.dpi': '100'}) # Avoid DPI problem (https://github.com/garrettj403/SciencePlots/issues/60)
-# plt.style.use(['science','ieee']) # The science + ieee styles for IEEE papers (can also be one of 'ieee' and 'science' )
+import scienceplots
+plt.rcParams.update({'figure.dpi': '100'}) # Avoid DPI problem (https://github.com/garrettj403/SciencePlots/issues/60)
+plt.style.use(['science','ieee','no-latex']) # The science + ieee styles for IEEE papers (can also be one of 'ieee' and 'science' )
 
 import os
 import sys
-script_dir = os.path.dirname(__file__) # Directory of the current script
+script_dir = os.path.dirname(__file__) # Directory of the current scrit
 project_root = os.path.dirname(script_dir) # Project root directory
 if project_root not in sys.path:
     sys.path.append(project_root)
 
 from utilities.helper_scenario import get_rectangle_vertices
-    
+
+from utilities.constants import SCENARIOS
+
 from utilities.colors import Color # Do not remove (https://github.com/garrettj403/SciencePlots)
 # print(plt.style.available) # List all available style
 
@@ -32,7 +34,7 @@ intersection_outer_boundary_ids = [
 intersection_lanelets_ids = [
     25, 26, 52, 72, 18, 17, 43, 73, 51, 50, 102, 20, 44, 45, 97, 21, 103, 104, 78, 46, 96, 95, 69, 47, 77, 76, 24, 98, 70, 71, 19, 99,
 ]
-
+ 
 def parse_point(element, device):
     """ Parses a point element to extract x and y coordinates. """
     x = float(element.find("x").text) if element.find("x") is not None else None
@@ -138,13 +140,16 @@ def parse_intersections(element):
 def visualize_and_save_map(lanelets, intersection_info, is_save_fig = False, is_visualize = False, is_show_vehicles = True,):
     x_lim = 4.5 # [m] Dimension in x-direction 
     y_lim = 4.0 # [m] Dimension in y-direction 
+    
+    aspect_ratio = y_lim / x_lim
+    figsize_x = 3
 
     # Set up the plot
-    plt.figure(figsize=(x_lim*0.8, y_lim*0.8))  # Size in inches, adjusted for 4.0m x 4.5m dimensions
+    plt.figure(figsize=(figsize_x, figsize_x * aspect_ratio))  # Size in inches, adjusted for 4.0m x 4.5m dimensions
     plt.axis("equal")  # Ensure x and y dimensions are equally scaled
 
     line_width = 0.35
-    fontsize = 11
+    fontsize = 10
     # fontname = "Time New Roman"
 
     for i in range(len(lanelets)):
@@ -177,8 +182,8 @@ def visualize_and_save_map(lanelets, intersection_info, is_save_fig = False, is_
         if is_show_id:
             plt.text(center_line[int(len(center_line)/2), 0], center_line[int(len(center_line)/2), 1], str(lanelet["id"]), color=color, fontsize=fontsize)
             
-    is_highlight_intersection = True
-    if is_highlight_intersection:
+    is_visualize_intersection = True
+    if is_visualize_intersection:
         intersection_boundary = []
         for j in intersection_outer_boundary_ids:
             lanelet = lanelets[j-1]
@@ -242,14 +247,16 @@ def visualize_and_save_map(lanelets, intersection_info, is_save_fig = False, is_
             plt.fill(vertices[:, 0], vertices[:, 1], color=color_veh)
             plt.text(pos[0] + 0.08, pos[1], k+1, color='black', fontsize=fontsize)
 
-    # plt.xlabel(r"$x$ [m]", fontsize=18)
-    # plt.ylabel(r"$y$ [m]", fontsize=18)
+    # plt.xlabel(r"$x$ [m]", fontsize=10)
+    # plt.ylabel(r"$y$ [m]", fontsize=10)
     plt.xlim((0, x_lim))
     plt.ylim((0, y_lim))
-    # plt.xticks(np.arange(0, x_lim+0.05, 0.5), fontsize=12)
-    # plt.yticks(np.arange(0, y_lim+0.05, 0.5), fontsize=12)
+    # plt.xticks(np.arange(0, x_lim+0.05, 0.5), fontsize=10)
+    # plt.yticks(np.arange(0, y_lim+0.05, 0.5), fontsize=10)
+    
     plt.xticks([])
     plt.yticks([])
+
     # plt.xlabel("Map visualization", fontsize=fontname)
     # Remove the outer box
     ax = plt.gca()  # Get current axes
@@ -258,11 +265,11 @@ def visualize_and_save_map(lanelets, intersection_info, is_save_fig = False, is_
         
     # Save fig
     if is_save_fig:
-        file_name = "map_visualization_paper.pdf"
+        file_name = "cpm.pdf"
         plt.tight_layout() # Set the layout to be tight to minimize white space
         plt.savefig(file_name, format="pdf", bbox_inches="tight")
 
-        file_name = "map_visualization_paper.png"
+        file_name = "cpm.png"
         plt.savefig(file_name, format="png", bbox_inches="tight", transparent=True, dpi=600)
         
         print(f"A fig has been saved unter {file_name}.")
@@ -272,8 +279,8 @@ def visualize_and_save_map(lanelets, intersection_info, is_save_fig = False, is_
 
 
 # Parse the XML file
-def get_map_data(is_save_fig = False, is_visualize = False, is_show_vehicles = True, **kwargs):
-    xml_file_path = kwargs.get("xml_file_path", "./assets/cpm_lab_map.xml")
+def get_lanelets_data(is_save_fig = False, is_visualize = False, is_show_vehicles = True, **kwargs):
+    xml_file_path = kwargs.get("xml_file_path", "./assets/maps/cpm.xml")
     device = kwargs.get("device", torch.device("cpu"))
     
     tree = ET.parse(xml_file_path)
@@ -290,7 +297,7 @@ def get_map_data(is_save_fig = False, is_visualize = False, is_show_vehicles = T
     mean_lane_width = torch.mean(torch.norm(torch.vstack([lanelets[i]["left_boundary"] for i in range(len(lanelets))]) - torch.vstack([lanelets[i]["right_boundary"] for i in range(len(lanelets))]), dim=1))
 
     # Storing all the data in a single tree variable
-    map_data = {
+    lanelets_all = {
         "lanelets": lanelets,
         "intersection_info": intersection_info,
         "mean_lane_width": mean_lane_width,
@@ -302,18 +309,18 @@ def get_map_data(is_save_fig = False, is_visualize = False, is_show_vehicles = T
     if is_visualize | is_save_fig:
         visualize_and_save_map(lanelets, intersection_info, is_save_fig, is_visualize, is_show_vehicles)
         
-    return map_data
+    return lanelets_all
 
 
 if __name__ == "__main__":
-    map_data = get_map_data(
+    lanelets_all = get_lanelets_data(
         is_visualize=False, # Rendering may be slow due to the usage of the package `scienceplots`. You may want to disable it by commenting the related codes out.
         is_save_fig=True, 
-        is_show_vehicles=True,
+        is_show_vehicles=False,
     )
-    print(map_data)
+    print(lanelets_all)
 
 # Example of how to use 
-# map_data["lanelets"][4] # Access all the information about the lanelet with ID 5
-# map_data["lanelets"][4]["left_boundary"] # Access the coordinates of the left boundary of the lanelet with ID 5
-# map_data["intersection_info"][1] # Access the information about the second part of the intersection
+# lanelets_all["lanelets"][4] # Access all the information about the lanelet with ID 5
+# lanelets_all["lanelets"][4]["left_boundary"] # Access the coordinates of the left boundary of the lanelet with ID 5
+# lanelets_all["intersection_info"][1] # Access the information about the second part of the intersection

@@ -7,7 +7,9 @@ import json
 
 from training_mappo_cavs import mappo_cavs
 
-path = "checkpoints/our"
+from utilities.constants import SCENARIOS
+
+path = "checkpoints/ITSC24/M0 (our)"
 
 try:
     path_to_json_file = next(os.path.join(path, file) for file in os.listdir(path) if file.endswith('.json')) # Find the first json file in the folder
@@ -19,18 +21,20 @@ try:
         
         # Adjust parameters 
         parameters.is_testing_mode = True
-        parameters.is_real_time_rendering = False
+        parameters.is_real_time_rendering = True
         parameters.is_save_eval_results = False
         parameters.is_load_model = True
         parameters.is_load_final_model = False
         parameters.is_load_out_td  = False
-        parameters.n_agents = 12
         parameters.max_steps = 1200 # 1200 -> 1 min
         if parameters.is_load_out_td:
             parameters.num_vmas_envs = 32
         else:
             parameters.num_vmas_envs = 1
-        parameters.training_strategy = "1"
+        
+        parameters.scenario_type = "CPM_entire"  # on_ramp_1, roundabout_1, intersection_1/2/3, CPM_mixed
+        parameters.n_agents = SCENARIOS[parameters.scenario_type]["n_agents"]
+        
         parameters.is_save_simulation_video = False
         parameters.is_visualize_short_term_path = False
         parameters.is_visualize_lane_boundary = False

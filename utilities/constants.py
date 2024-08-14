@@ -1,0 +1,196 @@
+import math
+
+SCENARIOS = {
+    "CPM_entire": {
+        "map_path": "assets/maps/cpm.xml",
+        "n_agents": 15,
+        "name": "CPM Map",
+        "x_dim_min": 0,  # Min x-coordinate
+        "x_dim_max": 4.5,  # Max x-coordinate
+        "y_dim_min": 0,
+        "y_dim_max": 4.0,
+        "world_x_dim": 4.5,  # Environment x-dimension. (0, 0) is assumed to be the origin
+        "world_y_dim": 4.0,  # Environment y-dimension. (0, 0) is assumed to be the origin
+        "figsize_x": 3,  # For evaluation figs
+        "viewer_zoom": 1.44,  # For VMAS render
+    },
+    
+    "CPM_mixed": {
+        "map_path": "assets/maps/cpm.xml",
+        "n_agents": 4,
+        "name": "CPM Map",
+        "x_dim_min": 0,  # Min x-coordinate
+        "x_dim_max": 4.5,  # Max x-coordinate
+        "y_dim_min": 0,
+        "y_dim_max": 4.0,
+        "world_x_dim": 4.5,  # Environment x-dimension. (0, 0) is assumed to be the origin
+        "world_y_dim": 4.0,  # Environment y-dimension. (0, 0) is assumed to be the origin
+        "figsize_x": 3,  # For evaluation figs
+        "viewer_zoom": 1.44,  # For VMAS render
+    },
+    
+    "intersection_1": {
+        "map_path": "assets/maps/intersection_1.osm",
+        "n_agents": 6,
+        "name": "Intersection 1",
+        "x_dim_min": 0.180,
+        "x_dim_max": 2.198,
+        "y_dim_min": 0.179,
+        "y_dim_max": 3.381,
+        "world_x_dim": 2.5,
+        "world_y_dim": 3.7,
+        "reference_paths_ids": [
+            ["1", "2"],
+            ["1", "3"],
+            ["1", "4"],
+            ["5"],
+        ],
+        "neighboring_lanelet_ids": {
+            "1": ["1", "2", "3", "4"],  # Lanelet with ID "1"
+            "2": ["1", "2", "3", "4", "5"],  # Lanelet with ID "2"
+            "3": ["1", "2", "3", "5"],  # Lanelet with ID "3"
+            "4": ["1", "2", "3", "4", "5"],  # Lanelet with ID "4"
+            "5": ["2", "3", "4", "5"],  # Lanelet with ID "5"
+        },
+        "figsize_x": 2.5,
+        "viewer_zoom": 1.1,  # For VMAS render
+    },
+    
+    "intersection_2": {
+        "map_path": "assets/maps/intersection_2.osm",
+        "n_agents": 6,
+        "name": "Intersection 2",
+        "x_dim_min": 0.180,
+        "x_dim_max": 2.583,
+        "y_dim_min": 0.179,
+        "y_dim_max": 3.381,
+        "world_x_dim": 2.90,
+        "world_y_dim": 3.70,
+        "reference_paths_ids": [
+            ["1", "2", "5", "10"],
+            ["1", "2", "6", "11"],
+            ["1", "3"],
+            ["1", "4"],
+            ["8", "9", "11"],
+            ["8", "7", "10"],
+        ],
+        "neighboring_lanelet_ids": {
+            "1": ["1", "2", "3", "4"],
+            "2": ["1", "2", "3", "4", "5", "6"],
+            "3": ["1", "2", "3", "4", "8"],
+            "4": ["1", "2", "3", "4", "11"],
+            "5": ["2", "5", "6", "7", "9"],
+            "6": ["5", "6", "9", "11"],
+            "7": ["5", "7", "8", "9", "10"],
+            "8": ["3", "7", "8", "9"],
+            "9": ["5", "6", "7", "8", "9", "11"],
+            "10": ["5", "7", "10"],
+            "11": ["4", "6", "11"],
+        },
+        "figsize_x": 2.0,
+        "viewer_zoom": 1.15,  # For VMAS render
+    },
+    
+    "intersection_3": {
+        "map_path": "assets/maps/intersection_3.osm",
+        "n_agents": 8,
+        "name": "Intersection 3",
+        "x_dim_min": 0.178,
+        "x_dim_max": 3.860,
+        "y_dim_min": 0.105,
+        "y_dim_max": 2.311,
+        "world_x_dim": 4.2,
+        "world_y_dim": 2.6,
+        "reference_paths_ids": [
+            ["1"],
+            ["2", "3"],
+            ["2", "7"],
+            ["4"],
+            ["5", "6"],
+            ["8", "6"]
+        ],
+        "neighboring_lanelet_ids": {
+            "1": ["1"],  # Lanelet with ID "1"
+            "2": ["2", "3", "7"],  # Lanelet with ID "2"
+            "3": ["3", "2"],  # Lanelet with ID "3"
+            "4": ["4", "7"],  # Lanelet with ID "4"
+            "5": ["5", "6", "7", "8"],  # Lanelet with ID "5"
+            "6": ["6", "5", "8"],  # Lanelet with ID "6"
+            "7": ["7", "2", "4", "5"],  # Lanelet with ID "7"
+            "8": ["8", "5", "6"],  # Lanelet with ID "8"
+        },
+        "figsize_x": 2.5,
+        "viewer_zoom": 1.15,  # For VMAS render
+    },
+    
+    "on_ramp_1": {
+        "map_path": "assets/maps/on_ramp_1.osm",
+        "n_agents": 8,
+        "name": "Intersection 3",
+        "x_dim_min": 0.152,
+        "x_dim_max": 3.803,
+        "y_dim_min": 0.110,
+        "y_dim_max": 1.537,
+        "world_x_dim": 4.1,
+        "world_y_dim": 1.8,
+        "reference_paths_ids": [
+            ["1", "3", "5", "7"], 
+            ["2", "3", "5", "7"], 
+            ["4", "5", "7"], 
+            ["6", "7"], 
+        ],
+        "neighboring_lanelet_ids": {
+            "1": ["1", "2", "3"],  # Lanelet with ID "1"
+            "2": ["1", "2", "3"],  # Lanelet with ID "2"
+            "3": ["1", "2", "3","4", "5"],  # Lanelet with ID "3"
+            "4": ["3","4", "5"],  # Lanelet with ID "4"
+            "5": ["3","4", "5", "6", "7"],  # Lanelet with ID "5"
+            "6": ["5", "6", "7"],  # Lanelet with ID "6"
+            "7": ["5", "6", "7"],  # Lanelet with ID "7"
+        },
+        "figsize_x": 3.5,
+        "viewer_zoom": 0.95,  # For VMAS render
+    },
+    
+    "roundabout_1": {
+        "map_path": "assets/maps/roundabout_1.osm",
+        "n_agents": 8,
+        "name": "Intersection 3",
+        "x_dim_min": 0.180,
+        "x_dim_max": 3.638,
+        "y_dim_min": 0.105,
+        "y_dim_max": 2.019,
+        "world_x_dim": 4.0,
+        "world_y_dim": 2.3,
+        "reference_paths_ids": [
+            ["1", "2", "9"], 
+            ["1", "3", "7", "9"], 
+            ["1", "4", "8", "9"], 
+            ["5", "7", "9"], 
+            ["6", "8", "9"], 
+        ],
+        "neighboring_lanelet_ids": {
+            "1": ["1", "2", "3", "4"],  # Lanelet with ID "1"
+            "2": ["1", "2", "7", "8", "9"],  # Lanelet with ID "2"
+            "3": ["3","5", "7"],  # Lanelet with ID "3"
+            "4": ["4","6", "8"],  # Lanelet with ID "4"
+            "5": ["3","5", "7"],  # Lanelet with ID "5"
+            "6": ["4", "6", "8"],  # Lanelet with ID "6"
+            "7": ["2", "7", "8", "9"],  # Lanelet with ID "7"
+            "8": ["2", "7", "8", "9"],  # Lanelet with ID "8"
+            "9": ["2", "7", "8", "9"],  # Lanelet with ID "9"
+        },
+        "figsize_x": 3.0,
+        "viewer_zoom": 1.1,  # For VMAS render
+    },
+}
+
+AGENTS = {
+    "width": 0.08,
+    "length": 0.16,
+    "max_speed": 1.0,
+}
+
+THRESHOLD = {
+    "initial_distance": 1.2 * math.sqrt(AGENTS["width"] ** 2 + AGENTS["length"] ** 2)
+}
