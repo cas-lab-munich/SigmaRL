@@ -16,8 +16,8 @@ Besides, we also support maps handcrafted in <a href="https://josm.openstreetmap
 <img src="assets/figs/intersection_2.gif" height="160"/>
 <img src="assets/figs/on_ramp_1.gif" height="160"/>
 <img src="assets/figs/roundabout_1.gif" height="160"/>
-
-<p>Fig. 1: Video demonstrations (speed x2). All scenarios are listed in the variable `SCENARIOS` in `utilities/constants.py`.</p>
+<br>
+Fig. 1: Video demonstrations (speed x2). All scenarios are listed in the variable `SCENARIOS` in `utilities/constants.py`.
 </div>
 
 ## Install (tested in macOS and Windows)
