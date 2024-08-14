@@ -240,8 +240,7 @@ class InitialStateBuffer(CircularBuffer):
             return self.buffer[random_index]
 
 class Observations:
-    def __init__(self, is_partial = None, n_nearing_agents = None, nearing_agents_indices = None, noise_level = None, n_stored_steps = None, n_observed_steps = None, past_pos: CircularBuffer = None, past_rot: CircularBuffer = None, past_vertices: CircularBuffer = None, past_vel: CircularBuffer = None, past_short_term_ref_points: CircularBuffer = None, past_action_vel: CircularBuffer = None, past_action_steering: CircularBuffer = None, past_distance_to_ref_path: CircularBuffer = None, past_distance_to_boundaries: CircularBuffer = None, past_distance_to_left_boundary: CircularBuffer = None, past_distance_to_right_boundary: CircularBuffer = None, past_distance_to_agents: CircularBuffer = None, past_left_boundary: CircularBuffer = None, past_right_boundary: CircularBuffer = None):
-        self.is_partial = is_partial    # Local observation
+    def __init__(self, n_nearing_agents = None, nearing_agents_indices = None, noise_level = None, n_stored_steps = None, n_observed_steps = None, past_pos: CircularBuffer = None, past_rot: CircularBuffer = None, past_vertices: CircularBuffer = None, past_vel: CircularBuffer = None, past_short_term_ref_points: CircularBuffer = None, past_action_vel: CircularBuffer = None, past_action_steering: CircularBuffer = None, past_distance_to_ref_path: CircularBuffer = None, past_distance_to_boundaries: CircularBuffer = None, past_distance_to_left_boundary: CircularBuffer = None, past_distance_to_right_boundary: CircularBuffer = None, past_distance_to_agents: CircularBuffer = None, past_lengths: CircularBuffer = None, past_widths: CircularBuffer = None, past_left_boundary: CircularBuffer = None, past_right_boundary: CircularBuffer = None):
         self.n_nearing_agents = n_nearing_agents
         self.nearing_agents_indices = nearing_agents_indices
         self.noise_level = noise_level              # Whether to add noise to observations
@@ -264,6 +263,8 @@ class Observations:
         self.past_distance_to_left_boundary = past_distance_to_left_boundary  # Past distance to left lanelet boundary
         self.past_distance_to_right_boundary = past_distance_to_right_boundary  # Past distance to right lanelet boundary
         self.past_distance_to_agents = past_distance_to_agents  # Past mutual distance between agents
+        self.past_lengths = past_lengths  # Past lengths of agents (although they do not change, but for the reason of keeping consistence)
+        self.past_widths = past_widths  # Past widths of agents (although they do not change, but for the reason of keeping consistence)
         
 class Noise:
     def __init__(self, vel: torch.Tensor = None, ref: torch.Tensor = None, dis_ref: torch.Tensor = None, dis_lanelets: torch.Tensor = None, other_agents_pos: torch.Tensor = None, other_agents_rot: torch.Tensor = None, other_agents_vel: torch.Tensor = None, other_agents_dis: torch.Tensor = None, level_vel: torch.Tensor = None, level_pos: torch.Tensor = None, level_rot: torch.Tensor = None, level_dis: torch.Tensor = None,):

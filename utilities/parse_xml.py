@@ -15,6 +15,7 @@ from utilities.parse_map_base import ParseMapBase
 
 from utilities.colors import Color
 
+from utilities.constants import SCENARIOS, AGENTS, THRESHOLD
 
 class ParseXML(ParseMapBase):
     def __init__(self, scenario_type, device="cpu", **kwargs):
@@ -31,24 +32,22 @@ class ParseXML(ParseMapBase):
             [3, 5, 9, 11, 72, 91, 93, 81, 83, 87, 89, 46, 13, 15], # Loop 7
         ]
         
+        self._intersection_outer_boundary_ids = [
+            18, 44, 96, 70
+        ] # Take the right boundaries of these lanelets to form the outer boundaries of the intersection
+            
         # Hard code the size of the map in the CPM Lab
-        self.bounds["min_x"] = 0
-        self.bounds["max_x"] = 4.5
-        self.bounds["min_y"] = 0
-        self.bounds["max_y"] = 4.0
-        
-        # Visualization
-        self._is_visu_lane_ids = False  # Whether to visualize the IDs of the lanes
-        self._linewidth = 1.0
-        self._fontsize = 12
-
+        self.bounds["min_x"] = SCENARIOS[self._scenario_type]["x_dim_min"]
+        self.bounds["max_x"] = SCENARIOS[self._scenario_type]["x_dim_max"]
+        self.bounds["min_y"] = SCENARIOS[self._scenario_type]["y_dim_min"]
+        self.bounds["max_y"] = SCENARIOS[self._scenario_type]["y_dim_max"]
         
         self._parse_map_file()
-        
-        if self._is_visualize_map:
-            self.visualize_map(is_show_an_agent=False)
 
         self._get_reference_paths(is_show_each_ref_path=False)
+        
+        if self._is_visualize_map:
+            self.visualize_map()
         
     def _parse_map_file(self):
         tree = ET.parse(self._map_path)
@@ -57,6 +56,8 @@ class ParseXML(ParseMapBase):
         for child in root:
             if child.tag == "lanelet":
                 lanelets.append(self._parse_lanelet(child))
+            elif child.tag == "intersection":
+                self._parse_intersections(child)
 
         # Storing all the map data
         self.lanelets_all = lanelets
@@ -120,6 +121,17 @@ class ParseXML(ParseMapBase):
         
         return lanelet_data
     
+    # Function to parse intersections
+    def _parse_intersections(self, element):
+        for incoming in element.findall("incoming"):
+            incoming_info = {
+                "incomingLanelet": int(incoming.find("incomingLanelet").get("ref")), # The starting lanelet of a part of the intersection
+                "successorsRight": int(incoming.find("successorsRight").get("ref")), # The successor right lanelet of the incoming lanelet
+                "successorsStraight": [int(s.get("ref")) for s in incoming.findall("successorsStraight")], # The successor lanelet(s) of the incoming lanelet
+                "successorsLeft": int(incoming.find("successorsLeft").get("ref")), # The successor left lanelet of the incoming lanelet
+            }
+            self._intersection_info.append(incoming_info)
+
     def _parse_bound(self, element):
         """ Parses a bound (left boundary or right boundary) element to extract points and line marking. """
         points = [self._parse_point(point) for point in element.findall("point")]
@@ -133,13 +145,15 @@ class ParseXML(ParseMapBase):
         y = float(element.find("y").text) if element.find("y") is not None else None
         return torch.tensor([x, y], device=self._device)
     
-    def visualize_map(self, is_show_an_agent):
-        x_lim = 4.5 # [m] Dimension in x-direction 
-        y_lim = 4.0 # [m] Dimension in y-direction 
+    def visualize_map(self):
+        figsize_x = SCENARIOS[self._scenario_type]["figsize_x"]
+        aspect_ratio = self.bounds["max_y"] / self.bounds["max_x"]
 
         # Set up the plot
-        plt.figure(figsize=(x_lim*3, y_lim*3))  # Size in inches, adjusted for 4.0m x 4.5m dimensions
-        plt.axis("equal")  # Ensure x and y dimensions are equally scaled
+        fig, ax = plt.subplots(figsize=(figsize_x, figsize_x * aspect_ratio), constrained_layout=True)  # Size in inches, adjusted for 4.0m x 4.5m dimensions
+
+        ax.set_aspect('equal', adjustable='box')  # Ensures equal scaling
+        ax.grid(True, linewidth=0.3)
 
         for lanelet in self.lanelets_all:
             # Extract coordinates for left, right, and center lines
@@ -157,38 +171,64 @@ class ParseXML(ParseMapBase):
             color = np.random.rand(3,) if is_use_random_color else "grey"
 
             # Plot left boundary
-            plt.plot(left_bound[:, 0], left_bound[:, 1], linestyle="--" if left_line_marking == "dashed" else "-", color=color, linewidth=self._linewidth)
+            ax.plot(left_bound[:, 0], left_bound[:, 1], linestyle="--" if left_line_marking == "dashed" else "-", color=color, linewidth=self._linewidth)
             # Plot right boundary
-            plt.plot(right_bound[:, 0], right_bound[:, 1], linestyle="--" if right_line_marking == "dashed" else "-", color=color, linewidth=self._linewidth)
+            ax.plot(right_bound[:, 0], right_bound[:, 1], linestyle="--" if right_line_marking == "dashed" else "-", color=color, linewidth=self._linewidth)
             # Plot center line
-            # plt.plot(center_line[:, 0], center_line[:, 1], linestyle="--" if center_line_marking == "dashed" else "-", color=color, linewidth=self._linewidth)
+            # ax.plot(center_line[:, 0], center_line[:, 1], linestyle="--" if center_line_marking == "dashed" else "-", color=color, linewidth=self._linewidth)
             # Adding lanelet ID as text
             if self._is_visu_lane_ids:
-                plt.text(center_line[int(len(center_line)/2), 0], center_line[int(len(center_line)/2), 1], str(lanelet["id"]), color=color, fontsize=self._fontsize)
+                ax.text(center_line[int(len(center_line)/2), 0], center_line[int(len(center_line)/2), 1], str(lanelet["id"]), color=color, fontsize=self._fontsize)
                 
-        if is_show_an_agent:
-            w = 0.1 # Width
-            l = 0.2 # Length
+                
+        n_agents = SCENARIOS[self._scenario_type]["n_agents"]
+        
+        if self._is_visualize_intersection:
+            self._visualize_intersection()
             
-            rec_x = [0.208, 0.208, 0.208 + w, 0.208 + w, 0.208]
-            rec_y = [2.1, 2.1 - l, 2.1 - l, 2.1, 2.1]
-            plt.fill(rec_x, rec_y, color=Color.blue100)
+        if self._scenario_type == "CPM_mixed":            
+            if self._is_visualize_random_agents:
+                self._visualize_random_agents(ax, self.reference_paths_intersection, n_agents)
+        else:
+            if self._is_visualize_random_agents:
+                self._visualize_random_agents(ax, self.reference_paths, n_agents)
 
-        plt.xlabel(r"$x$ [m]", fontsize=18)
-        plt.ylabel(r"$y$ [m]", fontsize=18)
-        plt.xlim((0, x_lim))
-        plt.ylim((0, y_lim))
-        plt.xticks(np.arange(0, x_lim+0.05, 0.5), fontsize=self._fontsize)
-        plt.yticks(np.arange(0, y_lim+0.05, 0.5), fontsize=self._fontsize)
-        plt.title("CPM Map Visualization", fontsize=18)
+        # ax.xlabel(r"$x$ [m]", fontsize=self._fontsize)
+        # ax.ylabel(r"$y$ [m]", fontsize=self._fontsize)
+        ax.set_xlim((0, self.bounds["max_x"]))
+        ax.set_ylim((0, self.bounds["max_y"]))
+        # ax.xticks(np.arange(0, self.bounds["max_x"]+0.05, 0.5), fontsize=self._fontsize)
+        # ax.yticks(np.arange(0, self.bounds["max_y"]+0.05, 0.5), fontsize=self._fontsize)
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+        # Remove the outer box
+        for spine in ax.spines.values():
+            spine.set_visible(False)
 
         # Save fig
         if self._is_save_fig:
             plt.tight_layout() # Set the layout to be tight to minimize white space
             plt.savefig(self._scenario_type + ".pdf", format="pdf", bbox_inches="tight")
+            print(f"A fig is saved at {self._scenario_type + '.pdf'}")
             
         if self._is_plt_show:
             plt.show()
+
+    def _visualize_intersection(self):
+        intersection_boundary = []
+        
+        for j in self._intersection_outer_boundary_ids:
+            lanelet = self.lanelets_all[j-1]
+            right_bound = lanelet["right_boundary"]
+            intersection_boundary.append(right_bound)
+
+            # # Plot right boundary
+            # plt.plot(right_bound[:, 0], right_bound[:, 1], linestyle="--" if right_line_marking == "dashed" else "-", color=color, linewidth=line_width)
+            
+        intersection_boundary = torch.vstack([b for b in intersection_boundary])
+
+        plt.fill(intersection_boundary[:, 0], intersection_boundary[:, 1], color='grey', alpha=0.2)
 
     def _get_reference_paths(self, is_show_each_ref_path):        
         # Mapping agent_id to loop index and starting lanelet: agent_id: (loop_index, starting_lanelet)
@@ -382,9 +422,15 @@ class ParseXML(ParseMapBase):
 
 if __name__ == "__main__":
     parser = ParseXML(
-        map_path="assets/maps/cpm.xml",
+        scenario_type="CPM_entire",
         device="cpu" if not torch.cuda.is_available() else "cuda:0",
+        is_visualize_map=True,
+        is_save_fig=True,
+        is_plt_show=False,
+        is_visu_lane_ids=False,
+        is_visualize_random_agents=True,
+        is_visualize_intersection=True,
     )
     
-    print(parser.lanelets_all)
-    print(parser.reference_paths)
+    # print(parser.lanelets_all)
+    # print(parser.reference_paths)

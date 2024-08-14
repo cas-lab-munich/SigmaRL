@@ -3,10 +3,12 @@ import torch
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 
+from termcolor import colored, cprint
+
 # Scientific plotting
 import scienceplots # Do not remove (https://github.com/garrettj403/SciencePlots)
 plt.rcParams.update({'figure.dpi': '100'}) # Avoid DPI problem (https://github.com/garrettj403/SciencePlots/issues/60)
-plt.style.use(['science','ieee']) # The science + ieee styles for IEEE papers (can also be one of 'ieee' and 'science' )
+plt.style.use(['science','ieee','no-latex']) # The science + ieee styles for IEEE papers (can also be one of 'ieee' and 'science' )
 # print(plt.style.available) # List all available style
 
 import os
@@ -18,7 +20,11 @@ if project_root not in sys.path:
     
 from utilities.parse_map_base import ParseMapBase
 
-from utilities.colors import Color
+from utilities.helper_scenario import get_rectangle_vertices
+
+from utilities.colors import Color, colors
+
+from utilities.constants import SCENARIOS, AGENTS, THRESHOLD
 
 class ParseOSM(ParseMapBase):
     """
@@ -32,105 +38,12 @@ class ParseOSM(ParseMapBase):
     def __init__(self, scenario_type, device, **kwargs):
         super().__init__(scenario_type, device, **kwargs)  # Initialize base class
         
-        self._reference_paths_ids = []  # A list of lists. Each sub-list stores the IDs of lanelets building a reference path
-        
-        if "intersection_1a" in scenario_type:
-            self._reference_paths_ids = [
-                ["1", "2"],
-                ["1", "3"],
-                ["1", "4"],
-                ["5"],
-            ]
-            self._neighboring_lanelet_ids = {  # Based on the "v" values stored at the OSM file. An example: <tag k='lanes' v='7' />
-                "1": ["1", "2", "3", "4"],  # Lanelet with ID "1"
-                "2": ["1", "2", "3", "4", "5"],  # Lanelet with ID "2"
-                "3": ["1", "2", "3", "5"],  # Lanelet with ID "3"
-                "4": ["1", "2", "3", "4", "5"],  # Lanelet with ID "4"
-                "5": ["2", "3", "4", "5"],  # Lanelet with ID "5"
-            }
-            self._fig_title = "Intersection 1a"  # Set the title for the figure
-        elif "intersection_1b" in scenario_type:
-            self._reference_paths_ids = [
-                ["1", "2", "5", "10"],
-                ["1", "2", "6", "11"],
-                ["1", "3"],
-                ["1", "4"],
-                ["8", "9", "11"],
-                ["8", "7", "10"],
-            ]
-            self._neighboring_lanelet_ids = {
-                "1": ["1", "2", "3", "4"],
-                "2": ["1", "2", "3", "4", "5", "6"],
-                "3": ["1", "2", "3", "4", "8"],
-                "4": ["1", "2", "3", "4", "11"],
-                "5": ["2", "5", "6", "7", "9"],
-                "6": ["5", "6", "9", "11"],
-                "7": ["5", "7", "8", "9", "10"],
-                "8": ["3", "7", "8", "9"],
-                "9": ["5", "6", "7", "8", "9", "11"],
-                "10": ["5", "7", "10"],
-                "11": ["4", "6", "11"],
-            }
-            self._fig_title = "Intersection 1b"
-        elif "intersection_2" in scenario_type:
-            self._reference_paths_ids = [
-                ["1"],
-                ["2", "3"],
-                ["2", "7"],
-                ["4"],
-                ["5", "6"],
-                ["8", "6"]
-            ]
-            self._neighboring_lanelet_ids = {  # Based on the "v" values stored at the OSM file. An example: <tag k='lanes' v='7' />
-                "1": ["1"],  # Lanelet with ID "1"
-                "2": ["2", "3", "7"],  # Lanelet with ID "2"
-                "3": ["3", "2"],  # Lanelet with ID "3"
-                "4": ["4", "7"],  # Lanelet with ID "4"
-                "5": ["5", "6", "7", "8"],  # Lanelet with ID "5"
-                "6": ["6", "5", "8"],  # Lanelet with ID "6"
-                "7": ["7", "2", "4", "5"],  # Lanelet with ID "7"
-                "8": ["8", "5", "6"],  # Lanelet with ID "8"
-            }
-            self._fig_title = "Intersection 2"
-        elif "merge_in_1" in scenario_type:
-            self._reference_paths_ids = [
-                ["1", "3", "5", "7"], 
-                ["2", "3", "5", "7"], 
-                ["4", "5", "7"], 
-                ["6", "7"], 
-            ]
-            self._neighboring_lanelet_ids = {  # Based on the "v" values stored at the OSM file. An example: <tag k='lanes' v='7' />
-                    "1": ["1", "2", "3"],  # Lanelet with ID "1"
-                    "2": ["1", "2", "3"],  # Lanelet with ID "2"
-                    "3": ["1", "2", "3","4", "5"],  # Lanelet with ID "3"
-                    "4": ["3","4", "5"],  # Lanelet with ID "4"
-                    "5": ["3","4", "5", "6", "7"],  # Lanelet with ID "5"
-                    "6": ["5", "6", "7"],  # Lanelet with ID "6"
-                    "7": ["5", "6", "7"],  # Lanelet with ID "7"
-            }
-            self._fig_title = "Merge-in 1"
-        elif "roundabout_1" in scenario_type:
-            self._reference_paths_ids = [
-                ["1", "2", "9"], 
-                ["1", "3", "7", "9"], 
-                ["1", "4", "8", "9"], 
-                ["5", "7", "9"], 
-                ["6", "8", "9"], 
-            ]
-            self._neighboring_lanelet_ids = {  # Based on the "v" values stored at the OSM file. An example: <tag k='lanes' v='7' />
-                    "1": ["1", "2", "3", "4"],  # Lanelet with ID "1"
-                    "2": ["1", "2", "7", "8", "9"],  # Lanelet with ID "2"
-                    "3": ["3","5", "7"],  # Lanelet with ID "3"
-                    "4": ["4","6", "8"],  # Lanelet with ID "4"
-                    "5": ["3","5", "7"],  # Lanelet with ID "5"
-                    "6": ["4", "6", "8"],  # Lanelet with ID "6"
-                    "7": ["2", "7", "8", "9"],  # Lanelet with ID "7"
-                    "8": ["2", "7", "8", "9"],  # Lanelet with ID "8"
-                    "9": ["2", "7", "8", "9"],  # Lanelet with ID "9"
-            }
-            self._fig_title = "Roundabout 1"
-        else:
-            raise ValueError(f"{scenario_type} does not exist. If you have addef new scenarios, please include them here.")
+        try:
+            self._reference_paths_ids = SCENARIOS[scenario_type]["reference_paths_ids"]  # A list of lists. Each sub-list stores the IDs of lanelets building a reference path
+            self._neighboring_lanelet_ids = SCENARIOS[scenario_type]["neighboring_lanelet_ids"]
+            self._fig_title = SCENARIOS[scenario_type]["name"]
+        except(KeyError):
+            raise KeyError(f"Scenario '{scenario_type}' does not exist. If you have added new scenarios, please include them in `SCENARIOS` in utilities/constants.py.")
 
         self._nodes = {}
         self._ways = {}
@@ -141,7 +54,7 @@ class ParseOSM(ParseMapBase):
         self._determine_neighboring_lanelets()
         
         if self._is_visualize_map:
-            self.visualize_map()
+            self._visualize_map()
 
     def _parse_map_file(self):
         """Parse the OSM file and extract bounds, nodes, and ways."""
@@ -323,7 +236,7 @@ class ParseOSM(ParseMapBase):
 
         return torch.stack(left_boundary), torch.stack(right_boundary)
 
-    def visualize_map(self, is_save_fig=True, is_show=False, is_show_an_agent=False):
+    def _visualize_map(self):
         """
         Visualize the map.
         """
@@ -349,11 +262,21 @@ class ParseOSM(ParseMapBase):
         x_lim_max = max(all_x)
         y_lim_min = min(all_y)
         y_lim_max = max(all_y)
+        
+        print(f"x_lim_min: {x_lim_min} m")
+        print(f"x_lim_max: {x_lim_max} m")
+        print(f"y_lim_min: {y_lim_min} m")
+        print(f"y_lim_max: {y_lim_max} m")
+        
+        print(f"x_world_dim: {x_lim_max + x_lim_min}")  # A workaround because VMAS assumes (0, 0) is the origin of the map
+        print(f"y_world_dim: {y_lim_max + y_lim_min}")
 
         # Set up the plot
-        plt.figure(figsize=(x_lim_max - x_lim_min, y_lim_max - y_lim_min))  # Size in inches, adjusted for 4.0m x 4.5m dimensions
-        plt.axis("equal")  # Ensure x and y dimensions are equally scaled
-        plt.grid(True, linewidth=0.3)
+        aspect_ratio = (y_lim_max - y_lim_min) / (x_lim_max - x_lim_min)
+        figsize_x = SCENARIOS[self._scenario_type]["figsize_x"]
+        fig, ax = plt.subplots(figsize=(figsize_x, figsize_x * aspect_ratio))
+        ax.set_aspect('equal', adjustable='box')  # Ensures equal scaling
+        ax.grid(True, linewidth=0.3)
         
         for path in self.reference_paths:
             center_line = path['center_line']
@@ -361,40 +284,52 @@ class ParseOSM(ParseMapBase):
             right_boundary = path['right_boundary']
             center_line_vec_normalized = path['center_line_vec_normalized']
 
+            ax.plot(center_line[:, 0], center_line[:, 1], color=Color.black50, linestyle="--", linewidth=self._linewidth, label='Center Line', zorder=1)
+            ax.plot(left_boundary[:, 0], left_boundary[:, 1], color=Color.black50, linestyle="-", linewidth=self._linewidth, label='Left Boundary', zorder=1)
+            ax.plot(right_boundary[:, 0], right_boundary[:, 1], color=Color.black50, linestyle="-", linewidth=self._linewidth, label='Right Boundary', zorder=1)
 
-            plt.plot(center_line[:, 0], center_line[:, 1], color = Color.black50, linestyle="--", linewidth=self._linewidth, label='Center Line')
-            plt.plot(left_boundary[:, 0], left_boundary[:, 1], color = Color.black50, linestyle="-", linewidth=self._linewidth, label='Left Boundary')
-            plt.plot(right_boundary[:, 0], right_boundary[:, 1], color = Color.black50, linestyle="-", linewidth=self._linewidth, label='Right Boundary')
             # Fill the area between boundaries
             curve_close = torch.vstack([left_boundary, right_boundary.flip(0)])
-            plt.fill(curve_close[:,0], curve_close[:,1], color="lightgrey", alpha=0.5)
+            # ax.fill(curve_close[:,0], curve_close[:,1], color="lightgrey", alpha=0.4)
         
             # Add arrows to indicate direction
             p_start = center_line[0]
             direction_start = center_line_vec_normalized[0]
-            plt.quiver(p_start[0], p_start[1], direction_start[0], direction_start[1], angles='xy', scale_units='xy', scale=1.5, color='b')
+            ax.quiver(p_start[0], p_start[1], direction_start[0], direction_start[1], angles='xy', scale_units='xy', scale=3, color='black', zorder=2)
+
             # Calculate the starting point for the ending arrow
             p_end = center_line[-1]
             direction_end = center_line_vec_normalized[-1]
-            arrow_length = 0.65  # Adjust here for your case
+            arrow_length = 0.3  # Adjust here for your case
             # Starting point for the ending arrow such that it ends at the last point
             p_end_start = p_end - direction_end * arrow_length
-            plt.quiver(p_end_start[0], p_end_start[1], direction_end[0], direction_end[1], angles='xy', scale_units='xy', scale=1.5, color='b', alpha=0.2)
+            # ax.quiver(p_end_start[0], p_end_start[1], direction_end[0], direction_end[1], angles='xy', scale_units='xy', scale=1.5, color='b', alpha=0.2, zorder=2)
             
             if self._is_visu_lane_ids:
-                plt.text(center_line[int(len(center_line)/2), 0], center_line[int(len(center_line)/2), 1], str(path["lanelet_IDs"]), fontsize=self._fontsize)
+                ax.text(center_line[int(len(center_line)/2), 0], center_line[int(len(center_line)/2), 1], str(path["lanelet_IDs"]), fontsize=self._fontsize, zorder=2)
 
-        plt.xlim(x_lim_min, x_lim_max)
-        plt.ylim(y_lim_min, y_lim_max)
+            # ax.set_xlabel(r'$x$ [m]')
+            # ax.set_ylabel(r'$y$ [m]')
+            
+            offset = 0.05
+            ax.set_xlim(x_lim_min - offset, x_lim_max + offset)
+            ax.set_ylim(y_lim_min - offset, y_lim_max + offset)
+        # plt.title(self._fig_title, fontsize=self._fontsize)
         
-        plt.xlabel(r'$x$ [m]')
-        plt.ylabel(r'$y$ [m]')
-        plt.title(self._fig_title, fontsize=self._fontsize)
-        
+        if self._is_visualize_random_agents:
+            n_agents = SCENARIOS[self._scenario_type]["n_agents"]
+            self._visualize_random_agents(ax, self.reference_paths, n_agents)
+            
         # Use MaxNLocator to ensure ticks are at readable intervals
-        ax = plt.gca()
-        ax.xaxis.set_major_locator(MaxNLocator(integer=False, prune='both', nbins='auto'))
-        ax.yaxis.set_major_locator(MaxNLocator(integer=False, prune='both', nbins='auto'))
+        # ax = plt.gca()
+        # ax.xaxis.set_major_locator(MaxNLocator(integer=False, prune='both', nbins='auto'))
+        # ax.yaxis.set_major_locator(MaxNLocator(integer=False, prune='both', nbins='auto'))
+        ax.set_xticks([])
+        ax.set_yticks([])
+        
+        # Remove the outer box
+        for spine in ax.spines.values():
+            spine.set_visible(False)
         
         if self._is_save_fig:
             # Save fig
@@ -405,18 +340,21 @@ class ParseOSM(ParseMapBase):
         if self._is_plt_show:
             plt.show()
 
+
+    
 if __name__ == "__main__":
     parser = ParseOSM(
-        scenario_type="intersection_1b",  # merge_in_1, roundabout_1, intersection_1a, intersection_1b, intersection_2
+        scenario_type="intersection_2",  # intersection_1, intersection_2, intersection_3, on_ramp_1, roundabout_1
         width=0.15,  # [m]
         scale=1e5,
         device="cpu" if not torch.cuda.is_available() else "cuda:0",
         is_share_lanelets=False,
         is_visualize_map=True,
+        is_visualize_random_agents=True,
         is_save_fig=True,
         is_plt_show=True,
         is_visu_lane_ids=False,
     )
     
-    print(parser.lanelets_all)
-    print(parser.reference_paths)
+    # print(parser.lanelets_all)
+    # print(parser.reference_paths)

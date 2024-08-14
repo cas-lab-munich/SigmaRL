@@ -19,6 +19,10 @@ if project_root not in sys.path:
 from utilities.colors import Color # Do not remove (https://github.com/garrettj403/SciencePlots)
 # print(plt.style.available) # List all available style
 
+from utilities.constants import SCENARIOS, AGENTS, THRESHOLD
+
+from utilities.helper_scenario import get_rectangle_vertices
+
 class ParseMapBase(ABC):
     """
     Base class for map parse.
@@ -33,6 +37,8 @@ class ParseMapBase(ABC):
         self._is_save_fig = kwargs.pop("is_save_fig", False)
         self._is_plt_show = kwargs.pop("is_plt_show", False)
         self._is_visu_lane_ids = kwargs.pop("is_visu_lane_ids", False)
+        self._is_visualize_random_agents = kwargs.pop("is_visualize_random_agents", False)
+        self._is_visualize_intersection = kwargs.pop("is_visualize_intersection", False)  # For the CPM Scenario only
         
         self._width = kwargs.pop("width", [])  # Width of the lane
         self._scale = kwargs.pop("scale", [])  # Scale of the map
@@ -52,6 +58,8 @@ class ParseMapBase(ABC):
         self.reference_paths_intersection = []
         self.reference_paths_merge_in = []
         self.reference_paths_merge_out = []
+        
+        self._intersection_info = []  # For the CPM Scenario only
 
         self._linewidth = 0.5
         self._fontsize = 12
@@ -61,17 +69,32 @@ class ParseMapBase(ABC):
         
     def _get_map_path(self):
         # Get the path to the corresponding map for the given scenario type
-        # The most easy way to get the path of the target scenario type is to name the map file with `scenario_type` and store it at assets/maps/
-        map_path_tentative_osm = f"assets/maps/{self._scenario_type}.osm"
+        self._map_path = SCENARIOS[self._scenario_type]["map_path"]
+            
+
+    def _visualize_random_agents(self, ax, reference_paths, n_agents):
+        # Get the number of agents to be visualized
         
-        if ("cpm" in self._scenario_type) or ("CPM" in self._scenario_type):
-            self._map_path = "assets/maps/cpm.xml"
-        elif os.path.exists(map_path_tentative_osm):
-            self._map_path = map_path_tentative_osm
-        else:
-            raise ValueError(f"No map file can be found for {self._scenario_type}. The map file must have the same name as the scenario type and stored at 'assets/maps/'")
+        initial_distance_threshold = THRESHOLD["initial_distance"]
+        width = AGENTS["width"]
+        length = AGENTS["length"]
+                
+        positions, rotations = self.generate_random_states(reference_paths, self._device, n_agents, initial_distance_threshold)
         
-    staticmethod
+        vertices = get_rectangle_vertices(
+            center=positions,
+            yaw=rotations, 
+            width=width, 
+            length=length,
+            is_close_shape=True
+        )  # Get the vertices of the agents
+        
+        for i_agent in range(n_agents):
+            # plt.fill(vertices[i_agent, :, 0], vertices[i_agent, :, 1], color="grey")
+            polygon = plt.Polygon(vertices[i_agent], closed=True, edgecolor='black', linewidth=0.4, facecolor="grey", zorder=3)
+            ax.add_patch(polygon)
+            
+    @staticmethod
     def get_center_length_yaw_polyline(polyline: torch.Tensor):
         """
         This function calculates the center points, lengths, and yaws of all line segments of the given polyline.
@@ -84,6 +107,47 @@ class ParseMapBase(ABC):
         yaws = torch.atan2(polyline_vecs[:, 1], polyline_vecs[:, 0])
 
         return center_points, lengths, yaws, polyline_vecs
+    
+    @staticmethod
+    def generate_random_states(reference_paths, device, n_agents, initial_distance_threshold):
+        positions = torch.zeros((n_agents, 2), device=device, dtype=torch.float32)
+        rotations = torch.zeros((n_agents, 1), device=device, dtype=torch.float32)
+        
+        for i_agent in range(n_agents):
+            # Get random states
+            is_feasible_initial_position_found = False
+            random_count = 0
+            while not is_feasible_initial_position_found:
+                if random_count >= 20:
+                    print(f"Reset agent(s): random_count = {random_count}.")
+                random_count += 1
+                
+                path_id = torch.randint(0, len(reference_paths), (1,)).item() # Select randomly a path
+                ref_path = reference_paths[path_id]
+                
+                num_points = ref_path["center_line"].shape[0]
+                
+                start_point_idx = 6  # Do not set to an overly small value to make sure agents are fully inside its lane 
+                end_point_idx = num_points - 3
+                    
+                random_point_id = torch.randint(start_point_idx, end_point_idx, (1,)).item()
+                
+                positions[i_agent, :] = ref_path["center_line"][random_point_id]
+
+                # Check if the initial position is feasible
+                if i_agent == 0:
+                    # The initial position of the first agent is always feasible
+                    is_feasible_initial_position_found = True
+                else:           
+                    diff_sq = (positions[i_agent, :] - positions[0:i_agent, :]) ** 2 # Calculate pairwise squared distances between the current agent and the agents that have already obtained feasible initial positions
+                    initial_mutual_distances_sq = torch.sum(diff_sq, dim=-1)
+                    min_distance_sq = torch.min(initial_mutual_distances_sq)
+                    
+                    is_feasible_initial_position_found = min_distance_sq >= (initial_distance_threshold ** 2)
+
+            rotations[i_agent] = ref_path["center_line_yaw"][random_point_id]
+        
+        return positions, rotations
     
     @abstractmethod
     def _parse_map_file():

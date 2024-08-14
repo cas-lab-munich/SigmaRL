@@ -89,3 +89,9 @@ class Color:
     black50 = RGBColor(156, 158, 159).value
     black25 = RGBColor(207, 209, 210).value
     black10 = RGBColor(236, 237, 237).value
+
+
+colors = [
+    Color.blue100, Color.maygreen100, Color.violet100, Color.green100, Color.red100, Color.orange100, Color.purple100, Color.bordeaux100, Color.turquoise50, Color.petrol100, Color.yellow100, Color.magenta100, Color.black100,
+    Color.blue50, Color.maygreen50, Color.violet50, Color.green50, Color.red50, Color.orange50, Color.purple50, Color.bordeaux50, Color.turquoise50, Color.petrol50, Color.yellow50, Color.magenta50, Color.black50,
+]
