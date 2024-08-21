@@ -1,7 +1,7 @@
 # SigmaRL: A Sample-Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning
 <!-- icons from https://simpleicons.org/ -->
-<a href="http://dx.doi.org/10.13140/RG.2.2.24505.17769" target="_blank"><img src="https://img.shields.io/badge/Preprint-Paper-00629B"></a>
-<a href="https://youtu.be/36gCamoqEcA" target="_blank"><img src="https://img.shields.io/badge/-Video-FF0000?logo=YouTube"></a>
+<a href="https://doi.org/10.48550/arXiv.2408.07644" target="_blank"><img src="https://img.shields.io/badge/Preprint-Paper-00629B"></a>
+<a href="https://youtu.be/tzaVjol4nhA" target="_blank"><img src="https://img.shields.io/badge/-Video-FF0000?logo=YouTube"></a>
 <a href="https://github.com/cas-lab-munich/SigmaRL" target="_blank"><img src="https://img.shields.io/badge/-GitHub-181717?logo=GitHub"></a>
 
 This repository provides the full code for the paper "SigmaRL: A Sample-Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning".
@@ -60,23 +60,12 @@ We support maps customized in <a href="https://josm.openstreetmap.de/" target="_
 ## References
 We would be grateful if you would refer to the paper below if you find this repository helpful.
 
-<summary>
-Jianye Xu, Pan Hu, Bassam Alrifaee, "SigmaRL: A Sample-Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning," ResearchGate, Preprint, 2024, doi: 10.13140/RG.2.2.24505.17769
-<br>
-</summary>
-
-<summary>
-References in Bibtex format
-</summary>
-<p>
-
+- Jianye Xu, Pan Hu, Bassam Alrifaee, "SigmaRL: A Sample-Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning," *arXiv preprint arXiv:2408.07644*, 2024.
 ```bibtex
-@article{xu2024sample,
-    author  = {Jianye Xu and Pan Hu and Bassam Alrifaee},
-    title   = {SigmaRL: A Sample-Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning},
-    year    = {2024},
-    doi     = {10.13140/RG.2.2.24505.17769},
-    note    = {Accepted by 27th IEEE International Conference on Intelligent Transportation Systems (IEEE ITSC 2024)},
+@article{xu2024sigmarl,
+  title={SigmaRL: A Sample-Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning},
+  author={Xu, Jianye and Hu, Pan and Alrifaee, Bassam},
+  journal={arXiv preprint arXiv:2408.07644},
+  year={2024},
 }
 ```
-</p>
