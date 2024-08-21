@@ -176,7 +176,7 @@ class Evaluation:
             cprint("[INFO] Simulation outputs exist and will be loaded.", "grey")
             out_td = torch.load(path_eval_out_td)
         else:
-            env, policy, self.parameters = mappo_cavs(parameters=self.parameters)
+            env, policy, _ = mappo_cavs(parameters=self.parameters)
             
             cprint("[INFO] Run simulation...", "grey")
             sim_begin = time.time()
