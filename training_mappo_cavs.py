@@ -1,3 +1,6 @@
+# Copyright (c) 2024, Chair of Embedded Software (Informatik 11), RWTH Aachen University.
+# Licensed under the MIT License. See LICENSE file in the project root for full license information.
+
 # Adapted from https://pytorch.org/rl/stable/tutorials/multiagent_ppo.html
 import time
 import multiprocessing
@@ -26,6 +29,7 @@ from torchrl.envs import RewardSum
 from torchrl.envs.utils import (
     check_env_specs,
 )
+
 # Multi-agent network
 from torchrl.modules import MultiAgentMLP, ProbabilisticActor, TanhNormal
 
@@ -40,15 +44,28 @@ import os, sys
 import matplotlib.pyplot as plt
 
 # Scientific plotting
-import scienceplots # Do not remove (https://github.com/garrettj403/SciencePlots)
-plt.rcParams.update({'figure.dpi': '100'}) # Avoid DPI problem (https://github.com/garrettj403/SciencePlots/issues/60)
-plt.style.use(['science','ieee']) # The science + ieee styles for IEEE papers (can also be one of 'ieee' and 'science' )
+import scienceplots  # Do not remove (https://github.com/garrettj403/SciencePlots)
+
+plt.rcParams.update(
+    {"figure.dpi": "100"}
+)  # Avoid DPI problem (https://github.com/garrettj403/SciencePlots/issues/60)
+plt.style.use(
+    ["science", "ieee"]
+)  # The science + ieee styles for IEEE papers (can also be one of 'ieee' and 'science' )
 # print(plt.style.available) # List all available style
 
 from torchrl.envs.libs.vmas import VmasEnv
 
 # Import custom classes
-from utilities.helper_training import Parameters, SaveData, TransformedEnvCustom, get_path_to_save_model, find_the_highest_reward_among_all_models, save, compute_td_error
+from utilities.helper_training import (
+    Parameters,
+    SaveData,
+    TransformedEnvCustom,
+    get_path_to_save_model,
+    find_the_highest_reward_among_all_models,
+    save,
+    compute_td_error,
+)
 
 from scenarios.road_traffic import ScenarioRoadTraffic
 
@@ -58,7 +75,7 @@ torch.manual_seed(0)
 
 def mappo_cavs(parameters: Parameters):
     scenario = ScenarioRoadTraffic()
-    
+
     scenario.parameters = parameters
 
     # Using multi-threads to handle file writing
@@ -73,7 +90,7 @@ def mappo_cavs(parameters: Parameters):
         # Scenario kwargs
         n_agents=parameters.n_agents,  # These are custom kwargs that change for each VMAS scenario, see the VMAS repo to know more.
     )
-    
+
     save_data = SaveData(
         parameters=parameters,
         episode_reward_mean_list=[],
@@ -103,7 +120,7 @@ def mappo_cavs(parameters: Parameters):
             n_agent_outputs=(2 * env.action_spec.shape[-1]),  # 2 * n_actions_per_agents
             n_agents=env.n_agents,
             centralised=False,  # the policies are decentralised (ie each agent will act from its observation)
-            share_params=True, # sharing parameters means that agents will all share the same policy, which will allow them to benefit from each other’s experiences, resulting in faster training. On the other hand, it will make them behaviorally homogenous, as they will share the same model
+            share_params=True,  # sharing parameters means that agents will all share the same policy, which will allow them to benefit from each other’s experiences, resulting in faster training. On the other hand, it will make them behaviorally homogenous, as they will share the same model
             device=parameters.device,
             depth=2,
             num_cells=256,
@@ -117,7 +134,10 @@ def mappo_cavs(parameters: Parameters):
     policy_module = TensorDictModule(
         policy_net,
         in_keys=[("agents", "observation")],
-        out_keys=[("agents", "loc"), ("agents", "scale")], # represents the parameters of the policy distribution for each agent
+        out_keys=[
+            ("agents", "loc"),
+            ("agents", "scale"),
+        ],  # represents the parameters of the policy distribution for each agent
     )
 
     # Use a probabilistic actor allows for exploration
@@ -132,58 +152,90 @@ def mappo_cavs(parameters: Parameters):
             "max": env.unbatched_action_spec[env.action_key].space.high,
         },
         return_log_prob=True,
-        log_prob_key=("agents", "sample_log_prob"), # log probability favors numerical stability and gradient calculation
+        log_prob_key=(
+            "agents",
+            "sample_log_prob",
+        ),  # log probability favors numerical stability and gradient calculation
     )  # we'll need the log-prob for the PPO loss
 
     mappo = True  # IPPO (Independent PPO) if False
 
     critic_net = MultiAgentMLP(
-        n_agent_inputs=env.observation_spec["agents", "observation"].shape[-1], # Number of observations
+        n_agent_inputs=env.observation_spec["agents", "observation"].shape[
+            -1
+        ],  # Number of observations
         n_agent_outputs=1,  # 1 value per agent
         n_agents=env.n_agents,
-        centralised=mappo, # If `centralised` is True (which may help overcome the non-stationary problem in MARL), each agent will use the inputs of all agents to compute its output (n_agent_inputs * n_agents will be the number of inputs for one agent). Otherwise, each agent will only use its data as input.
-        share_params=True, # If `share_params` is True, the same MLP will be used to make the forward pass for all agents (homogeneous policies). Otherwise, each agent will use a different MLP to process its input (heterogeneous policies).
+        centralised=mappo,  # If `centralised` is True (which may help overcome the non-stationary problem in MARL), each agent will use the inputs of all agents to compute its output (n_agent_inputs * n_agents will be the number of inputs for one agent). Otherwise, each agent will only use its data as input.
+        share_params=True,  # If `share_params` is True, the same MLP will be used to make the forward pass for all agents (homogeneous policies). Otherwise, each agent will use a different MLP to process its input (heterogeneous policies).
         device=parameters.device,
         depth=2,
         num_cells=256,
         activation_class=torch.nn.Tanh,
     )
-    
+
     # print(critic_net)
-    
+
     critic = TensorDictModule(
         module=critic_net,
-        in_keys=[("agents", "observation")], # Note that the critic in PPO only takes the same inputs (observations) as the actor
+        in_keys=[
+            ("agents", "observation")
+        ],  # Note that the critic in PPO only takes the same inputs (observations) as the actor
         out_keys=[("agents", "state_value")],
     )
 
     # Check if the directory defined to store the model exists and create it if not
     if not os.path.exists(parameters.where_to_save):
         os.makedirs(parameters.where_to_save)
-        print(colored("[INFO] Created a new directory to save the trained model:", "black"), colored(f"{parameters.where_to_save}", "blue"))
+        print(
+            colored(
+                "[INFO] Created a new directory to save the trained model:", "black"
+            ),
+            colored(f"{parameters.where_to_save}", "blue"),
+        )
 
     # Load an existing model or train a new model?
     if parameters.is_load_model:
         # Load the model with the highest reward in the folder `parameters.where_to_save`
-        highest_reward = find_the_highest_reward_among_all_models(parameters.where_to_save)
-        parameters.episode_reward_mean_current = highest_reward # Update the parameter so that the right filename will be returned later on 
-        if highest_reward is not float('-inf'):
+        highest_reward = find_the_highest_reward_among_all_models(
+            parameters.where_to_save
+        )
+        parameters.episode_reward_mean_current = highest_reward  # Update the parameter so that the right filename will be returned later on
+        if highest_reward is not float("-inf"):
             if parameters.is_load_final_model:
-                policy.load_state_dict(torch.load(parameters.where_to_save + "final_policy.pth"))
-                print(colored("[INFO] Loaded the final model (instead of the intermediate model with the highest episode reward)", "red"))
+                policy.load_state_dict(
+                    torch.load(parameters.where_to_save + "final_policy.pth")
+                )
+                print(
+                    colored(
+                        "[INFO] Loaded the final model (instead of the intermediate model with the highest episode reward)",
+                        "red",
+                    )
+                )
             else:
-                PATH_POLICY, PATH_CRITIC, PATH_FIG, PATH_JSON = get_path_to_save_model(parameters=parameters)
+                PATH_POLICY, PATH_CRITIC, PATH_FIG, PATH_JSON = get_path_to_save_model(
+                    parameters=parameters
+                )
                 # Load the saved model state dictionaries
                 policy.load_state_dict(torch.load(PATH_POLICY))
-                print(colored("[INFO] Loaded the intermediate model with the highest episode reward", "blue"))
+                print(
+                    colored(
+                        "[INFO] Loaded the intermediate model with the highest episode reward",
+                        "blue",
+                    )
+                )
         else:
-            raise ValueError("There is no model stored in '{parameters.where_to_save}', or the model names stored here are not following the right pattern.")
+            raise ValueError(
+                "There is no model stored in '{parameters.where_to_save}', or the model names stored here are not following the right pattern."
+            )
 
         if not parameters.is_continue_train:
             print(colored("[INFO] Training will not continue.", "blue"))
             return env, policy, parameters
         else:
-            print(colored("[INFO] Training will continue with the loaded model.", "red"))
+            print(
+                colored("[INFO] Training will continue with the loaded model.", "red")
+            )
             critic.load_state_dict(torch.load(PATH_CRITIC))
 
     collector = SyncDataCollector(
@@ -234,7 +286,7 @@ def mappo_cavs(parameters: Parameters):
     loss_module.make_value_estimator(
         ValueEstimators.GAE, gamma=parameters.gamma, lmbda=parameters.lmbda
     )  # We build GAE
-    GAE = loss_module.value_estimator # Generalized Advantage Estimation 
+    GAE = loss_module.value_estimator  # Generalized Advantage Estimation
 
     optim = torch.optim.Adam(loss_module.parameters(), parameters.lr)
 
@@ -267,11 +319,17 @@ def mappo_cavs(parameters: Parameters):
         # Update sample priorities
         if parameters.is_prb:
             td_error = compute_td_error(tensordict_data, gamma=0.9)
-            tensordict_data.set(("td_error"), td_error)  # Adding TD error to the tensordict_data
-            
-            assert tensordict_data["td_error"].min() >= 0, "TD error must be greater than 0"
-            
-        data_view = tensordict_data.reshape(-1)  # Flatten the batch size to shuffle data
+            tensordict_data.set(
+                ("td_error"), td_error
+            )  # Adding TD error to the tensordict_data
+
+            assert (
+                tensordict_data["td_error"].min() >= 0
+            ), "TD error must be greater than 0"
+
+        data_view = tensordict_data.reshape(
+            -1
+        )  # Flatten the batch size to shuffle data
         replay_buffer.extend(data_view)
         # replay_buffer.update_tensordict_priority() # Not necessary, as priorities were updated automatically when calling `replay_buffer.extend()`
 
@@ -288,7 +346,7 @@ def mappo_cavs(parameters: Parameters):
                     + loss_vals["loss_critic"]
                     + loss_vals["loss_entropy"]
                 )
-                
+
                 assert not loss_value.isnan().any()
                 assert not loss_value.isinf().any()
 
@@ -300,7 +358,7 @@ def mappo_cavs(parameters: Parameters):
 
                 optim.step()
                 optim.zero_grad()
-                
+
                 if parameters.is_prb:
                     # Recalculate loss
                     with torch.no_grad():
@@ -318,14 +376,18 @@ def mappo_cavs(parameters: Parameters):
         # Logging
         done = tensordict_data.get(("next", "agents", "done"))
         episode_reward_mean = (
-            tensordict_data.get(("next", "agents", "episode_reward"))[done].mean().item()
+            tensordict_data.get(("next", "agents", "episode_reward"))[done]
+            .mean()
+            .item()
         )
         episode_reward_mean = round(episode_reward_mean, 2)
         episode_reward_mean_list.append(episode_reward_mean)
-        pbar.set_description(f"episode_reward_mean = {episode_reward_mean:.2f}", refresh=False)
+        pbar.set_description(
+            f"episode_reward_mean = {episode_reward_mean:.2f}", refresh=False
+        )
 
         # env.scenario.iter = pbar.n # A way to pass the information from the training algorithm to the environment
-        
+
         if parameters.is_save_intermediate_model:
             # Update the current mean episode reward
             parameters.episode_reward_mean_current = episode_reward_mean
@@ -334,14 +396,23 @@ def mappo_cavs(parameters: Parameters):
             if episode_reward_mean > parameters.episode_reward_intermediate:
                 # Save the model if it improves the mean episode reward sufficiently enough
                 parameters.episode_reward_intermediate = episode_reward_mean
-                save(parameters=parameters, save_data=save_data, policy=policy, critic=critic)
+                save(
+                    parameters=parameters,
+                    save_data=save_data,
+                    policy=policy,
+                    critic=critic,
+                )
                 # pool.submit(save, parameters, save_data, policy, critic)
                 # multiprocessing.Process(target=save, args=(parameters, save_data, policy, critic)).start()
                 # Update the episode reward of the saved model
             else:
                 # Save only the mean episode reward list and parameters
-                parameters.episode_reward_mean_current = parameters.episode_reward_intermediate
-                save(parameters=parameters, save_data=save_data, policy=None, critic=None)
+                parameters.episode_reward_mean_current = (
+                    parameters.episode_reward_intermediate
+                )
+                save(
+                    parameters=parameters, save_data=save_data, policy=None, critic=None
+                )
                 # pool.submit(save, parameters, save_data, policy, critic)
                 # multiprocessing.Process(target=save, args=(parameters, save_data, policy, critic)).start()
 
@@ -350,94 +421,91 @@ def mappo_cavs(parameters: Parameters):
         # Learning rate schedule
         for param_group in optim.param_groups:
             # Linear decay to lr_min
-            lr_decay = (parameters.lr - parameters.lr_min) * (1 - (pbar.n / parameters.n_iters))
-            param_group['lr'] = parameters.lr_min + lr_decay
-            if (pbar.n % 10 == 0):
+            lr_decay = (parameters.lr - parameters.lr_min) * (
+                1 - (pbar.n / parameters.n_iters)
+            )
+            param_group["lr"] = parameters.lr_min + lr_decay
+            if pbar.n % 10 == 0:
                 print(f"Learning rate updated to {param_group['lr']}.")
-                
+
         pbar.update()
-        
+
     # Save the final model
     torch.save(policy.state_dict(), parameters.where_to_save + "final_policy.pth")
     torch.save(critic.state_dict(), parameters.where_to_save + "final_critic.pth")
-    print(colored("[INFO] All files have been saved under:", "black"), colored(f"{parameters.where_to_save}", "red"))
+    print(
+        colored("[INFO] All files have been saved under:", "black"),
+        colored(f"{parameters.where_to_save}", "red"),
+    )
     # plt.show()
-    
+
     training_duration = (time.time() - t_start) / 3600  # seconds to hours
     print(colored(f"[INFO] Training duration: {training_duration:.2f} hours.", "blue"))
-    
+
     return env, policy, parameters
+
 
 if __name__ == "__main__":
     scenario_name = "road_traffic"
-    
+
     parameters = Parameters(
         n_agents=4,
-        dt=0.05, # [s] sample time 
-        device="cpu" if not torch.cuda.is_available() else "cuda:0",  # The divice where learning is run
+        dt=0.05,  # [s] sample time
+        device="cpu"
+        if not torch.cuda.is_available()
+        else "cuda:0",  # The divice where learning is run
         scenario_name=scenario_name,
-        
         # Training parameters
-        n_iters=250, # Number of sampling and training iterations (on-policy: rollouts are collected during sampling phase, which will be immediately used in the training phase of the same iteration),
-        frames_per_batch=2**12, # Number of team frames collected per training iteration 
-                                    # num_envs = frames_per_batch / max_steps
-                                    # total_frames = frames_per_batch * n_iters
-                                    # sub_batch_size = frames_per_batch // minibatch_size
-        num_epochs=60,          # Optimization steps per batch of data collected,
-        minibatch_size=2**9,    # Size of the mini-batches in each optimization step (2**9 - 2**12?),
-        lr=2e-4,                # Initial learning rate,
-        lr_min=1e-5,            # Min Learning rate,
-        max_grad_norm=1.0,      # Maximum norm for the gradients,
-        clip_epsilon=0.2,       # Clip value for PPO loss,
-        gamma=0.99,             # Discount factor from 0 to 1. A greater value corresponds to a better farsight.
-        lmbda=0.9,              # lambda for generalised advantage estimation,
-        entropy_eps=1e-4,       # Coefficient of the entropy term in the PPO loss,
-        max_steps=2**7,         # Episode steps before done
-        scenario_type='CPM_mixed',  # One of {"CPM_entire", "CPM_mixed", "intersection_1", "design you own map and name it here"}
-                                            # "CPM_entire": Entire map of the CPM Lab
-                                            # "CPM_mixed": Intersection, merge-in, and merge-out of the CPM Lab. Probability defined in `cpm_scenario_probabilities`
-                                            # "intersection_1": T-Intersection with ID 1
-                                            # "design you own map and name it here"
-        is_save_intermediate_model=True, # Is this is true, the model with the highest mean episode reward will be saved,
-        
+        n_iters=250,  # Number of sampling and training iterations (on-policy: rollouts are collected during sampling phase, which will be immediately used in the training phase of the same iteration),
+        frames_per_batch=2
+        ** 12,  # Number of team frames collected per training iteration
+        # num_envs = frames_per_batch / max_steps
+        # total_frames = frames_per_batch * n_iters
+        # sub_batch_size = frames_per_batch // minibatch_size
+        num_epochs=60,  # Optimization steps per batch of data collected,
+        minibatch_size=2
+        ** 9,  # Size of the mini-batches in each optimization step (2**9 - 2**12?),
+        lr=2e-4,  # Initial learning rate,
+        lr_min=1e-5,  # Min Learning rate,
+        max_grad_norm=1.0,  # Maximum norm for the gradients,
+        clip_epsilon=0.2,  # Clip value for PPO loss,
+        gamma=0.99,  # Discount factor from 0 to 1. A greater value corresponds to a better farsight.
+        lmbda=0.9,  # lambda for generalised advantage estimation,
+        entropy_eps=1e-4,  # Coefficient of the entropy term in the PPO loss,
+        max_steps=2**7,  # Episode steps before done
+        scenario_type="CPM_mixed",  # One of {"CPM_entire", "CPM_mixed", "intersection_1", "design you own map and name it here"}
+        # "CPM_entire": Entire map of the CPM Lab
+        # "CPM_mixed": Intersection, merge-in, and merge-out of the CPM Lab. Probability defined in `cpm_scenario_probabilities`
+        # "intersection_1": Intersection with ID 1
+        # "design you own map and name it here"
+        is_save_intermediate_model=True,  # Is this is true, the model with the highest mean episode reward will be saved,
         episode_reward_mean_current=0.00,
-        
-        is_load_model=False,        # Load offline model if available. The offline model in `where_to_save` whose name contains `episode_reward_mean_current` will be loaded
+        is_load_model=False,  # Load offline model if available. The offline model in `where_to_save` whose name contains `episode_reward_mean_current` will be loaded
         is_load_final_model=False,  # Whether to load the final model instead of the intermediate model with the highest episode reward
-        is_continue_train=False,    # If offline models are loaded, whether to continue to train the model
-        model_name=None, 
-        episode_reward_intermediate=-1e3, # The initial value should be samll enough
-        
-        where_to_save="outputs/v8/test/", # folder where to save the trained models, fig, data, etc.
-
+        is_continue_train=False,  # If offline models are loaded, whether to continue to train the model
+        model_name=None,
+        episode_reward_intermediate=-1e3,  # The initial value should be samll enough
+        where_to_save="outputs/v8/test/",  # folder where to save the trained models, fig, data, etc.
         # Scenario parameters
         is_partial_observation=True,
         n_points_short_term=3,
         n_nearing_agents_observed=2,
-        
         is_testing_mode=False,
         is_visualize_short_term_path=True,
-        
         is_save_eval_results=True,
-        
-        is_prb=False,       # Whether to enable prioritized replay buffer
+        is_prb=False,  # Whether to enable prioritized replay buffer
         is_challenging_initial_state_buffer=False,  # Whether to enable challenging initial state buffer
-        
         cpm_scenario_probabilities=[1.0, 0.0, 0.0],
-        
         is_use_mtv_distance=False,
-
         # Ablation studies
-        is_ego_view=True,                   # Eago view or bird view
+        is_ego_view=True,  # Eago view or bird view
         is_observe_vertices=True,
         is_observe_distance_to_agents=True,
-        is_observe_distance_to_boundaries=True,  
+        is_observe_distance_to_boundaries=True,
         is_observe_distance_to_center_line=True,
-        
-        is_apply_mask=False,                 # Whether to mask distant agents
-        
+        is_apply_mask=False,  # Whether to mask distant agents
         is_add_noise=True,
         is_observe_ref_path_other_agents=False,
     )
-        
+
     env, policy, parameters = mappo_cavs(parameters=parameters)

@@ -1,0 +1,18 @@
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v3.2.0
+    hooks:
+    -   id: trailing-whitespace
+        exclude: '\.(json|xml|osm|gitignore)$'
+    -   id: end-of-file-fixer
+        exclude: '\.(json|xml|osm|gitignore)$'
+    -   id: check-yaml
+        exclude: '\.(json|xml|osm|gitignore)$'
+    -   id: check-added-large-files
+        exclude: '\.(json|xml|osm|gitignore)$'
+
+-   repo: https://github.com/psf/black
+    rev: 22.10.0
+    hooks:
+    -   id: black
+        exclude: '\.(json|xml|osm|gitignore)$'

@@ -1,4 +1,8 @@
+# Copyright (c) 2024, Chair of Embedded Software (Informatik 11), RWTH Aachen University.
+# Licensed under the MIT License. See LICENSE file in the project root for full license information.
+
 import numpy as np
+
 
 def interX(L1, L2, is_return_points=False):
     """
@@ -20,7 +24,7 @@ def interX(L1, L2, is_return_points=False):
     S2 = dx2 * y2[:-1] - dy2 * x2[:-1]
 
     C1 = D(dx1[:, None] * y2 - dy1[:, None] * x2, S1[:, None]) < 0
-    C2 = (D((y1[:, None] * dx2 - x1[:, None] * dy2).T, S2.reshape(-1,1)) < 0).T
+    C2 = (D((y1[:, None] * dx2 - x1[:, None] * dy2).T, S2.reshape(-1, 1)) < 0).T
 
     # Obtain the segments where an intersection is expected
     i, j = np.where(C1 & C2)
@@ -36,11 +40,16 @@ def interX(L1, L2, is_return_points=False):
             nonzero = L != 0
             i, j, L = i[nonzero], j[nonzero], L[nonzero]
 
-            P = np.vstack(((dx2[j] * S1[i] - dx1[i] * S2[j]) / L,
-                           (dy2[j] * S1[i] - dy1[i] * S2[j]) / L))
+            P = np.vstack(
+                (
+                    (dx2[j] * S1[i] - dx1[i] * S2[j]) / L,
+                    (dy2[j] * S1[i] - dy1[i] * S2[j]) / L,
+                )
+            )
             return np.unique(P, axis=1)
         else:
             return True
+
 
 def D(x, y):
     return (x[:, :-1] - y) * (x[:, 1:] - y)

@@ -1,7 +1,11 @@
+# Copyright (c) 2024, Chair of Embedded Software (Informatik 11), RWTH Aachen University.
+# Licensed under the MIT License. See LICENSE file in the project root for full license information.
+
 import os
 import sys
-script_dir = os.path.dirname(__file__) # Directory of the current script
-project_root = os.path.dirname(script_dir) # Project root directory
+
+script_dir = os.path.dirname(__file__)  # Directory of the current script
+project_root = os.path.dirname(script_dir)  # Project root directory
 if project_root not in sys.path:
     sys.path.append(project_root)
 
@@ -18,13 +22,13 @@ model_paths = [
 ]
 
 legends = [
-    r"$M_{" + path.split('/')[-2][1] + r"}$ " + path.split('/')[-2][2:] 
+    r"$M_{" + path.split("/")[-2][1] + r"}$ " + path.split("/")[-2][2:]
     for path in model_paths
-]    
+]
 
-render_titles = [path.rsplit('/', 2)[-2] for path in model_paths]
+render_titles = [path.rsplit("/", 2)[-2] for path in model_paths]
 
-video_names = [path.rsplit('/', 2)[-2][0:2] for path in model_paths]
+video_names = [path.rsplit("/", 2)[-2][0:2] for path in model_paths]
 
 scenario_types = [
     "CPM_entire",
@@ -39,9 +43,9 @@ for i_scenario in scenario_types:
     print(f"[INFO] Scenario: {i_scenario}")
     print("*****************************************")
     print("*****************************************")
-    
+
     n_agents = SCENARIOS[i_scenario]["n_agents"]
-    
+
     evaluator = Evaluation(
         scenario_type=i_scenario,  # Specify which scenario should be used to do the evaluation. One of {"CPM_entire", "intersection_2", "on_ramp_1", "roundabout_1"}
         model_paths=model_paths,
@@ -57,5 +61,5 @@ for i_scenario in scenario_types:
         is_save_simulation_video=False,
         video_names=video_names,
     )
-    
+
     evaluator.run_evaluation()
