@@ -12,6 +12,25 @@ examples
 *out_td*.pth
 # VectorizedMultiAgentSimulator
 
+# Ignore all PDF files
+*.pdf
+
+# Ignore all GIF files
+*.gif
+
+# Ignore common figure/image formats
+*.png
+*.jpg
+*.jpeg
+*.svg
+
+# Ignore common video formats
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+
 ### VisualStudioCode ###
 .vscode/*
 !.vscode/settings.json
