@@ -6,9 +6,6 @@ import torch
 # Tensordict modules
 from tensordict.tensordict import TensorDictBase, TensorDict
 
-# Data collection
-from torchrl.collectors import SyncDataCollector
-
 # Env
 from torchrl.envs import TransformedEnv
 from torchrl.envs.utils import (
@@ -25,7 +22,7 @@ from vmas.simulator.utils import (
 
 # Utils
 from matplotlib import pyplot as plt
-from typing import Callable, Optional, Tuple, Callable, Optional, Union
+from typing import Callable, Optional, Callable, Optional
 from ctypes import byref
 
 from matplotlib import pyplot as plt
@@ -247,6 +244,10 @@ class TransformedEnvCustom(TransformedEnv):
 
 
 class Parameters:
+    """
+    This class stores parameters for training and testing.
+    """
+
     def __init__(
         self,
         # General parameters
@@ -256,14 +257,12 @@ class Parameters:
         scenario_name: str = "road_traffic",  # Scenario name
         # Training parameters
         n_iters: int = 250,  # Number of training iterations
-        frames_per_batch: int = 2
-        ** 12,  # Number of team frames collected per training iteration
+        frames_per_batch: int = 4096,  # Number of team frames collected per training iteration
         # num_envs = frames_per_batch / max_steps
         # total_frames = frames_per_batch * n_iters
         # sub_batch_size = frames_per_batch // minibatch_size
         num_epochs: int = 60,  # Optimization steps per batch of data collected
-        minibatch_size: int = 2
-        ** 9,  # Size of the mini-batches in each optimization step (2**9 - 2**12?)
+        minibatch_size: int = 512,  # Size of the mini-batches in each optimization step (2**9 - 2**12?)
         lr: float = 2e-4,  # Learning rate
         lr_min: float = 1e-5,  # Minimum learning rate (used for scheduling of learning rate)
         max_grad_norm: float = 1.0,  # Maximum norm for the gradients
@@ -271,7 +270,7 @@ class Parameters:
         gamma: float = 0.99,  # Discount factor from 0 to 1. A greater value corresponds to a better farsight
         lmbda: float = 0.9,  # lambda for generalised advantage estimation
         entropy_eps: float = 1e-4,  # Coefficient of the entropy term in the PPO loss
-        max_steps: int = 2**7,  # Episode steps before done
+        max_steps: int = 128,  # Episode steps before done
         total_frames: int = None,  # Total frame for one training, equals `frames_per_batch * n_iters`
         num_vmas_envs: int = None,  # Number of vectorized environments
         scenario_type: str = "intersection_1",  # One of {"CPM_entire", "CPM_mixed", "intersection_1", ...}. See SCENARIOS in utilities/constants.py for more scenarios.
@@ -287,6 +286,7 @@ class Parameters:
             0.0,
             0.0,
         ],  # Probabilities of training agents in intersection, merge-in, or merge-out scenario
+        n_steps_stored: int = 10,  # Store previous `n_steps_stored` steps of states
         # Observation
         n_points_short_term: int = 3,  # Number of points that build a short-term reference path
         is_partial_observation: bool = True,  # Whether to enable partial observation
@@ -361,9 +361,10 @@ class Parameters:
         self.where_to_save = where_to_save
         self.is_continue_train = is_continue_train
 
+        self.n_points_short_term = n_points_short_term
         # Observation
         self.is_partial_observation = is_partial_observation
-        self.n_points_short_term = n_points_short_term
+        self.n_steps_stored = n_steps_stored
         self.n_nearing_agents_observed = n_nearing_agents_observed
         self.is_observe_distance_to_agents = is_observe_distance_to_agents
 
@@ -404,6 +405,12 @@ class Parameters:
     def from_dict(cls, dict_data):
         # Create an instance of the class from a dictionary
         return cls(**dict_data)
+
+    @classmethod
+    def from_json(cls, config_file):
+        with open(config_file, "r") as file:
+            config = json.load(file)
+            return cls(**config)
 
 
 class SaveData:
