@@ -21,7 +21,7 @@ Fig. 1: Video demonstrations (speed x2). All scenarios are listed in the variabl
 </div>
 
 ## Install (tested in macOS and Windows)
-Open a terminal and navigate to where you want to clone this repo. Then run the following commands:
+Open a terminal and navigate to where you want to clone this repo. Then run the following commands (assuming <a href="https://conda.io/projects/conda/en/latest/index.html" target="_blank">conda</a> is installed). We use Python 3.9 for this repository. Other Python versions may also work but without guarantee.
 ```
 git clone https://github.com/cas-lab-munich/SigmaRL.git
 cd SigmaRL/
@@ -31,15 +31,12 @@ pip install -r requirements.txt
 ```
 
 ## How to Use
-- Run `/training_mappo_cavs.py`. During training, all the intermediate models that have higher performance than the saved one will be saved.
-- After training, run `/testing_mappo_cavs.py` to test your model. Adjust the parameter `path` therein to tell which folder the target model was saved.
+### Training
+Run `/training_mappo_cavs.py`. During training, all the intermediate models that have higher performance than the saved one will be saved. You are also allowed to retrain or refine a trained model by setting the parameter `is_continue_train` of the variable `parameters` to `true`. The saved model will be loaded for a new training process.
 
-`/scenarios/road_traffic.py` defines the training environment, such as observation function and reward function. Besides, it provides an interactive interface, which also visualizes the environment. Use `arrow keys` to control agents and use the `tab key` to switch between agents. Adjust the parameter `scenario_type` to choose a scenario. All available scenarios are listed in the variable `SCENARIOS` in `utilities/constants.py`.
-
-### Reproduce Experiment Results
-To reprodece the experiment results of the paper, run `utilities/evaluation_ITSC24.py`. Checkpoints for trained models will be loaded automatically.
-
-You can also run `/testing_mappo_cavs.py` to intuitively evaluate the trained models. Adjust the parameter `path` therein to tell which folder the target model was saved.
+`/scenarios/road_traffic.py` defines the RL environment, such as observation function and reward function. Besides, it provides an interactive interface, which also visualizes the environment. You can use `arrow keys` to control agents and use the `tab key` to switch between agents. Adjust the parameter `scenario_type` to choose a scenario. All available scenarios are listed in the variable `SCENARIOS` in `utilities/constants.py`. It is recommended to use the virtual visualization to check if the environment is as expected before training.
+### Testing
+After training, run `/testing_mappo_cavs.py` to test your model. Adjust the parameter `path` therein to tell which folder the target model was saved.
 
 ## OpenStreetMap Support
 We support maps customized in <a href="https://josm.openstreetmap.de/" target="_blank">JOSM</a>. Follow these steps:
@@ -53,19 +50,22 @@ We support maps customized in <a href="https://josm.openstreetmap.de/" target="_
 - Go to `utilities/constants.py` and create a new dictionary for it. You should at least give the value for the key "map_path".
 - Go to `utilities/parse_osm.py`. Adjust the parameters `scenario_type` (the name of the new map), `width` (lane width), and `scale` (a scale to convert GPS system) to meet your requirements.
 
-### News
+## News
 - [2024-08-14] We support customized maps in OpenStreetMap now!
 - [2024-07-10] Our scenario is now available as a MARL benchmark scenario in VMAS for Connected and Automated Vehicles (CAVs) (see <a href="https://github.com/proroklab/VectorizedMultiAgentSimulator/releases/tag/1.4.2" target="_blank">here</a>)!
 
-## References
-We would be grateful if you would refer to the paper below if you find this repository helpful.
-
+## Publication(s)
+We would be grateful if you would refer to the paper(s) below if you find this repository helpful.
 - Jianye Xu, Pan Hu, Bassam Alrifaee, "SigmaRL: A Sample-Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning," *arXiv preprint arXiv:2408.07644*, 2024.
-```bibtex
-@article{xu2024sigmarl,
-  title={SigmaRL: A Sample-Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning},
-  author={Xu, Jianye and Hu, Pan and Alrifaee, Bassam},
-  journal={arXiv preprint arXiv:2408.07644},
-  year={2024},
-}
-```
+  ```bibtex
+  @article{xu2024sigmarl,
+    title={SigmaRL: A Sample-Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning},
+    author={Xu, Jianye and Hu, Pan and Alrifaee, Bassam},
+    journal={arXiv preprint arXiv:2408.07644},
+    year={2024},
+  }
+  ```
+  ### Reproduce Experiment Results
+  To reprodece the experiment results of the paper, run `utilities/evaluation_ITSC24.py`. Checkpoints for trained models will be loaded automatically.
+
+  You can also run `/testing_mappo_cavs.py` to intuitively evaluate the trained models. Adjust the parameter `path` therein to tell which folder the target model was saved.
