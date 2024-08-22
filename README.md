@@ -32,7 +32,7 @@ pip install -r requirements.txt
 
 ## How to Use
 ### Training
-Run `/training_mappo_cavs.py`. During training, all the intermediate models that have higher performance than the saved one will be saved. You are also allowed to retrain or refine a trained model by setting the parameter `is_continue_train` of the variable `parameters` to `true`. The saved model will be loaded for a new training process.
+Run `/training_mappo_cavs.py`. During training, all the intermediate models that have higher performance than the saved one will be saved. You are also allowed to retrain or refine a trained model by setting the parameter `is_continue_train` in the `config.json` from the root directory file to `true`. The saved model will be loaded for a new training process.
 
 `/scenarios/road_traffic.py` defines the RL environment, such as observation function and reward function. Besides, it provides an interactive interface, which also visualizes the environment. You can use `arrow keys` to control agents and use the `tab key` to switch between agents. Adjust the parameter `scenario_type` to choose a scenario. All available scenarios are listed in the variable `SCENARIOS` in `utilities/constants.py`. It is recommended to use the virtual visualization to check if the environment is as expected before training.
 ### Testing
@@ -86,7 +86,7 @@ We would be grateful if you would refer to the paper(s) below if you find this r
   ```
   pre-commit run --all-files
   ```
-  To avoid manually running this line of code each time and to make life easier, you can also install [pre-commit hooks](https://pre-commit.com/) (using `pre-commit install`). If it is **really** needed, you can disable the check by appending `-n` to your commit command: `git commit -m <commit message> -n`.
+  To avoid manually running it each time or prevent forgetting running it, it is recommended to install [pre-commit hooks](https://pre-commit.com/). You do not need to worry about the config file, as it is already created at the `.pre-commit-config.yaml` file (do not modify it). Therefore, all you need is running `pre-commit install` at your terminal. Thereafter, the pre-commit check will run automatically when you create a commit. If it is **really** needed, you can disable the check by appending `-n` to your commit command: `git commit -m <commit message> -n`.
 
 - ### Logs
   - [2024-08-14] ITSC 24 final version. See branch `ITSC24-final`.
