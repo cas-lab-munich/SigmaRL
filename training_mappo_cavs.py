@@ -3,7 +3,6 @@
 
 # Adapted from https://pytorch.org/rl/stable/tutorials/multiagent_ppo.html
 import time
-import multiprocessing
 
 from termcolor import colored, cprint
 
@@ -39,7 +38,7 @@ from torchrl.objectives import ClipPPOLoss, ValueEstimators
 # Utils
 from tqdm import tqdm
 
-import os, sys
+import os
 
 import matplotlib.pyplot as plt
 
@@ -383,7 +382,7 @@ def mappo_cavs(parameters: Parameters):
         episode_reward_mean = round(episode_reward_mean, 2)
         episode_reward_mean_list.append(episode_reward_mean)
         pbar.set_description(
-            f"episode_reward_mean = {episode_reward_mean:.2f}", refresh=False
+            f"Episode mean reward = {episode_reward_mean:.2f}", refresh=False
         )
 
         # env.scenario.iter = pbar.n # A way to pass the information from the training algorithm to the environment
@@ -402,9 +401,6 @@ def mappo_cavs(parameters: Parameters):
                     policy=policy,
                     critic=critic,
                 )
-                # pool.submit(save, parameters, save_data, policy, critic)
-                # multiprocessing.Process(target=save, args=(parameters, save_data, policy, critic)).start()
-                # Update the episode reward of the saved model
             else:
                 # Save only the mean episode reward list and parameters
                 parameters.episode_reward_mean_current = (
@@ -413,10 +409,6 @@ def mappo_cavs(parameters: Parameters):
                 save(
                     parameters=parameters, save_data=save_data, policy=None, critic=None
                 )
-                # pool.submit(save, parameters, save_data, policy, critic)
-                # multiprocessing.Process(target=save, args=(parameters, save_data, policy, critic)).start()
-
-            # print("Fig saved.")
 
         # Learning rate schedule
         for param_group in optim.param_groups:
