@@ -446,66 +446,6 @@ def mappo_cavs(parameters: Parameters):
 
 
 if __name__ == "__main__":
-    scenario_name = "road_traffic"
-
-    parameters = Parameters(
-        n_agents=4,
-        dt=0.05,  # [s] sample time
-        device="cpu"
-        if not torch.cuda.is_available()
-        else "cuda:0",  # The divice where learning is run
-        scenario_name=scenario_name,
-        # Training parameters
-        n_iters=250,  # Number of sampling and training iterations (on-policy: rollouts are collected during sampling phase, which will be immediately used in the training phase of the same iteration),
-        frames_per_batch=2
-        ** 12,  # Number of team frames collected per training iteration
-        # num_envs = frames_per_batch / max_steps
-        # total_frames = frames_per_batch * n_iters
-        # sub_batch_size = frames_per_batch // minibatch_size
-        num_epochs=60,  # Optimization steps per batch of data collected,
-        minibatch_size=2
-        ** 9,  # Size of the mini-batches in each optimization step (2**9 - 2**12?),
-        lr=2e-4,  # Initial learning rate,
-        lr_min=1e-5,  # Min Learning rate,
-        max_grad_norm=1.0,  # Maximum norm for the gradients,
-        clip_epsilon=0.2,  # Clip value for PPO loss,
-        gamma=0.99,  # Discount factor from 0 to 1. A greater value corresponds to a better farsight.
-        lmbda=0.9,  # lambda for generalised advantage estimation,
-        entropy_eps=1e-4,  # Coefficient of the entropy term in the PPO loss,
-        max_steps=2**7,  # Episode steps before done
-        scenario_type="CPM_mixed",  # One of {"CPM_entire", "CPM_mixed", "intersection_1", "design you own map and name it here"}
-        # "CPM_entire": Entire map of the CPM Lab
-        # "CPM_mixed": Intersection, merge-in, and merge-out of the CPM Lab. Probability defined in `cpm_scenario_probabilities`
-        # "intersection_1": Intersection with ID 1
-        # "design you own map and name it here"
-        is_save_intermediate_model=True,  # Is this is true, the model with the highest mean episode reward will be saved,
-        episode_reward_mean_current=0.00,
-        is_load_model=False,  # Load offline model if available. The offline model in `where_to_save` whose name contains `episode_reward_mean_current` will be loaded
-        is_load_final_model=False,  # Whether to load the final model instead of the intermediate model with the highest episode reward
-        is_continue_train=False,  # If offline models are loaded, whether to continue to train the model
-        model_name=None,
-        episode_reward_intermediate=-1e3,  # The initial value should be samll enough
-        where_to_save="outputs/v8/test/",  # folder where to save the trained models, fig, data, etc.
-        # Scenario parameters
-        is_partial_observation=True,
-        n_points_short_term=3,
-        n_nearing_agents_observed=2,
-        is_testing_mode=False,
-        is_visualize_short_term_path=True,
-        is_save_eval_results=True,
-        is_prb=False,  # Whether to enable prioritized replay buffer
-        is_challenging_initial_state_buffer=False,  # Whether to enable challenging initial state buffer
-        cpm_scenario_probabilities=[1.0, 0.0, 0.0],
-        is_use_mtv_distance=False,
-        # Ablation studies
-        is_ego_view=True,  # Eago view or bird view
-        is_observe_vertices=True,
-        is_observe_distance_to_agents=True,
-        is_observe_distance_to_boundaries=True,
-        is_observe_distance_to_center_line=True,
-        is_apply_mask=False,  # Whether to mask distant agents
-        is_add_noise=True,
-        is_observe_ref_path_other_agents=False,
-    )
-
+    config_file = "config.json"
+    parameters = Parameters.from_json(config_file)
     env, policy, parameters = mappo_cavs(parameters=parameters)
