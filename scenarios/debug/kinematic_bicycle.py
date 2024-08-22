@@ -1,6 +1,7 @@
-#  Copyright (c) 2024.
-#  ProrokLab (https://www.proroklab.org/)
-#  All rights reserved.
+# Copyright (c) 2024, Chair of Embedded Software (Informatik 11) - RWTH Aachen University.
+#
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
 
 import typing
 from typing import List
@@ -21,13 +22,16 @@ import os
 import sys
 
 # from vmas.simulator.dynamics.kinematic_bicycle import KinematicBicycle
-# !Important: Add project root to system path if you want to run this file directly
-script_dir = os.path.dirname(__file__) # Directory of the current script
-project_root = os.path.abspath(os.path.join(script_dir, '..', '..')) # Project root directory
+# Add project root to system path if you want to run this file directly
+script_dir = os.path.dirname(__file__)  # Directory of the current script
+project_root = os.path.abspath(
+    os.path.join(script_dir, "..", "..")
+)  # Project root directory
 if project_root not in sys.path:
     sys.path.append(project_root)
 
 from utilities.kinematic_bicycle import KinematicBicycle
+
 
 class Scenario(BaseScenario):
     def make_world(self, batch_dim: int, device: torch.device, **kwargs):
@@ -43,7 +47,8 @@ class Scenario(BaseScenario):
             "l_r", 0.1
         )  # Distance between the rear axle and the center of gravity
         max_steering_angle = kwargs.get(
-            "max_steering_angle", torch.tensor(35.0, device=device, dtype=torch.float32).deg2rad()
+            "max_steering_angle",
+            torch.tensor(35.0, device=device, dtype=torch.float32).deg2rad(),
         )
         max_speed = kwargs.get(
             "max_speed", torch.tensor(0.5, device=device, dtype=torch.float32)
@@ -103,7 +108,6 @@ class Scenario(BaseScenario):
     def observation(self, agent: Agent):
         observations = [
             agent.state.pos,
-            
             agent.state.vel,
         ]
         return torch.cat(

@@ -1,3 +1,8 @@
+# Copyright (c) 2024, Chair of Embedded Software (Informatik 11) - RWTH Aachen University.
+#
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
+
 import math
 
 SCENARIOS = {
@@ -14,7 +19,6 @@ SCENARIOS = {
         "figsize_x": 3,  # For evaluation figs
         "viewer_zoom": 1.44,  # For VMAS render
     },
-    
     "CPM_mixed": {
         "map_path": "assets/maps/cpm.xml",
         "n_agents": 4,
@@ -28,7 +32,6 @@ SCENARIOS = {
         "figsize_x": 3,  # For evaluation figs
         "viewer_zoom": 1.44,  # For VMAS render
     },
-    
     "intersection_1": {
         "map_path": "assets/maps/intersection_1.osm",
         "n_agents": 6,
@@ -55,7 +58,6 @@ SCENARIOS = {
         "figsize_x": 2.5,
         "viewer_zoom": 1.1,  # For VMAS render
     },
-    
     "intersection_2": {
         "map_path": "assets/maps/intersection_2.osm",
         "n_agents": 6,
@@ -90,7 +92,6 @@ SCENARIOS = {
         "figsize_x": 2.0,
         "viewer_zoom": 1.15,  # For VMAS render
     },
-    
     "intersection_3": {
         "map_path": "assets/maps/intersection_3.osm",
         "n_agents": 8,
@@ -107,7 +108,7 @@ SCENARIOS = {
             ["2", "7"],
             ["4"],
             ["5", "6"],
-            ["8", "6"]
+            ["8", "6"],
         ],
         "neighboring_lanelet_ids": {
             "1": ["1"],  # Lanelet with ID "1"
@@ -122,7 +123,6 @@ SCENARIOS = {
         "figsize_x": 2.5,
         "viewer_zoom": 1.15,  # For VMAS render
     },
-    
     "on_ramp_1": {
         "map_path": "assets/maps/on_ramp_1.osm",
         "n_agents": 8,
@@ -134,24 +134,23 @@ SCENARIOS = {
         "world_x_dim": 4.1,
         "world_y_dim": 1.8,
         "reference_paths_ids": [
-            ["1", "3", "5", "7"], 
-            ["2", "3", "5", "7"], 
-            ["4", "5", "7"], 
-            ["6", "7"], 
+            ["1", "3", "5", "7"],
+            ["2", "3", "5", "7"],
+            ["4", "5", "7"],
+            ["6", "7"],
         ],
         "neighboring_lanelet_ids": {
             "1": ["1", "2", "3"],  # Lanelet with ID "1"
             "2": ["1", "2", "3"],  # Lanelet with ID "2"
-            "3": ["1", "2", "3","4", "5"],  # Lanelet with ID "3"
-            "4": ["3","4", "5"],  # Lanelet with ID "4"
-            "5": ["3","4", "5", "6", "7"],  # Lanelet with ID "5"
+            "3": ["1", "2", "3", "4", "5"],  # Lanelet with ID "3"
+            "4": ["3", "4", "5"],  # Lanelet with ID "4"
+            "5": ["3", "4", "5", "6", "7"],  # Lanelet with ID "5"
             "6": ["5", "6", "7"],  # Lanelet with ID "6"
             "7": ["5", "6", "7"],  # Lanelet with ID "7"
         },
         "figsize_x": 3.5,
         "viewer_zoom": 0.95,  # For VMAS render
     },
-    
     "roundabout_1": {
         "map_path": "assets/maps/roundabout_1.osm",
         "n_agents": 8,
@@ -163,18 +162,18 @@ SCENARIOS = {
         "world_x_dim": 4.0,
         "world_y_dim": 2.3,
         "reference_paths_ids": [
-            ["1", "2", "9"], 
-            ["1", "3", "7", "9"], 
-            ["1", "4", "8", "9"], 
-            ["5", "7", "9"], 
-            ["6", "8", "9"], 
+            ["1", "2", "9"],
+            ["1", "3", "7", "9"],
+            ["1", "4", "8", "9"],
+            ["5", "7", "9"],
+            ["6", "8", "9"],
         ],
         "neighboring_lanelet_ids": {
             "1": ["1", "2", "3", "4"],  # Lanelet with ID "1"
             "2": ["1", "2", "7", "8", "9"],  # Lanelet with ID "2"
-            "3": ["3","5", "7"],  # Lanelet with ID "3"
-            "4": ["4","6", "8"],  # Lanelet with ID "4"
-            "5": ["3","5", "7"],  # Lanelet with ID "5"
+            "3": ["3", "5", "7"],  # Lanelet with ID "3"
+            "4": ["4", "6", "8"],  # Lanelet with ID "4"
+            "5": ["3", "5", "7"],  # Lanelet with ID "5"
             "6": ["4", "6", "8"],  # Lanelet with ID "6"
             "7": ["2", "7", "8", "9"],  # Lanelet with ID "7"
             "8": ["2", "7", "8", "9"],  # Lanelet with ID "8"

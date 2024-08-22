@@ -1,3 +1,9 @@
+# Copyright (c) 2024, Chair of Embedded Software (Informatik 11) - RWTH Aachen University.
+#
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
+
+
 class RGBColor:
     def __init__(self, red, green, blue):
         self._red = red
@@ -12,6 +18,7 @@ class RGBColor:
 
 class Color:
     """Data come from https://www.color-hex.com/color-palettes/?keyword=rwth"""
+
     blue100 = RGBColor(0, 84, 159).value
     blue75 = RGBColor(64, 127, 183).value
     blue50 = RGBColor(142, 186, 229).value
@@ -92,6 +99,30 @@ class Color:
 
 
 colors = [
-    Color.blue100, Color.maygreen100, Color.violet100, Color.green100, Color.red100, Color.orange100, Color.purple100, Color.bordeaux100, Color.turquoise50, Color.petrol100, Color.yellow100, Color.magenta100, Color.black100,
-    Color.blue50, Color.maygreen50, Color.violet50, Color.green50, Color.red50, Color.orange50, Color.purple50, Color.bordeaux50, Color.turquoise50, Color.petrol50, Color.yellow50, Color.magenta50, Color.black50,
+    Color.blue100,
+    Color.maygreen100,
+    Color.violet100,
+    Color.green100,
+    Color.red100,
+    Color.orange100,
+    Color.purple100,
+    Color.bordeaux100,
+    Color.turquoise50,
+    Color.petrol100,
+    Color.yellow100,
+    Color.magenta100,
+    Color.black100,
+    Color.blue50,
+    Color.maygreen50,
+    Color.violet50,
+    Color.green50,
+    Color.red50,
+    Color.orange50,
+    Color.purple50,
+    Color.bordeaux50,
+    Color.turquoise50,
+    Color.petrol50,
+    Color.yellow50,
+    Color.magenta50,
+    Color.black50,
 ]

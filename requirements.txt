@@ -9,3 +9,4 @@ vmas==1.4.1
 matplotlib==3.8.2
 termcolor==2.4.0
 SciencePlots==2.1.1
+pre-commit==3.7.1

@@ -1,10 +1,12 @@
+# Copyright (c) 2024, Chair of Embedded Software (Informatik 11) - RWTH Aachen University.
+#
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
+
 import torch
 
 # Tensordict modules
 from tensordict.tensordict import TensorDictBase, TensorDict
-
-# Data collection
-from torchrl.collectors import SyncDataCollector
 
 # Env
 from torchrl.envs import TransformedEnv
@@ -22,7 +24,7 @@ from vmas.simulator.utils import (
 
 # Utils
 from matplotlib import pyplot as plt
-from typing import Callable, Optional, Tuple, Callable, Optional, Union
+from typing import Callable, Optional, Callable, Optional
 from ctypes import byref
 
 from matplotlib import pyplot as plt
@@ -30,19 +32,22 @@ import json
 import os
 import re
 
+
 def get_model_name(parameters):
     # model_name = f"nags{parameters.n_agents}_it{parameters.n_iters}_fpb{parameters.frames_per_batch}_tfrms{parameters.total_frames}_neps{parameters.num_epochs}_mnbsz{parameters.minibatch_size}_lr{parameters.lr}_mgn{parameters.max_grad_norm}_clp{parameters.clip_epsilon}_gm{parameters.gamma}_lmbda{parameters.lmbda}_etp{parameters.entropy_eps}_mstp{parameters.max_steps}_nenvs{parameters.num_vmas_envs}"
     model_name = f"reward{parameters.episode_reward_mean_current:.2f}"
 
     return model_name
 
+
 ##################################################
 ## Custom Classes
-##################################################  
+##################################################
 class TransformedEnvCustom(TransformedEnv):
     """
     Slightly modify the function `rollout`, `_rollout_stop_early`, and `_rollout_nonstop` to enable returning a frame list to save evaluation video
     """
+
     def rollout(
         self,
         max_steps: int,
@@ -125,18 +130,18 @@ class TransformedEnvCustom(TransformedEnv):
                 tensordicts, frame_list = self._rollout_nonstop(**kwargs)
             else:
                 tensordicts = self._rollout_nonstop(**kwargs)
-                
+
         batch_size = self.batch_size if tensordict is None else tensordict.batch_size
         out_td = torch.stack(tensordicts, len(batch_size), out=out)
         if return_contiguous:
             out_td = out_td.contiguous()
         out_td.refine_names(..., "time")
-        
+
         if is_save_simulation_video:
             return out_td, frame_list
         else:
             return out_td
-        
+
     def _rollout_stop_early(
         self,
         *,
@@ -150,10 +155,10 @@ class TransformedEnvCustom(TransformedEnv):
         is_save_simulation_video,
     ):
         tensordicts = []
-        
+
         if is_save_simulation_video:
             frame_list = []
-            
+
         for i in range(max_steps):
             if auto_cast_to_device:
                 tensordict = tensordict.to(policy_device, non_blocking=True)
@@ -191,7 +196,7 @@ class TransformedEnvCustom(TransformedEnv):
                     frame_list.append(frame)
                 else:
                     callback(self, tensordict)
-                
+
         if is_save_simulation_video:
             return tensordicts, frame_list
         else:
@@ -214,7 +219,7 @@ class TransformedEnvCustom(TransformedEnv):
 
         if is_save_simulation_video:
             frame_list = []
-            
+
         for i in range(max_steps):
             if auto_cast_to_device:
                 tensordict_ = tensordict_.to(policy_device, non_blocking=True)
@@ -233,101 +238,100 @@ class TransformedEnvCustom(TransformedEnv):
                     frame_list.append(frame)
                 else:
                     callback(self, tensordict)
-                    
+
         if is_save_simulation_video:
             return tensordicts, frame_list
         else:
             return tensordicts
-        
-class Parameters():
-    def __init__(self,
-                # General parameters
-                n_agents: int = 4,          # Number of agents
-                dt: float = 0.05,           # [s] sample time
-                device: str = "cpu",        # Tensor device
-                scenario_name: str = "road_traffic",    # Scenario name
-                
-                # Training parameters
-                n_iters: int = 250,             # Number of training iterations
-                frames_per_batch: int = 2**12, # Number of team frames collected per training iteration 
-                                            # num_envs = frames_per_batch / max_steps
-                                            # total_frames = frames_per_batch * n_iters
-                                            # sub_batch_size = frames_per_batch // minibatch_size
-                num_epochs: int = 60,       # Optimization steps per batch of data collected
-                minibatch_size: int = 2**9,     # Size of the mini-batches in each optimization step (2**9 - 2**12?)
-                lr: float = 2e-4,               # Learning rate
-                lr_min: float = 1e-5,           # Minimum learning rate (used for scheduling of learning rate)
-                max_grad_norm: float = 1.0,     # Maximum norm for the gradients
-                clip_epsilon: float = 0.2,      # Clip value for PPO loss
-                gamma: float = 0.99,            # Discount factor from 0 to 1. A greater value corresponds to a better farsight
-                lmbda: float = 0.9,             # lambda for generalised advantage estimation
-                entropy_eps: float = 1e-4,      # Coefficient of the entropy term in the PPO loss
-                max_steps: int = 2**7,          # Episode steps before done
-                total_frames: int = None,       # Total frame for one training, equals `frames_per_batch * n_iters`
-                num_vmas_envs: int = None,      # Number of vectorized environments
-                scenario_type: str = "intersection_1",  # One of {"CPM_entire", "CPM_mixed", "intersection_1", "design you own map and name it here"}
-                                                     # "CPM_entire": Entire map of the CPM Lab
-                                                     # "CPM_mixed": Intersection, merge-in, and merge-out of the CPM Lab. Probability defined in `cpm_scenario_probabilities`
-                                                     # "intersection_1": T-Intersection with ID 1
-                                                     # "design you own map and name it here"
-                                            
-                episode_reward_mean_current: float = 0.00,  # Achieved mean episode reward (total/n_agents)
-                episode_reward_intermediate: float = -1e3, # A arbitrary, small initial value
-                
-                is_prb: bool = False,       # Whether to enable prioritized replay buffer
-                is_challenging_initial_state_buffer = False,  # Whether to enable challenging initial state buffer
-                
-                cpm_scenario_probabilities = [1.0, 0.0, 0.0], # Probabilities of training agents in intersection, merge-in, or merge-out scenario
-                
-                # Observation
-                n_points_short_term: int = 3,            # Number of points that build a short-term reference path
 
-                is_partial_observation: bool = True,     # Whether to enable partial observation
-                n_nearing_agents_observed: int = 2,      # Number of nearing agents to be observed (consider limited sensor range)
 
-                # Parameters for ablation studies
-                is_ego_view: bool = True,                           # Ego view or bird view
-                is_apply_mask: bool = True,                         # Whether to mask distant agents
-                is_observe_distance_to_agents: bool = True,         # Whether to observe the distance to other agents
-                is_observe_distance_to_boundaries: bool = True,     # Whether to observe points on lanelet boundaries or observe the distance to labelet boundaries
-                is_observe_distance_to_center_line: bool = True,    # Whether to observe the distance to reference path
-                is_observe_vertices: bool = True,                         # Whether to observe the vertices of other agents (or center point)
-                
-                is_add_noise: bool = True,                          # Whether to add noise to observations
-                is_observe_ref_path_other_agents: bool = False,     # Whether to observe the reference paths of other agents
-                is_use_mtv_distance: bool = True,           # Whether to use MTV-based (Minimum Translation Vector) distance or c2c-based (center-to-center) distance.
-                
-                # Visu
-                is_visualize_short_term_path: bool = True,  # Whether to visualize short-term reference paths
-                is_visualize_lane_boundary: bool = False,   # Whether to visualize lane boundary
-                is_real_time_rendering: bool = False,       # Simulation will be paused at each time step for a certain duration to enable real-time rendering
-                is_visualize_extra_info: bool = True,       # Whether to render extra information such time and time step
-                render_title: str = "",                     # The title to be rendered
+class Parameters:
+    """
+    This class stores parameters for training and testing.
+    """
 
-                # Save/Load
-                is_save_intermediate_model: bool = True,    # Whether to save intermediate model (also called checkpoint) with the hightest episode reward
-                is_load_model: bool = False,                # Whether to load saved model
-                is_load_final_model: bool = False,          # Whether to load the final model (last iteration)
-                model_name: str = None,
-                where_to_save: str = "outputs/",            # Define where to save files such as intermediate models
-                is_continue_train: bool = False,            # Whether to continue training after loading an offline model
-                is_save_eval_results: bool = True,          # Whether to save evaluation results such as figures and evaluation outputs
-                is_load_out_td: bool = False,               # Whether to load evaluation outputs
-                
-                is_testing_mode: bool = False,              # In testing mode, collisions do not terminate the current simulation
-                is_save_simulation_video: bool = False,     # Whether to save simulation videos
-                ):
-        
+    def __init__(
+        self,
+        # General parameters
+        n_agents: int = 4,  # Number of agents
+        dt: float = 0.05,  # [s] sample time
+        device: str = "cpu",  # Tensor device
+        scenario_name: str = "road_traffic",  # Scenario name
+        # Training parameters
+        n_iters: int = 250,  # Number of training iterations
+        frames_per_batch: int = 4096,  # Number of team frames collected per training iteration
+        # num_envs = frames_per_batch / max_steps
+        # total_frames = frames_per_batch * n_iters
+        # sub_batch_size = frames_per_batch // minibatch_size
+        num_epochs: int = 60,  # Optimization steps per batch of data collected
+        minibatch_size: int = 512,  # Size of the mini-batches in each optimization step (2**9 - 2**12?)
+        lr: float = 2e-4,  # Learning rate
+        lr_min: float = 1e-5,  # Minimum learning rate (used for scheduling of learning rate)
+        max_grad_norm: float = 1.0,  # Maximum norm for the gradients
+        clip_epsilon: float = 0.2,  # Clip value for PPO loss
+        gamma: float = 0.99,  # Discount factor from 0 to 1. A greater value corresponds to a better farsight
+        lmbda: float = 0.9,  # lambda for generalised advantage estimation
+        entropy_eps: float = 1e-4,  # Coefficient of the entropy term in the PPO loss
+        max_steps: int = 128,  # Episode steps before done
+        total_frames: int = None,  # Total frame for one training, equals `frames_per_batch * n_iters`
+        num_vmas_envs: int = None,  # Number of vectorized environments
+        scenario_type: str = "intersection_1",  # One of {"CPM_entire", "CPM_mixed", "intersection_1", ...}. See SCENARIOS in utilities/constants.py for more scenarios.
+        # "CPM_entire": Entire map of the CPM Lab
+        # "CPM_mixed": Intersection, merge-in, and merge-out of the CPM Lab. Probability defined in `cpm_scenario_probabilities`
+        # "intersection_1": Intersection with ID 1
+        episode_reward_mean_current: float = 0.00,  # Achieved mean episode reward (total/n_agents)
+        episode_reward_intermediate: float = -1e3,  # A arbitrary, small initial value
+        is_prb: bool = False,  # Whether to enable prioritized replay buffer
+        is_challenging_initial_state_buffer=False,  # Whether to enable challenging initial state buffer
+        cpm_scenario_probabilities=[
+            1.0,
+            0.0,
+            0.0,
+        ],  # Probabilities of training agents in intersection, merge-in, or merge-out scenario
+        n_steps_stored: int = 10,  # Store previous `n_steps_stored` steps of states
+        # Observation
+        n_points_short_term: int = 3,  # Number of points that build a short-term reference path
+        is_partial_observation: bool = True,  # Whether to enable partial observation
+        n_nearing_agents_observed: int = 2,  # Number of nearing agents to be observed (consider limited sensor range)
+        # Parameters for ablation studies
+        is_ego_view: bool = True,  # Ego view or bird view
+        is_apply_mask: bool = True,  # Whether to mask distant agents
+        is_observe_distance_to_agents: bool = True,  # Whether to observe the distance to other agents
+        is_observe_distance_to_boundaries: bool = True,  # Whether to observe points on lanelet boundaries or observe the distance to labelet boundaries
+        is_observe_distance_to_center_line: bool = True,  # Whether to observe the distance to reference path
+        is_observe_vertices: bool = True,  # Whether to observe the vertices of other agents (or center point)
+        is_add_noise: bool = True,  # Whether to add noise to observations
+        is_observe_ref_path_other_agents: bool = False,  # Whether to observe the reference paths of other agents
+        is_use_mtv_distance: bool = True,  # Whether to use MTV-based (Minimum Translation Vector) distance or c2c-based (center-to-center) distance.
+        # Visu
+        is_visualize_short_term_path: bool = True,  # Whether to visualize short-term reference paths
+        is_visualize_lane_boundary: bool = False,  # Whether to visualize lane boundary
+        is_real_time_rendering: bool = False,  # Simulation will be paused at each time step for a certain duration to enable real-time rendering
+        is_visualize_extra_info: bool = True,  # Whether to render extra information such time and time step
+        render_title: str = "",  # The title to be rendered
+        # Save/Load
+        is_save_intermediate_model: bool = True,  # Whether to save intermediate model (also called checkpoint) with the hightest episode reward
+        is_load_model: bool = False,  # Whether to load saved model
+        is_load_final_model: bool = False,  # Whether to load the final model (last iteration)
+        model_name: str = None,
+        where_to_save: str = "outputs/",  # Define where to save files such as intermediate models
+        is_continue_train: bool = False,  # Whether to continue training after loading an offline model
+        is_save_eval_results: bool = True,  # Whether to save evaluation results such as figures and evaluation outputs
+        is_load_out_td: bool = False,  # Whether to load evaluation outputs
+        is_testing_mode: bool = False,  # In testing mode, collisions do not terminate the current simulation
+        is_save_simulation_video: bool = False,  # Whether to save simulation videos
+    ):
+
         self.n_agents = n_agents
         self.dt = dt
-        
+
         self.device = device
         self.scenario_name = scenario_name
-        
+
         # Sampling
         self.n_iters = n_iters
         self.frames_per_batch = frames_per_batch
-        
+
         if (frames_per_batch is not None) and (n_iters is not None):
             self.total_frames = frames_per_batch * n_iters
 
@@ -342,57 +346,59 @@ class Parameters():
         self.lmbda = lmbda
         self.entropy_eps = entropy_eps
         self.max_steps = max_steps
-        
+
         self.scenario_type = scenario_type
-        
+
         if (frames_per_batch is not None) and (max_steps is not None):
-            self.num_vmas_envs = frames_per_batch // max_steps # Number of vectorized envs. frames_per_batch should be divisible by this number,
+            self.num_vmas_envs = (
+                frames_per_batch // max_steps
+            )  # Number of vectorized envs. frames_per_batch should be divisible by this number,
 
         self.is_save_intermediate_model = is_save_intermediate_model
-        self.is_load_model = is_load_model        
-        self.is_load_final_model = is_load_final_model        
-        
+        self.is_load_model = is_load_model
+        self.is_load_final_model = is_load_final_model
+
         self.episode_reward_mean_current = episode_reward_mean_current
         self.episode_reward_intermediate = episode_reward_intermediate
         self.where_to_save = where_to_save
         self.is_continue_train = is_continue_train
 
+        self.n_points_short_term = n_points_short_term
         # Observation
         self.is_partial_observation = is_partial_observation
-        self.n_points_short_term = n_points_short_term
+        self.n_steps_stored = n_steps_stored
         self.n_nearing_agents_observed = n_nearing_agents_observed
         self.is_observe_distance_to_agents = is_observe_distance_to_agents
-        
+
         self.is_testing_mode = is_testing_mode
         self.is_save_simulation_video = is_save_simulation_video
         self.is_visualize_short_term_path = is_visualize_short_term_path
         self.is_visualize_lane_boundary = is_visualize_lane_boundary
-        
+
         self.is_ego_view = is_ego_view
         self.is_apply_mask = is_apply_mask
         self.is_use_mtv_distance = is_use_mtv_distance
         self.is_observe_distance_to_boundaries = is_observe_distance_to_boundaries
         self.is_observe_distance_to_center_line = is_observe_distance_to_center_line
         self.is_observe_vertices = is_observe_vertices
-        self.is_add_noise = is_add_noise 
-        self.is_observe_ref_path_other_agents = is_observe_ref_path_other_agents 
+        self.is_add_noise = is_add_noise
+        self.is_observe_ref_path_other_agents = is_observe_ref_path_other_agents
 
         self.is_save_eval_results = is_save_eval_results
         self.is_load_out_td = is_load_out_td
-            
+
         self.is_real_time_rendering = is_real_time_rendering
         self.is_visualize_extra_info = is_visualize_extra_info
         self.render_title = render_title
 
         self.is_prb = is_prb
         self.is_challenging_initial_state_buffer = is_challenging_initial_state_buffer
-        
+
         self.cpm_scenario_probabilities = cpm_scenario_probabilities
-        
+
         if (model_name is None) and (scenario_name is not None):
             self.model_name = get_model_name(self)
-            
-            
+
     def to_dict(self):
         # Create a dictionary representation of the instance
         return self.__dict__
@@ -402,20 +408,30 @@ class Parameters():
         # Create an instance of the class from a dictionary
         return cls(**dict_data)
 
-class SaveData():
+    @classmethod
+    def from_json(cls, config_file):
+        with open(config_file, "r") as file:
+            config = json.load(file)
+            return cls(**config)
+
+
+class SaveData:
     def __init__(self, parameters: Parameters, episode_reward_mean_list: [] = None):
         self.parameters = parameters
         self.episode_reward_mean_list = episode_reward_mean_list
+
     def to_dict(self):
         return {
-            'parameters': self.parameters.to_dict(),  # Convert Parameters instance to dict
-            'episode_reward_mean_list': self.episode_reward_mean_list
+            "parameters": self.parameters.to_dict(),  # Convert Parameters instance to dict
+            "episode_reward_mean_list": self.episode_reward_mean_list,
         }
+
     @classmethod
     def from_dict(cls, dict_data):
-        parameters = Parameters.from_dict(dict_data['parameters'])  # Convert dict back to Parameters instance
-        return cls(parameters, dict_data['episode_reward_mean_list'])
-
+        parameters = Parameters.from_dict(
+            dict_data["parameters"]
+        )  # Convert dict back to Parameters instance
+        return cls(parameters, dict_data["episode_reward_mean_list"])
 
 
 ##################################################
@@ -423,17 +439,20 @@ class SaveData():
 ##################################################
 def get_path_to_save_model(parameters: Parameters):
     parameters.model_name = get_model_name(parameters=parameters)
-    
+
     PATH_POLICY = parameters.where_to_save + parameters.model_name + "_policy.pth"
     PATH_CRITIC = parameters.where_to_save + parameters.model_name + "_critic.pth"
-    PATH_FIG = parameters.where_to_save + parameters.model_name + "_training_process.pdf"
+    PATH_FIG = (
+        parameters.where_to_save + parameters.model_name + "_training_process.pdf"
+    )
     PATH_JSON = parameters.where_to_save + parameters.model_name + "_data.json"
-    
+
     return PATH_POLICY, PATH_CRITIC, PATH_FIG, PATH_JSON
 
-def delete_files_with_lower_mean_reward(parameters:Parameters):
+
+def delete_files_with_lower_mean_reward(parameters: Parameters):
     # Regular expression pattern to match and capture the float number
-    pattern = r'reward(-?[0-9]*\.?[0-9]+)_'
+    pattern = r"reward(-?[0-9]*\.?[0-9]+)_"
 
     # Iterate over files in the directory
     for file_name in os.listdir(parameters.where_to_save):
@@ -445,33 +464,36 @@ def delete_files_with_lower_mean_reward(parameters:Parameters):
                 # Delete the saved model if its performance is worse
                 os.remove(os.path.join(parameters.where_to_save, file_name))
 
+
 def find_the_highest_reward_among_all_models(path):
     """This function returns the highest reward of the models stored in folder `parameters.where_to_save`"""
     # Initialize variables to track the highest reward and corresponding model
-    highest_reward = float('-inf')
-    
-    pattern = r'reward(-?[0-9]*\.?[0-9]+)_'
+    highest_reward = float("-inf")
+
+    pattern = r"reward(-?[0-9]*\.?[0-9]+)_"
     # Iterate through the files in the directory
     for filename in os.listdir(path):
         match = re.search(pattern, filename)
         if match:
             # Extract the reward and convert it to float
             episode_reward_mean = float(match.group(1))
-            
+
             # Check if this reward is higher than the current highest
             if episode_reward_mean > highest_reward:
-                highest_reward = episode_reward_mean # Update
-                 
+                highest_reward = episode_reward_mean  # Update
+
     return highest_reward
 
 
-def save(parameters: Parameters, save_data: SaveData, policy=None, critic=None):    
+def save(parameters: Parameters, save_data: SaveData, policy=None, critic=None):
     # Get paths
-    PATH_POLICY, PATH_CRITIC, PATH_FIG, PATH_JSON = get_path_to_save_model(parameters=parameters)
-    
+    PATH_POLICY, PATH_CRITIC, PATH_FIG, PATH_JSON = get_path_to_save_model(
+        parameters=parameters
+    )
+
     # Save parameters and mean episode reward list
-    json_object = json.dumps(save_data.to_dict(), indent=4) # Serializing json
-    with open(PATH_JSON, "w") as outfile: # Writing to sample.json
+    json_object = json.dumps(save_data.to_dict(), indent=4)  # Serializing json
+    with open(PATH_JSON, "w") as outfile:  # Writing to sample.json
         outfile.write(json_object)
     # Example to how to open the saved json file
     # with open('save_data.json', 'r') as file:
@@ -483,12 +505,12 @@ def save(parameters: Parameters, save_data: SaveData, policy=None, critic=None):
     plt.plot(save_data.episode_reward_mean_list)
     plt.xlabel("Training iterations")
     plt.ylabel("Episode reward mean")
-    plt.tight_layout() # Set the layout to be tight to minimize white space !!! deprecated
+    plt.tight_layout()  # Set the layout to be tight to minimize white space !!! deprecated
     plt.savefig(PATH_FIG, format="pdf", bbox_inches="tight")
     # plt.savefig(PATH_FIG, format="pdf")
 
     # Save models
-    if (policy != None) & (critic != None): 
+    if (policy != None) & (critic != None):
         # Save current models
         torch.save(policy.state_dict(), PATH_POLICY)
         torch.save(critic.state_dict(), PATH_CRITIC)
@@ -497,10 +519,11 @@ def save(parameters: Parameters, save_data: SaveData, policy=None, critic=None):
 
     print(f"Saved model: {parameters.episode_reward_mean_current:.2f}.")
 
-def compute_td_error(tensordict_data: TensorDict, gamma = 0.9):
+
+def compute_td_error(tensordict_data: TensorDict, gamma=0.9):
     """
     Computes TD error.
-    
+
     Args:
         gamma: discount factor
     """
@@ -508,26 +531,32 @@ def compute_td_error(tensordict_data: TensorDict, gamma = 0.9):
     next_rewards = tensordict_data.get(("next", "agents", "reward"))
     next_state_values = tensordict_data.get(("next", "agents", "state_value"))
     done = tensordict_data.get(("next", "agents", "done"))
-    
+
     # To mask out terminal states since TD error for terminal states should only consider the immediate reward without any future value
     not_done = ~done
-    
-    # See Eq. (2) of Section B EXPERIMENTAL DETAILS of paper https://doi.org/10.48550/arXiv.1511.05952
-    td_error = next_rewards + gamma * next_state_values * not_done - current_state_values
 
-    td_error = td_error.abs() # Magnitude is more interesting than the actual TD error
-    
-    td_error_average_over_agents = td_error.mean(dim=-2) # Cooperative agents
-    
+    # See Eq. (2) of Section B EXPERIMENTAL DETAILS of paper https://doi.org/10.48550/arXiv.1511.05952
+    td_error = (
+        next_rewards + gamma * next_state_values * not_done - current_state_values
+    )
+
+    td_error = td_error.abs()  # Magnitude is more interesting than the actual TD error
+
+    td_error_average_over_agents = td_error.mean(dim=-2)  # Cooperative agents
+
     # Normalize TD error to [0, 1] (priorities must be positive)
     td_min = td_error_average_over_agents.min()
     td_max = td_error_average_over_agents.max()
     td_error_range = td_max - td_min
-    td_error_range = max(td_error_range, 1e-3) # For numerical stability
-    
+    td_error_range = max(td_error_range, 1e-3)  # For numerical stability
+
     target_range = 10
-    
-    td_error_average_over_agents = (td_error_average_over_agents - td_min) / td_error_range * target_range
-    td_error_average_over_agents = torch.clamp(td_error_average_over_agents, 1e-3, target_range) # For numerical stability
-    
+
+    td_error_average_over_agents = (
+        (td_error_average_over_agents - td_min) / td_error_range * target_range
+    )
+    td_error_average_over_agents = torch.clamp(
+        td_error_average_over_agents, 1e-3, target_range
+    )  # For numerical stability
+
     return td_error_average_over_agents
