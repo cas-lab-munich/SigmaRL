@@ -3,7 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-# !Important: Add project root to system path
+# Add project root to system path
 import os
 import sys
 
@@ -46,7 +46,7 @@ plt.style.use(
 import time
 import json
 
-from training_mappo_cavs import mappo_cavs
+from utilities.mappo_cavs import mappo_cavs
 from utilities.helper_training import (
     SaveData,
     find_the_highest_reward_among_all_models,

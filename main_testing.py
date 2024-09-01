@@ -9,7 +9,7 @@ import os
 from vmas.simulator.utils import save_video
 import json
 
-from training_mappo_cavs import mappo_cavs
+from utilities.mappo_cavs import mappo_cavs
 
 from utilities.constants import SCENARIOS
 

@@ -4,8 +4,7 @@
 <a href="https://youtu.be/tzaVjol4nhA" target="_blank"><img src="https://img.shields.io/badge/-Video-FF0000?logo=YouTube"></a>
 <a href="https://github.com/cas-lab-munich/SigmaRL" target="_blank"><img src="https://img.shields.io/badge/-GitHub-181717?logo=GitHub"></a>
 
-This repository provides the full code for the paper "SigmaRL: A Sample-Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning".
-This paper was accepted by the 27th IEEE International Conference on Intelligent Transportation Systems (IEEE ITSC 2024).
+This repository provides the full code for **SigmaRL**, a <ins>S</ins>ample eff<ins>i</ins>ciency and <ins>g</ins>eneralization <ins>m</ins>ulti-<ins>a</ins>gent <ins>R</ins>einforcement <ins>L</ins>earning (RL) for motion planning of connected and automated vehicles. This work was accepted by the 27th IEEE International Conference on Intelligent Transportation Systems (IEEE ITSC 2024).
 
 We use <a href="https://github.com/proroklab/VectorizedMultiAgentSimulator" target="_blank">VMAS</a>, a vectorized differentiable simulator designed for efficient Multi-Agent Reinforcement Learning benchmarking, as our simulator und customize a reinforcement learning environment to suit the case of our Cyber-Physical Mobility Lab (<a href="https://cpm.embedded.rwth-aachen.de/" target="_blank">CPM Lab</a>).
 Besides, we also support maps handcrafted in <a href="https://josm.openstreetmap.de/" target="_blank">OpenStreetMap</a>. Below you will find detailed guidance to create your **OWN** map.
@@ -32,11 +31,11 @@ pip install -r requirements.txt
 
 ## How to Use
 ### Training
-Run `/training_mappo_cavs.py`. During training, all the intermediate models that have higher performance than the saved one will be saved. You are also allowed to retrain or refine a trained model by setting the parameter `is_continue_train` in the `config.json` from the root directory file to `true`. The saved model will be loaded for a new training process.
+Run `/main_training.py`. During training, all the intermediate models that have higher performance than the saved one will be saved. You are also allowed to retrain or refine a trained model by setting the parameter `is_continue_train` in the `config.json` from the root directory file to `true`. The saved model will be loaded for a new training process.
 
 `/scenarios/road_traffic.py` defines the RL environment, such as observation function and reward function. Besides, it provides an interactive interface, which also visualizes the environment. You can use `arrow keys` to control agents and use the `tab key` to switch between agents. Adjust the parameter `scenario_type` to choose a scenario. All available scenarios are listed in the variable `SCENARIOS` in `utilities/constants.py`. It is recommended to use the virtual visualization to check if the environment is as expected before training.
 ### Testing
-After training, run `/testing_mappo_cavs.py` to test your model. Adjust the parameter `path` therein to tell which folder the target model was saved.
+After training, run `/main_testing.py` to test your model. Adjust the parameter `path` therein to tell which folder the target model was saved.
 
 ## OpenStreetMap Support
 We support maps customized in <a href="https://josm.openstreetmap.de/" target="_blank">JOSM</a>. Follow these steps:

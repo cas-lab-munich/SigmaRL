@@ -97,15 +97,6 @@ def mappo_cavs(parameters: Parameters):
         episode_reward_mean_list=[],
     )
 
-    # print("env.full_action_spec:", env.full_action_spec, "\n")
-    # print("env.full_reward_spec:", env.full_reward_spec, "\n")
-    # print("env.full_done_spec:", env.full_done_spec, "\n")
-    # print("env.observation_spec:", env.observation_spec, "\n")
-
-    # print("env.action_keys:", env.action_keys, "\n")
-    # print("env.reward_keys:", env.reward_keys, "\n")
-    # print("env.done_keys:", env.done_keys, "\n")
-
     env = TransformedEnvCustom(
         env,
         RewardSum(in_keys=[env.reward_key], out_keys=[("agents", "episode_reward")]),

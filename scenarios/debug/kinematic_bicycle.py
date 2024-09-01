@@ -22,7 +22,7 @@ import os
 import sys
 
 # from vmas.simulator.dynamics.kinematic_bicycle import KinematicBicycle
-# !Important: Add project root to system path if you want to run this file directly
+# Add project root to system path if you want to run this file directly
 script_dir = os.path.dirname(__file__)  # Directory of the current script
 project_root = os.path.abspath(
     os.path.join(script_dir, "..", "..")
