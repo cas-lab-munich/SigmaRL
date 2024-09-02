@@ -42,5 +42,6 @@
     "is_observe_distance_to_center_line": true,
     "is_apply_mask": false,
     "is_add_noise": true,
-    "is_observe_ref_path_other_agents": false
+    "is_observe_ref_path_other_agents": false,
+    "is_using_opponent_modeling": true
 }

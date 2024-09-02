@@ -8,6 +8,8 @@ import torch
 # Tensordict modules
 from tensordict.tensordict import TensorDictBase, TensorDict
 
+from torchrl.collectors import SyncDataCollector
+
 # Env
 from torchrl.envs import TransformedEnv
 from torchrl.envs.utils import (
@@ -90,7 +92,6 @@ class TransformedEnvCustom(TransformedEnv):
         The data returned will be marked with a "time" dimension name for the last
         dimension of the tensordict (at the ``env.ndim`` index).
         """
-        # print("[DEBUG] new env.rollout")
         try:
             policy_device = next(policy.parameters()).device
         except (StopIteration, AttributeError):
@@ -159,6 +160,15 @@ class TransformedEnvCustom(TransformedEnv):
         if is_save_simulation_video:
             frame_list = []
 
+        # Possibly predict the actions of surrounding agents using opponent modeling
+        if self.base_env.scenario_name.parameters.is_using_opponent_modeling:
+            opponent_modeling(
+                tensordict=tensordict,
+                policy=policy,
+                n_nearing_agents_observed=self.base_env.scenario_name.parameters.n_nearing_agents_observed,
+                nearing_agents_indices=self.base_env.scenario_name.observations.nearing_agents_indices,
+            )
+
         for i in range(max_steps):
             if auto_cast_to_device:
                 tensordict = tensordict.to(policy_device, non_blocking=True)
@@ -220,6 +230,15 @@ class TransformedEnvCustom(TransformedEnv):
         if is_save_simulation_video:
             frame_list = []
 
+        # Possibly predict the actions of surrounding agents using opponent modeling
+        if self.base_env.scenario_name.parameters.is_using_opponent_modeling:
+            opponent_modeling(
+                tensordict=tensordict,
+                policy=policy,
+                n_nearing_agents_observed=self.base_env.scenario_name.parameters.n_nearing_agents_observed,
+                nearing_agents_indices=self.base_env.scenario_name.observations.nearing_agents_indices,
+            )
+
         for i in range(max_steps):
             if auto_cast_to_device:
                 tensordict_ = tensordict_.to(policy_device, non_blocking=True)
@@ -243,6 +262,90 @@ class TransformedEnvCustom(TransformedEnv):
             return tensordicts, frame_list
         else:
             return tensordicts
+
+
+class SyncDataCollectorCustom(SyncDataCollector):
+    """
+    Slightly modify the function `rollout` to enable opponent modeling.
+    """
+
+    @torch.no_grad()
+    def rollout(self) -> TensorDictBase:
+        """Computes a rollout in the environment using the provided policy.
+
+        Returns:
+            TensorDictBase containing the computed rollout.
+
+        """
+        if self.reset_at_each_iter:
+            self._tensordict.update(self.env.reset())
+
+        # self._tensordict.fill_(("collector", "step_count"), 0)
+        self._tensordict_out.fill_(("collector", "traj_ids"), -1)
+        tensordicts = []
+        with set_exploration_type(self.exploration_type):
+            for t in range(self.frames_per_batch):
+                if (
+                    self.init_random_frames is not None
+                    and self._frames < self.init_random_frames
+                ):
+                    self.env.rand_action(self._tensordict)
+                else:
+                    # Possibly predict the actions of surrounding agents using opponent modeling
+                    if (
+                        self.env.base_env.scenario_name.parameters.is_using_opponent_modeling
+                    ):
+                        opponent_modeling(
+                            tensordict=self._tensordict,
+                            policy=self.policy,
+                            n_nearing_agents_observed=self.env.base_env.scenario_name.parameters.n_nearing_agents_observed,
+                            nearing_agents_indices=self.env.base_env.scenario_name.observations.nearing_agents_indices,
+                        )
+                    self.policy(self._tensordict)
+                tensordict, tensordict_ = self.env.step_and_maybe_reset(
+                    self._tensordict
+                )
+                self._tensordict = tensordict_.set(
+                    "collector", tensordict.get("collector").clone(False)
+                )
+                tensordicts.append(
+                    tensordict.to(self.storing_device, non_blocking=True)
+                )
+
+                self._update_traj_ids(tensordict)
+                if (
+                    self.interruptor is not None
+                    and self.interruptor.collection_stopped()
+                ):
+                    try:
+                        torch.stack(
+                            tensordicts,
+                            self._tensordict_out.ndim - 1,
+                            out=self._tensordict_out[: t + 1],
+                        )
+                    except RuntimeError:
+                        with self._tensordict_out.unlock_():
+                            torch.stack(
+                                tensordicts,
+                                self._tensordict_out.ndim - 1,
+                                out=self._tensordict_out[: t + 1],
+                            )
+                    break
+            else:
+                try:
+                    self._tensordict_out = torch.stack(
+                        tensordicts,
+                        self._tensordict_out.ndim - 1,
+                        out=self._tensordict_out,
+                    )
+                except RuntimeError:
+                    with self._tensordict_out.unlock_():
+                        self._tensordict_out = torch.stack(
+                            tensordicts,
+                            self._tensordict_out.ndim - 1,
+                            out=self._tensordict_out,
+                        )
+        return self._tensordict_out
 
 
 class Parameters:
@@ -563,3 +666,47 @@ def compute_td_error(tensordict_data: TensorDict, gamma=0.9):
     )  # For numerical stability
 
     return td_error_average_over_agents
+
+
+def opponent_modeling(
+    tensordict, policy, n_nearing_agents_observed, nearing_agents_indices
+):
+    """
+    This function implements opponent modeling, inspired by [1].
+    Each ego agent uses its own policy to predict the tentative actions of its surrounding agents, aiming to mitigate the non-stationarity problem.
+    The ego agent appends these tentative actions to its observation.
+
+    Reference
+        [1] Raileanu, Roberta, et al. "Modeling others using oneself in multi-agent reinforcement learning." International conference on machine learning. PMLR, 2018.
+    """
+    policy(tensordict)  # Run the policy to get tentative actions
+    # Infer parameters
+    n_agents = tensordict["agents"]["action"].shape[1]
+    n_actions = tensordict["agents"]["action"].shape[2]
+
+    batch_dim = tensordict.batch_size[0]
+    device = tensordict.device
+
+    actions_tentative = tensordict["agents"]["action"]
+
+    for ego_agent in range(n_agents):
+        for j in range(n_nearing_agents_observed):
+            sur_agent = nearing_agents_indices[:, ego_agent, j]
+
+            batch_indices = torch.arange(batch_dim, device=device, dtype=torch.int32)
+            action_tentative_sur_agent = actions_tentative[batch_indices, sur_agent]
+
+            # Update observation with tentative actions
+            idx_action_start = (
+                -(n_nearing_agents_observed - j) * 2
+            )  # Start index of the action of surrounding agents in the observation (actions are appended at the end of the observation)
+            idx_action_end = (
+                idx_action_start + n_actions
+            )  # End index of the action of surrounding agents in the observation (actions are appended at the end of the observation)
+            if idx_action_end == 0:
+                idx_action_end = None  # Avoid slicing with zero
+
+            # Insert the tentative actions of the surrounding agents into each ago agent's observation
+            tensordict["agents"]["observation"][
+                :, ego_agent, idx_action_start:idx_action_end
+            ] = action_tentative_sur_agent

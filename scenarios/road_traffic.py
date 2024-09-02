@@ -254,48 +254,51 @@ class ScenarioRoadTraffic(BaseScenario):
         probability_use_recording = kwargs.pop("probability_use_recording", 0.2)
         buffer_size = kwargs.pop("buffer_size", 100)
 
-        self.parameters = Parameters(
-            n_agents=self.n_agents,
-            scenario_type=scenario_type,
-            is_partial_observation=kwargs.pop("is_partial_observation", True),
-            is_testing_mode=kwargs.pop("is_testing_mode", False),
-            is_visualize_short_term_path=kwargs.pop(
-                "is_visualize_short_term_path", True
-            ),
-            n_nearing_agents_observed=kwargs.pop("n_nearing_agents_observed", 2),
-            is_real_time_rendering=kwargs.pop("is_real_time_rendering", False),
-            n_steps_stored=kwargs.pop("n_steps_stored", 10),
-            n_points_short_term=kwargs.pop("n_points_short_term", 3),
-            dt=kwargs.pop("dt", 0.05),
-            is_ego_view=kwargs.pop("is_ego_view", True),
-            is_observe_vertices=kwargs.pop("is_observe_vertices", True),
-            is_observe_distance_to_agents=kwargs.pop(
-                "is_observe_distance_to_agents", True
-            ),
-            is_observe_distance_to_boundaries=kwargs.pop(
-                "is_observe_distance_to_boundaries", True
-            ),
-            is_observe_distance_to_center_line=kwargs.pop(
-                "is_observe_distance_to_center_line", True
-            ),
-            is_apply_mask=kwargs.pop("is_apply_mask", False),
-            is_challenging_initial_state_buffer=kwargs.pop(
-                "is_challenging_initial_state_buffer", True
-            ),
-            cpm_scenario_probabilities=kwargs.pop(
-                "cpm_scenario_probabilities", [1.0, 0.0, 0.0]
-            ),  # Probabilities of training agents in intersection, merge-in, and merge-out scenario
-            is_add_noise=kwargs.pop("is_add_noise", True),
-            is_observe_ref_path_other_agents=kwargs.pop(
-                "is_observe_ref_path_other_agents", False
-            ),
-            is_visualize_extra_info=kwargs.pop("is_visualize_extra_info", False),
-            render_title=kwargs.pop(
-                "render_title",
-                "Multi-Agent Reinforcement Learning for Road Traffic (CPM Lab Scenario)",
-            ),
-            is_using_opponent_modeling=kwargs.pop("is_using_opponent_modeling", False),
-        )
+        if not hasattr(self, "parameters"):
+            self.parameters = Parameters(
+                n_agents=self.n_agents,
+                scenario_type=scenario_type,
+                is_partial_observation=kwargs.pop("is_partial_observation", True),
+                is_testing_mode=kwargs.pop("is_testing_mode", False),
+                is_visualize_short_term_path=kwargs.pop(
+                    "is_visualize_short_term_path", True
+                ),
+                n_nearing_agents_observed=kwargs.pop("n_nearing_agents_observed", 2),
+                is_real_time_rendering=kwargs.pop("is_real_time_rendering", False),
+                n_steps_stored=kwargs.pop("n_steps_stored", 10),
+                n_points_short_term=kwargs.pop("n_points_short_term", 3),
+                dt=kwargs.pop("dt", 0.05),
+                is_ego_view=kwargs.pop("is_ego_view", True),
+                is_observe_vertices=kwargs.pop("is_observe_vertices", True),
+                is_observe_distance_to_agents=kwargs.pop(
+                    "is_observe_distance_to_agents", True
+                ),
+                is_observe_distance_to_boundaries=kwargs.pop(
+                    "is_observe_distance_to_boundaries", True
+                ),
+                is_observe_distance_to_center_line=kwargs.pop(
+                    "is_observe_distance_to_center_line", True
+                ),
+                is_apply_mask=kwargs.pop("is_apply_mask", False),
+                is_challenging_initial_state_buffer=kwargs.pop(
+                    "is_challenging_initial_state_buffer", True
+                ),
+                cpm_scenario_probabilities=kwargs.pop(
+                    "cpm_scenario_probabilities", [1.0, 0.0, 0.0]
+                ),  # Probabilities of training agents in intersection, merge-in, and merge-out scenario
+                is_add_noise=kwargs.pop("is_add_noise", True),
+                is_observe_ref_path_other_agents=kwargs.pop(
+                    "is_observe_ref_path_other_agents", False
+                ),
+                is_visualize_extra_info=kwargs.pop("is_visualize_extra_info", False),
+                render_title=kwargs.pop(
+                    "render_title",
+                    "Multi-Agent Reinforcement Learning for Road Traffic (CPM Lab Scenario)",
+                ),
+                is_using_opponent_modeling=kwargs.pop(
+                    "is_using_opponent_modeling", False
+                ),
+            )
 
         # Logs
         if self.parameters.is_testing_mode:
@@ -305,6 +308,8 @@ class ScenarioRoadTraffic(BaseScenario):
             print(colored("[INFO] Enable prioritized replay buffer", "red"))
         if self.parameters.is_challenging_initial_state_buffer:
             print(colored("[INFO] Enable challenging initial state buffer", "red"))
+        if self.parameters.is_using_opponent_modeling:
+            print(colored("[INFO] Using opponent modeling", "red"))
 
         self.parameters.n_nearing_agents_observed = min(
             self.parameters.n_nearing_agents_observed, self.parameters.n_agents - 1
@@ -1279,7 +1284,7 @@ class ScenarioRoadTraffic(BaseScenario):
             agents[i_agent].set_rot(rot_start, batch_index=env_i)
             agents[i_agent].set_vel(vel_start, batch_index=env_i)
 
-            return ref_path, path_id
+        return ref_path, path_id
 
     def _reset_agent_related_ref_path(
         self, env_i, i_agent, ref_path, path_id, extended_points
@@ -2028,9 +2033,12 @@ class ScenarioRoadTraffic(BaseScenario):
 
         obs = torch.hstack(obs_all)  # Convert from list to tensor
 
-        obs = F.pad(
-            obs, (0, self.parameters.n_nearing_agents_observed * AGENTS["n_actions"])
-        )
+        if self.parameters.is_using_opponent_modeling:
+            # Zero-padding as a placeholder for actions of surrounding agents
+            obs = F.pad(
+                obs,
+                (0, self.parameters.n_nearing_agents_observed * AGENTS["n_actions"]),
+            )
 
         if self.parameters.is_add_noise:
             # Add sensor noise if required

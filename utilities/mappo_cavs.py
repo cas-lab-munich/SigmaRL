@@ -19,7 +19,7 @@ from tensordict.nn import TensorDictModule
 from tensordict.nn.distributions import NormalParamExtractor
 
 # Data collection
-from torchrl.collectors import SyncDataCollector
+from utilities.helper_training import SyncDataCollectorCustom
 from torchrl.data.replay_buffers import ReplayBuffer
 from torchrl.data import TensorDictPrioritizedReplayBuffer
 from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
@@ -230,7 +230,7 @@ def mappo_cavs(parameters: Parameters):
             )
             critic.load_state_dict(torch.load(PATH_CRITIC))
 
-    collector = SyncDataCollector(
+    collector = SyncDataCollectorCustom(
         env,
         policy,
         device=parameters.device,
