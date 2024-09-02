@@ -54,8 +54,9 @@ class ParseMapBase(ABC):
             "is_visualize_intersection", False
         )  # For the CPM Scenario only
 
-        self._width = kwargs.pop("width", [])  # Width of the lane
-        self._scale = kwargs.pop("scale", [])  # Scale of the map
+        self._width = SCENARIOS[self._scenario_type]["lane_width"]  # Width of the lane
+        self._scale = SCENARIOS[self._scenario_type]["scale"]  # Scale the map
+
         self._is_share_lanelets = kwargs.pop(
             "is_share_lanelets", False
         )  # Whether agents can move to nearing lanelets

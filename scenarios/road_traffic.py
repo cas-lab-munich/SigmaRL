@@ -16,6 +16,7 @@ if project_root not in sys.path:
 
 import torch
 from torch import Tensor
+import torch.nn.functional as F
 from typing import Dict
 
 # Enable anomaly detection
@@ -61,7 +62,7 @@ from utilities.helper_scenario import (
 
 from utilities.map_manager import MapManager
 
-from utilities.constants import SCENARIOS
+from utilities.constants import SCENARIOS, AGENTS
 
 
 class ScenarioRoadTraffic(BaseScenario):
@@ -106,21 +107,15 @@ class ScenarioRoadTraffic(BaseScenario):
         """
         Initialize parameters.
         """
-        scenario_type = kwargs.pop("scenario_type", "CPM_mixed")  # Scenario type
+        scenario_type = kwargs.pop(
+            "scenario_type", "CPM_mixed"
+        )  # Scenario type. See all scenario types in SCENARIOS in utilities/constants
         self.n_agents = SCENARIOS[scenario_type]["n_agents"]  # Number of agents
-        self.agent_width = kwargs.pop(
-            "agent_width", 0.08
-        )  # The width of the agent in [m]
-        self.agent_length = kwargs.pop(
-            "agent_length", 0.16
-        )  # The length of the agent in [m]
-        self.l_f = kwargs.pop("l_f", self.agent_length / 2)  # Front wheelbase in [m]
-        self.l_r = kwargs.pop(
-            "l_r", self.agent_length - self.l_f
-        )  # Rear wheelbase in [m]
-        lane_width = kwargs.pop(
-            "lane_width", 0.15
-        )  # The (rough) width of each lane in [m]
+        self.agent_width = AGENTS["width"]  # The width of the agent in [m]
+        self.agent_length = AGENTS["length"]  # The length of the agent in [m]
+        lane_width = SCENARIOS[scenario_type][
+            "lane_width"
+        ]  # The (rough) width of each lane in [m]
 
         # Reward
         r_p_normalizer = (
@@ -299,6 +294,7 @@ class ScenarioRoadTraffic(BaseScenario):
                 "render_title",
                 "Multi-Agent Reinforcement Learning for Road Traffic (CPM Lab Scenario)",
             ),
+            is_using_opponent_modeling=kwargs.pop("is_using_opponent_modeling", False),
         )
 
         # Logs
@@ -913,7 +909,7 @@ class ScenarioRoadTraffic(BaseScenario):
             mask_zero=torch.tensor(0, device=device, dtype=torch.float32),
             mask_one=torch.tensor(1, device=device, dtype=torch.float32),
             reset_agent_min_distance=torch.tensor(
-                (self.l_f + self.l_r) ** 2 + self.agent_width**2,
+                AGENTS["length"] ** 2 + self.agent_width**2,
                 device=device,
                 dtype=torch.float32,
             ).sqrt()
@@ -981,7 +977,7 @@ class ScenarioRoadTraffic(BaseScenario):
         for i in range(self.n_agents):
             agent = Agent(
                 name=f"agent_{i}",
-                shape=Box(length=self.l_f + self.l_r, width=self.agent_width),
+                shape=Box(length=AGENTS["length"], width=AGENTS["width"]),
                 color=tuple(colors[i]),
                 collide=False,
                 render_action=False,
@@ -993,9 +989,9 @@ class ScenarioRoadTraffic(BaseScenario):
                 max_speed=self.max_speed,
                 dynamics=KinematicBicycle(  # Use the kinematic bicycle model for each agent
                     world,
-                    width=self.agent_width,
-                    l_f=self.l_f,
-                    l_r=self.l_r,
+                    width=AGENTS["width"],
+                    l_f=AGENTS["l_f"],
+                    l_r=AGENTS["l_r"],
                     max_steering_angle=self.max_steering_angle,
                     integration="rk4",  # one of {"euler", "rk4"}
                 ),
@@ -2031,6 +2027,10 @@ class ScenarioRoadTraffic(BaseScenario):
         obs_all = [o for o in obs_self if o is not None]  # Filter out None values
 
         obs = torch.hstack(obs_all)  # Convert from list to tensor
+
+        obs = F.pad(
+            obs, (0, self.parameters.n_nearing_agents_observed * AGENTS["n_actions"])
+        )
 
         if self.parameters.is_add_noise:
             # Add sensor noise if required

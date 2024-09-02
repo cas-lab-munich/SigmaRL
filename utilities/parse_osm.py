@@ -433,8 +433,6 @@ class ParseOSM(ParseMapBase):
 if __name__ == "__main__":
     parser = ParseOSM(
         scenario_type="intersection_2",  # intersection_1, intersection_2, intersection_3, on_ramp_1, roundabout_1
-        width=0.15,  # [m]
-        scale=1e5,
         device="cpu" if not torch.cuda.is_available() else "cuda:0",
         is_share_lanelets=False,
         is_visualize_map=True,

@@ -18,6 +18,8 @@ SCENARIOS = {
         "world_y_dim": 4.0,  # Environment y-dimension. (0, 0) is assumed to be the origin
         "figsize_x": 3,  # For evaluation figs
         "viewer_zoom": 1.44,  # For VMAS render
+        "lane_width": 0.15,  # [m] Lane width
+        "scale": 1.0,  # Scale the map
     },
     "CPM_mixed": {
         "map_path": "assets/maps/cpm.xml",
@@ -31,6 +33,8 @@ SCENARIOS = {
         "world_y_dim": 4.0,  # Environment y-dimension. (0, 0) is assumed to be the origin
         "figsize_x": 3,  # For evaluation figs
         "viewer_zoom": 1.44,  # For VMAS render
+        "lane_width": 0.15,  # [m] Lane width
+        "scale": 1.0,  # Scale the map
     },
     "intersection_1": {
         "map_path": "assets/maps/intersection_1.osm",
@@ -57,6 +61,8 @@ SCENARIOS = {
         },
         "figsize_x": 2.5,
         "viewer_zoom": 1.1,  # For VMAS render
+        "lane_width": 0.20,  # [m] Lane width
+        "scale": 1e5,  # A scale converts data from geographic coordinate system (used in JOSM) to Cartesian coordinate system
     },
     "intersection_2": {
         "map_path": "assets/maps/intersection_2.osm",
@@ -91,6 +97,8 @@ SCENARIOS = {
         },
         "figsize_x": 2.0,
         "viewer_zoom": 1.15,  # For VMAS render
+        "lane_width": 0.20,  # [m] Lane width
+        "scale": 1e5,  # Scale the map
     },
     "intersection_3": {
         "map_path": "assets/maps/intersection_3.osm",
@@ -122,6 +130,8 @@ SCENARIOS = {
         },
         "figsize_x": 2.5,
         "viewer_zoom": 1.15,  # For VMAS render
+        "lane_width": 0.20,  # [m] Lane width
+        "scale": 1e5,  # Scale the map
     },
     "on_ramp_1": {
         "map_path": "assets/maps/on_ramp_1.osm",
@@ -150,6 +160,8 @@ SCENARIOS = {
         },
         "figsize_x": 3.5,
         "viewer_zoom": 0.95,  # For VMAS render
+        "lane_width": 0.20,  # [m] Lane width
+        "scale": 1e5,  # Scale the map
     },
     "roundabout_1": {
         "map_path": "assets/maps/roundabout_1.osm",
@@ -181,15 +193,21 @@ SCENARIOS = {
         },
         "figsize_x": 3.0,
         "viewer_zoom": 1.1,  # For VMAS render
+        "lane_width": 0.20,  # [m] Lane width
+        "scale": 1e5,  # Scale the map
     },
 }
 
 AGENTS = {
-    "width": 0.08,
-    "length": 0.16,
-    "max_speed": 1.0,
+    "width": 0.08,  # [m]
+    "length": 0.16,  # [m]
+    "l_f": 0.08,  # [m] Front wheelbase
+    "l_r": 0.08,  # [m] Rear wheelbase
+    "max_speed": 1.0,  # [m/s]
+    "max_steering": 30,  # [°]
+    "n_actions": 2,
 }
 
 THRESHOLD = {
-    "initial_distance": 1.2 * math.sqrt(AGENTS["width"] ** 2 + AGENTS["length"] ** 2)
+    "initial_distance": 1.2 * math.sqrt(AGENTS["width"] ** 2 + AGENTS["length"] ** 2),
 }

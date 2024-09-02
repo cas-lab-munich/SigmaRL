@@ -320,6 +320,7 @@ class Parameters:
         is_load_out_td: bool = False,  # Whether to load evaluation outputs
         is_testing_mode: bool = False,  # In testing mode, collisions do not terminate the current simulation
         is_save_simulation_video: bool = False,  # Whether to save simulation videos
+        is_using_opponent_modeling: bool = False,  # Whether to use opponent modeling to predict the actions of other agents
     ):
 
         self.n_agents = n_agents
@@ -395,6 +396,8 @@ class Parameters:
         self.is_challenging_initial_state_buffer = is_challenging_initial_state_buffer
 
         self.cpm_scenario_probabilities = cpm_scenario_probabilities
+
+        self.is_using_opponent_modeling = is_using_opponent_modeling
 
         if (model_name is None) and (scenario_name is not None):
             self.model_name = get_model_name(self)

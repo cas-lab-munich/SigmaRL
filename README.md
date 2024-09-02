@@ -46,8 +46,8 @@ We support maps customized in <a href="https://josm.openstreetmap.de/" target="_
 - Now you will see a new window. Make sure there is no element. Otherwise, redo the above steps.
 - Customize lanes. Note that all lanes you draw are considered center lines. You do not need to draw left and right boundaries, since they will be determined automatically later by our script with a given width.
 - Save the osm file and store it at `assets/maps`. Give it a name.
-- Go to `utilities/constants.py` and create a new dictionary for it. You should at least give the value for the key "map_path".
-- Go to `utilities/parse_osm.py`. Adjust the parameters `scenario_type` (the name of the new map), `width` (lane width), and `scale` (a scale to convert GPS system) to meet your requirements.
+- Go to `utilities/constants.py` and create a new dictionary for it. You should at least give the value for the key `map_path`, `lane_width`, and `scale`.
+- Go to `utilities/parse_osm.py`. Adjust the parameters `scenario_type` and run it.
 
 ## News
 - [2024-08-14] We support customized maps in OpenStreetMap now!

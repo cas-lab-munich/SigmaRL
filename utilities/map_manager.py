@@ -32,8 +32,6 @@ class MapManager:
         else:
             map_parser = ParseOSM(
                 scenario_type=self._scenario_type,
-                width=0.20,  # [m]
-                scale=1e5,
                 device=self._device,
             )
 
