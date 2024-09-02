@@ -97,12 +97,12 @@ class ScenarioRoadTraffic(BaseScenario):
     """
 
     def make_world(self, batch_dim: int, device: torch.device, **kwargs):
-        self.init_params(batch_dim, device, **kwargs)
-        world = self.init_world(batch_dim, device)
-        self.init_agents(world)
+        self._init_params(batch_dim, device, **kwargs)
+        world = self._init_world(batch_dim, device)
+        self._init_agents(world)
         return world
 
-    def init_params(self, batch_dim, device, **kwargs):
+    def _init_params(self, batch_dim, device, **kwargs):
         """
         Initialize parameters.
         """
@@ -255,6 +255,10 @@ class ScenarioRoadTraffic(BaseScenario):
             "n_points_nearing_boundary", 5
         )  # The number of points on nearing boundaries to be observed
 
+        probability_record = kwargs.pop("probability_record", 1.0)
+        probability_use_recording = kwargs.pop("probability_use_recording", 0.2)
+        buffer_size = kwargs.pop("buffer_size", 100)
+
         self.parameters = Parameters(
             n_agents=self.n_agents,
             scenario_type=scenario_type,
@@ -280,6 +284,9 @@ class ScenarioRoadTraffic(BaseScenario):
                 "is_observe_distance_to_center_line", True
             ),
             is_apply_mask=kwargs.pop("is_apply_mask", False),
+            is_challenging_initial_state_buffer=kwargs.pop(
+                "is_challenging_initial_state_buffer", True
+            ),
             cpm_scenario_probabilities=kwargs.pop(
                 "cpm_scenario_probabilities", [1.0, 0.0, 0.0]
             ),  # Probabilities of training agents in intersection, merge-in, and merge-out scenario
@@ -954,7 +961,7 @@ class ScenarioRoadTraffic(BaseScenario):
             ),  # [pos_x, pos_y, rot, vel_x, vel_y, scenario_id, path_id, point_id],
         )
 
-    def init_world(self, batch_dim: int, device: torch.device):
+    def _init_world(self, batch_dim: int, device: torch.device):
         # Make world
         world = World(
             batch_dim,
@@ -969,15 +976,13 @@ class ScenarioRoadTraffic(BaseScenario):
         )
         return world
 
-    def init_agents(self, world):
+    def _init_agents(self, world):
         # Create agents
         for i in range(self.n_agents):
             agent = Agent(
                 name=f"agent_{i}",
                 shape=Box(length=self.l_f + self.l_r, width=self.agent_width),
-                color=tuple(
-                    torch.rand(3, device=world.device, dtype=torch.float32).tolist()
-                ),
+                color=tuple(colors[i]),
                 collide=False,
                 render_action=False,
                 u_range=[
@@ -1027,7 +1032,10 @@ class ScenarioRoadTraffic(BaseScenario):
                 # Each time step of a simulation
                 self.timer.step[env_i] = 0
 
-            ref_paths_scenario, extended_points = self.reset_scenario_related_ref_paths(
+            (
+                ref_paths_scenario,
+                extended_points,
+            ) = self._reset_scenario_related_ref_paths(
                 env_i, is_reset_single_agent, agent_index
             )
 
@@ -1060,7 +1068,7 @@ class ScenarioRoadTraffic(BaseScenario):
                 if not is_reset_single_agent
                 else agent_index.unsqueeze(0)
             ):
-                ref_path, path_id = self.reset_init_state(
+                ref_path, path_id = self._reset_init_state(
                     env_i,
                     i_agent,
                     is_reset_single_agent,
@@ -1070,7 +1078,7 @@ class ScenarioRoadTraffic(BaseScenario):
                     agents,
                 )
 
-                self.reset_agent_related_ref_path(
+                self._reset_agent_related_ref_path(
                     env_i, i_agent, ref_path, path_id, extended_points
                 )
 
@@ -1088,7 +1096,7 @@ class ScenarioRoadTraffic(BaseScenario):
                 if not is_reset_single_agent
                 else agent_index.unsqueeze(0)
             ):
-                self.reset_init_distances_and_short_term_ref_path(
+                self._reset_init_distances_and_short_term_ref_path(
                     env_j, i_agent, agents
                 )
 
@@ -1121,7 +1129,7 @@ class ScenarioRoadTraffic(BaseScenario):
         )
         self.state_buffer.add(state_add)  # Add new state
 
-    def reset_scenario_related_ref_paths(
+    def _reset_scenario_related_ref_paths(
         self, env_i, is_reset_single_agent, agent_index
     ):
         # Get the center line and boundaries of the long-term reference path for each agent
@@ -1164,7 +1172,7 @@ class ScenarioRoadTraffic(BaseScenario):
             ] = 0  # 0 for others, 1 for intersection, 2 for merge-in, 3 for merge-out scenario
         return ref_paths_scenario, extended_points
 
-    def reset_init_state(
+    def _reset_init_state(
         self,
         env_i,
         i_agent,
@@ -1277,7 +1285,7 @@ class ScenarioRoadTraffic(BaseScenario):
 
             return ref_path, path_id
 
-    def reset_agent_related_ref_path(
+    def _reset_agent_related_ref_path(
         self, env_i, i_agent, ref_path, path_id, extended_points
     ):
         """
@@ -1363,7 +1371,7 @@ class ScenarioRoadTraffic(BaseScenario):
 
         self.ref_paths_agent_related.is_loop[env_i, i_agent] = ref_path["is_loop"]
 
-    def reset_init_distances_and_short_term_ref_path(self, env_j, i_agent, agents):
+    def _reset_init_distances_and_short_term_ref_path(self, env_j, i_agent, agents):
         """
         This function calculates the distances from the agent's center of gravity (CG) to its reference path and boundaries,
         and computes the positions of the four vertices of the agent. It also determines the short-term reference paths
@@ -1538,7 +1546,7 @@ class ScenarioRoadTraffic(BaseScenario):
         agent_index = self.world.agents.index(agent)
 
         # [update] mutual distances between agents, vertices of each agent, and collision matrices
-        self.update_state_before_rewarding(agent, agent_index)
+        self._update_state_before_rewarding(agent, agent_index)
 
         ##################################################
         ## [reward] forward movement
@@ -1677,7 +1685,7 @@ class ScenarioRoadTraffic(BaseScenario):
         self.rew += time_reward
 
         # [update] previous positions and short-term reference paths
-        self.update_state_after_rewarding(agent_index)
+        self._update_state_after_rewarding(agent_index)
 
         # [update] previous positions and short-term reference paths
         if agent_index == (self.n_agents - 1):  # Avoid repeated updating
@@ -1760,7 +1768,7 @@ class ScenarioRoadTraffic(BaseScenario):
 
         return rew_clamed
 
-    def update_state_before_rewarding(self, agent, agent_index):
+    def _update_state_before_rewarding(self, agent, agent_index):
         """Update some states (such as mutual distances between agents, vertices of each agent, and
         collision matrices) that will be used before rewarding agents.
         """
@@ -1910,7 +1918,7 @@ class ScenarioRoadTraffic(BaseScenario):
             dim=-1,
         )
 
-    def update_state_after_rewarding(self, agent_index):
+    def _update_state_after_rewarding(self, agent_index):
         """
         Update some states (such as previous positions and short-term reference paths) after rewarding agents.
         """
@@ -2011,12 +2019,12 @@ class ScenarioRoadTraffic(BaseScenario):
         agent_index = self.world.agents.index(agent)
 
         if agent_index == 0:  # Avoid repeated computations
-            self.update_observation_and_normalize(agent, agent_index)
+            self._update_observation_and_normalize(agent, agent_index)
 
         # Observation of other agents
-        obs_other_agents = self.observe_other_agents(agent_index)
+        obs_other_agents = self._observe_other_agents(agent_index)
 
-        obs_self = self.observe_self(agent_index)
+        obs_self = self._observe_self(agent_index)
 
         obs_self.append(obs_other_agents)  # Append the observations of other agents
 
@@ -2034,7 +2042,7 @@ class ScenarioRoadTraffic(BaseScenario):
             # Return without sensor noise
             return obs
 
-    def update_observation_and_normalize(self, agent, agent_index):
+    def _update_observation_and_normalize(self, agent, agent_index):
         """Update observation and normalize them."""
         positions_global = torch.stack(
             [a.state.pos for a in self.world.agents], dim=0
@@ -2289,7 +2297,7 @@ class ScenarioRoadTraffic(BaseScenario):
                 # Determine the current lanelet IDs of all agents of all envs for later use
                 self.map.determine_current_lanelet(positions_global)
 
-    def observe_other_agents(self, agent_index):
+    def _observe_other_agents(self, agent_index):
         """Observe surrounding agents."""
         ##################################################
         ## Observation of other agents
@@ -2496,7 +2504,7 @@ class ScenarioRoadTraffic(BaseScenario):
 
         return obs_other_agents
 
-    def observe_self(self, agent_index):
+    def _observe_self(self, agent_index):
         """Observe the given agent itself."""
         indexing_tuple_3 = (
             (self.constants.env_idx_broadcasting,)
