@@ -123,12 +123,16 @@ class TransformedEnvCustom(TransformedEnv):
         }
         if break_when_any_done:
             if is_save_simulation_video:
-                tensordicts, frame_list = self._rollout_stop_early(**kwargs)
+                tensordicts, frame_list = self._rollout_stop_early(
+                    **kwargs
+                )  # Modification
             else:
                 tensordicts = self._rollout_stop_early(**kwargs)
         else:
             if is_save_simulation_video:
-                tensordicts, frame_list = self._rollout_nonstop(**kwargs)
+                tensordicts, frame_list = self._rollout_nonstop(
+                    **kwargs
+                )  # Modification
             else:
                 tensordicts = self._rollout_nonstop(**kwargs)
 
@@ -139,7 +143,7 @@ class TransformedEnvCustom(TransformedEnv):
         out_td.refine_names(..., "time")
 
         if is_save_simulation_video:
-            return out_td, frame_list
+            return out_td, frame_list  # Modification
         else:
             return out_td
 
@@ -160,6 +164,7 @@ class TransformedEnvCustom(TransformedEnv):
         if is_save_simulation_video:
             frame_list = []
 
+        # <Modification starts>
         # Possibly predict the actions of surrounding agents using opponent modeling
         if self.base_env.scenario_name.parameters.is_using_opponent_modeling:
             opponent_modeling(
@@ -168,6 +173,7 @@ class TransformedEnvCustom(TransformedEnv):
                 n_nearing_agents_observed=self.base_env.scenario_name.parameters.n_nearing_agents_observed,
                 nearing_agents_indices=self.base_env.scenario_name.observations.nearing_agents_indices,
             )
+        # <Modification ends>
 
         for i in range(max_steps):
             if auto_cast_to_device:
@@ -202,13 +208,13 @@ class TransformedEnvCustom(TransformedEnv):
 
             if callback is not None:
                 if is_save_simulation_video:
-                    frame = callback(self, tensordict)
+                    frame = callback(self, tensordict)  # Modification
                     frame_list.append(frame)
                 else:
                     callback(self, tensordict)
 
         if is_save_simulation_video:
-            return tensordicts, frame_list
+            return tensordicts, frame_list  # Modification
         else:
             return tensordicts
 
@@ -230,6 +236,7 @@ class TransformedEnvCustom(TransformedEnv):
         if is_save_simulation_video:
             frame_list = []
 
+        # <Modification starts>
         # Possibly predict the actions of surrounding agents using opponent modeling
         if self.base_env.scenario_name.parameters.is_using_opponent_modeling:
             opponent_modeling(
@@ -238,6 +245,7 @@ class TransformedEnvCustom(TransformedEnv):
                 n_nearing_agents_observed=self.base_env.scenario_name.parameters.n_nearing_agents_observed,
                 nearing_agents_indices=self.base_env.scenario_name.observations.nearing_agents_indices,
             )
+        # <Modification ends>
 
         for i in range(max_steps):
             if auto_cast_to_device:
@@ -253,13 +261,13 @@ class TransformedEnvCustom(TransformedEnv):
 
             if callback is not None:
                 if is_save_simulation_video:
-                    frame = callback(self, tensordict)
+                    frame = callback(self, tensordict)  # Modification
                     frame_list.append(frame)
                 else:
                     callback(self, tensordict)
 
         if is_save_simulation_video:
-            return tensordicts, frame_list
+            return tensordicts, frame_list  # Modification
         else:
             return tensordicts
 
@@ -291,6 +299,7 @@ class SyncDataCollectorCustom(SyncDataCollector):
                 ):
                     self.env.rand_action(self._tensordict)
                 else:
+                    # <Modification starts>
                     # Possibly predict the actions of surrounding agents using opponent modeling
                     if (
                         self.env.base_env.scenario_name.parameters.is_using_opponent_modeling
@@ -301,6 +310,7 @@ class SyncDataCollectorCustom(SyncDataCollector):
                             n_nearing_agents_observed=self.env.base_env.scenario_name.parameters.n_nearing_agents_observed,
                             nearing_agents_indices=self.env.base_env.scenario_name.observations.nearing_agents_indices,
                         )
+                    # <Modification ends>
                     self.policy(self._tensordict)
                 tensordict, tensordict_ = self.env.step_and_maybe_reset(
                     self._tensordict
