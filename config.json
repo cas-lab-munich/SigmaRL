@@ -43,5 +43,6 @@
     "is_apply_mask": false,
     "is_add_noise": true,
     "is_observe_ref_path_other_agents": false,
-    "is_using_opponent_modeling": true
+    "is_using_opponent_modeling": false,
+    "is_using_prioritized_marl": true
 }

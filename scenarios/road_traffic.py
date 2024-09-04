@@ -298,6 +298,9 @@ class ScenarioRoadTraffic(BaseScenario):
                 is_using_opponent_modeling=kwargs.pop(
                     "is_using_opponent_modeling", False
                 ),
+                is_using_prioritized_marl=kwargs.pop(
+                    "is_using_prioritized_marl", False
+                ),
             )
 
         # Logs
@@ -871,16 +874,20 @@ class ScenarioRoadTraffic(BaseScenario):
                 threshold_near_boundary_high, device=device, dtype=torch.float32
             ),
             near_other_agents_low=torch.tensor(
-                threshold_near_other_agents_c2c_low
-                if self.distances.type == "c2c"
-                else threshold_near_other_agents_MTV_low,
+                (
+                    threshold_near_other_agents_c2c_low
+                    if self.distances.type == "c2c"
+                    else threshold_near_other_agents_MTV_low
+                ),
                 device=device,
                 dtype=torch.float32,
             ),
             near_other_agents_high=torch.tensor(
-                threshold_near_other_agents_c2c_high
-                if self.distances.type == "c2c"
-                else threshold_near_other_agents_MTV_high,
+                (
+                    threshold_near_other_agents_c2c_high
+                    if self.distances.type == "c2c"
+                    else threshold_near_other_agents_MTV_high
+                ),
                 device=device,
                 dtype=torch.float32,
             ),
@@ -961,6 +968,10 @@ class ScenarioRoadTraffic(BaseScenario):
                 dtype=torch.float32,
             ),  # [pos_x, pos_y, rot, vel_x, vel_y, scenario_id, path_id, point_id],
         )
+
+        # Store the computed observations of each agent for reuse in `info()`
+        # to generate `base_obs` and `prio_obs`, which are used for prioritized MARL.
+        self.stored_observations = [None] * self.n_agents
 
     def _init_world(self, batch_dim: int, device: torch.device):
         # Make world
@@ -2042,13 +2053,15 @@ class ScenarioRoadTraffic(BaseScenario):
 
         if self.parameters.is_add_noise:
             # Add sensor noise if required
-            return obs + (
+            obs = obs + (
                 self.observations.noise_level
                 * torch.rand_like(obs, device=self.world.device, dtype=torch.float32)
             )
-        else:
-            # Return without sensor noise
-            return obs
+
+        # Store observation for reuse in `info()`, only relevant for prioritized MARL
+        self.stored_observations[agent_index] = obs
+
+        return obs
 
     def _update_observation_and_normalize(self, agent, agent_index):
         """Update observation and normalize them."""
@@ -2484,24 +2497,30 @@ class ScenarioRoadTraffic(BaseScenario):
 
         # Observation of other agents
         obs_others_list = [
-            obs_vertices_other_agents_flat
-            if self.parameters.is_observe_vertices
-            else torch.cat(  # [other] vertices
-                [
-                    obs_pos_other_agents_flat,  # [others] positions
-                    obs_rot_other_agents_flat,  # [others] rotations
-                    obs_lengths_other_agents_flat,  # [others] lengths
-                    obs_widths_other_agents_flat,  # [others] widths
-                ],
-                dim=-1,
+            (
+                obs_vertices_other_agents_flat
+                if self.parameters.is_observe_vertices
+                else torch.cat(  # [other] vertices
+                    [
+                        obs_pos_other_agents_flat,  # [others] positions
+                        obs_rot_other_agents_flat,  # [others] rotations
+                        obs_lengths_other_agents_flat,  # [others] lengths
+                        obs_widths_other_agents_flat,  # [others] widths
+                    ],
+                    dim=-1,
+                )
             ),
             obs_vel_other_agents_flat,  # [others] velocities
-            obs_distance_other_agents_flat
-            if self.parameters.is_observe_distance_to_agents
-            else None,  # [others] mutual distances
-            obs_ref_path_other_agents_flat
-            if self.parameters.is_observe_ref_path_other_agents
-            else None,  # [others] reference paths
+            (
+                obs_distance_other_agents_flat
+                if self.parameters.is_observe_distance_to_agents
+                else None
+            ),  # [others] mutual distances
+            (
+                obs_ref_path_other_agents_flat
+                if self.parameters.is_observe_ref_path_other_agents
+                else None
+            ),  # [others] reference paths
         ]
         obs_others_list = [
             o for o in obs_others_list if o is not None
@@ -2526,15 +2545,19 @@ class ScenarioRoadTraffic(BaseScenario):
         )  # In local coordinate system, only the first component is interesting, as the second is always 0
         # All observations
         obs_self = [
-            None
-            if self.parameters.is_ego_view
-            else self.observations.past_pos.get_latest()[indexing_tuple_3].reshape(
-                self.world.batch_dim, -1
+            (
+                None
+                if self.parameters.is_ego_view
+                else self.observations.past_pos.get_latest()[indexing_tuple_3].reshape(
+                    self.world.batch_dim, -1
+                )
             ),  # [own] position,
-            None
-            if self.parameters.is_ego_view
-            else self.observations.past_rot.get_latest()[indexing_tuple_3].reshape(
-                self.world.batch_dim, -1
+            (
+                None
+                if self.parameters.is_ego_view
+                else self.observations.past_rot.get_latest()[indexing_tuple_3].reshape(
+                    self.world.batch_dim, -1
+                )
             ),  # [own] rotation,
             self.observations.past_vel.get_latest()[indexing_tuple_vel].reshape(
                 self.world.batch_dim, -1
@@ -2544,28 +2567,30 @@ class ScenarioRoadTraffic(BaseScenario):
             ].reshape(
                 self.world.batch_dim, -1
             ),  # [own] short-term reference path
-            self.observations.past_distance_to_ref_path.get_latest()[
-                :, agent_index
-            ].reshape(self.world.batch_dim, -1)
-            if self.parameters.is_observe_distance_to_center_line
-            else None,  # [own] distances to reference paths
-            self.observations.past_distance_to_left_boundary.get_latest()[
-                :, agent_index
-            ].reshape(self.world.batch_dim, -1)
-            if self.parameters.is_observe_distance_to_boundaries
-            else self.observations.past_left_boundary.get_latest()[
-                indexing_tuple_3
-            ].reshape(
-                self.world.batch_dim, -1
+            (
+                self.observations.past_distance_to_ref_path.get_latest()[
+                    :, agent_index
+                ].reshape(self.world.batch_dim, -1)
+                if self.parameters.is_observe_distance_to_center_line
+                else None
+            ),  # [own] distances to reference paths
+            (
+                self.observations.past_distance_to_left_boundary.get_latest()[
+                    :, agent_index
+                ].reshape(self.world.batch_dim, -1)
+                if self.parameters.is_observe_distance_to_boundaries
+                else self.observations.past_left_boundary.get_latest()[
+                    indexing_tuple_3
+                ].reshape(self.world.batch_dim, -1)
             ),  # [own] left boundaries
-            self.observations.past_distance_to_right_boundary.get_latest()[
-                :, agent_index
-            ].reshape(self.world.batch_dim, -1)
-            if self.parameters.is_observe_distance_to_boundaries
-            else self.observations.past_right_boundary.get_latest()[
-                indexing_tuple_3
-            ].reshape(
-                self.world.batch_dim, -1
+            (
+                self.observations.past_distance_to_right_boundary.get_latest()[
+                    :, agent_index
+                ].reshape(self.world.batch_dim, -1)
+                if self.parameters.is_observe_distance_to_boundaries
+                else self.observations.past_right_boundary.get_latest()[
+                    indexing_tuple_3
+                ].reshape(self.world.batch_dim, -1)
             ),  # [own] right boundaries
         ]
 
@@ -2691,16 +2716,29 @@ class ScenarioRoadTraffic(BaseScenario):
         )  # [batch_dim]
         is_collision_with_lanelets = self.collisions.with_lanelets.any(dim=-1)
 
+        if self.parameters.is_using_prioritized_marl:
+            # Zero-padding as a placeholder for actions of surrounding agents
+            base_obs = F.pad(
+                self.stored_observations[agent_index].clone(),
+                (0, self.parameters.n_nearing_agents_observed * AGENTS["n_actions"]),
+            )
+
+            prio_obs = self.stored_observations[agent_index].clone()
+
         info = {
             "pos": agent.state.pos / self.normalizers.pos_world,
             "rot": angle_eliminate_two_pi(agent.state.rot) / self.normalizers.rot,
             "vel": agent.state.vel / self.normalizers.v,
-            "act_vel": (agent.action.u[:, 0] / self.normalizers.action_vel)
-            if not is_action_empty
-            else self.constants.empty_action_vel[:, agent_index],
-            "act_steer": (agent.action.u[:, 1] / self.normalizers.action_steering)
-            if not is_action_empty
-            else self.constants.empty_action_steering[:, agent_index],
+            "act_vel": (
+                (agent.action.u[:, 0] / self.normalizers.action_vel)
+                if not is_action_empty
+                else self.constants.empty_action_vel[:, agent_index]
+            ),
+            "act_steer": (
+                (agent.action.u[:, 1] / self.normalizers.action_steering)
+                if not is_action_empty
+                else self.constants.empty_action_steering[:, agent_index]
+            ),
             "ref": (
                 self.ref_paths_agent_related.short_term[:, agent_index]
                 / self.normalizers.pos_world
@@ -2717,6 +2755,11 @@ class ScenarioRoadTraffic(BaseScenario):
             / self.normalizers.distance_lanelet,
             "is_collision_with_agents": is_collision_with_agents,
             "is_collision_with_lanelets": is_collision_with_lanelets,
+            **(
+                {"base_observation": base_obs, "priority_observation": prio_obs}
+                if self.parameters.is_using_prioritized_marl
+                else {}
+            ),
         }
 
         return info

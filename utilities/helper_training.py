@@ -4,25 +4,54 @@
 # LICENSE file in the root directory of this source tree.
 
 import torch
+import torch.nn as nn
 
 # Tensordict modules
 from tensordict.tensordict import TensorDictBase, TensorDict
+from tensordict.nn import TensorDictModule
+from tensordict.nn.distributions import NormalParamExtractor
 
 from torchrl.collectors import SyncDataCollector
 
 # Env
-from torchrl.envs import TransformedEnv
+from torchrl.envs import TransformedEnv, StepCounter
 from torchrl.envs.utils import (
     set_exploration_type,
     _terminated_or_truncated,
     step_mdp,
+    _aggregate_end_of_traj,
+    _convert_exploration_type,
+    ExplorationType,
 )
+from torchrl.envs.common import EnvBase
 from torchrl.envs.libs.vmas import VmasEnv
+
+
+# TorchRL Utils
+from torchrl._utils import (
+    _check_for_faulty_process,
+    _ProcessNoWarn,
+    accept_remote_rref_udf_invocation,
+    prod,
+    RL_WARNINGS,
+    VERBOSE,
+)
+
+# Losses
+from torchrl.objectives import ClipPPOLoss, ValueEstimators
+
+from torchrl.data.utils import DEVICE_TYPING
 
 from vmas.simulator.utils import (
     X,
     Y,
 )
+
+# Multi-agent network
+from torchrl.modules import MultiAgentMLP, ProbabilisticActor, TanhNormal
+
+# Specs
+from torchrl.data import UnboundedContinuousTensorSpec
 
 # Utils
 from matplotlib import pyplot as plt
@@ -33,6 +62,14 @@ from matplotlib import pyplot as plt
 import json
 import os
 import re
+
+from typing import Any, Callable, Dict, Iterator, Optional, Sequence, Tuple, Union
+
+DEFAULT_EXPLORATION_TYPE: ExplorationType = ExplorationType.RANDOM
+
+import warnings
+
+from utilities.constants import AGENTS
 
 
 def get_model_name(parameters):
@@ -62,6 +99,7 @@ class TransformedEnvCustom(TransformedEnv):
         tensordict: Optional[TensorDictBase] = None,
         out=None,
         is_save_simulation_video: bool = False,
+        priority_module=None,
     ):
         """Executes a rollout in the environment.
 
@@ -108,7 +146,6 @@ class TransformedEnvCustom(TransformedEnv):
         elif tensordict is None:
             raise RuntimeError("tensordict must be provided when auto_reset is False")
         if policy is None:
-
             policy = self.rand_action
 
         kwargs = {
@@ -120,6 +157,7 @@ class TransformedEnvCustom(TransformedEnv):
             "env_device": env_device,
             "callback": callback,
             "is_save_simulation_video": is_save_simulation_video,
+            "priority_module": priority_module,
         }
         if break_when_any_done:
             if is_save_simulation_video:
@@ -158,6 +196,7 @@ class TransformedEnvCustom(TransformedEnv):
         env_device,
         callback,
         is_save_simulation_video,
+        priority_module,
     ):
         tensordicts = []
 
@@ -178,7 +217,16 @@ class TransformedEnvCustom(TransformedEnv):
         for i in range(max_steps):
             if auto_cast_to_device:
                 tensordict = tensordict.to(policy_device, non_blocking=True)
-            tensordict = policy(tensordict)
+
+            if self.base_env.scenario_name.parameters.is_using_prioritized_marl:
+                tensordict = prioritized_ap_policy(
+                    tensordict,
+                    policy,
+                    priority_module,
+                    self.env.base_env.scenario_name.observations.nearing_agents_indices,
+                )
+            else:
+                tensordict = policy(tensordict)
             if auto_cast_to_device:
                 tensordict = tensordict.to(env_device, non_blocking=True)
             tensordict = self.step(tensordict)
@@ -229,6 +277,7 @@ class TransformedEnvCustom(TransformedEnv):
         env_device,
         callback,
         is_save_simulation_video,
+        priority_module,
     ):
         tensordicts = []
         tensordict_ = tensordict
@@ -250,7 +299,15 @@ class TransformedEnvCustom(TransformedEnv):
         for i in range(max_steps):
             if auto_cast_to_device:
                 tensordict_ = tensordict_.to(policy_device, non_blocking=True)
-            tensordict_ = policy(tensordict_)
+            if self.base_env.scenario_name.parameters.is_using_prioritized_marl:
+                tensordict_ = prioritized_ap_policy(
+                    tensordict_,
+                    policy,
+                    priority_module,
+                    self.env.base_env.scenario_name.observations.nearing_agents_indices,
+                )
+            else:
+                tensordict_ = policy(tensordict_)
             if auto_cast_to_device:
                 tensordict_ = tensordict_.to(env_device, non_blocking=True)
             tensordict, tensordict_ = self.step_and_maybe_reset(tensordict_)
@@ -274,8 +331,287 @@ class TransformedEnvCustom(TransformedEnv):
 
 class SyncDataCollectorCustom(SyncDataCollector):
     """
-    Slightly modify the function `rollout` to enable opponent modeling.
+    Slightly modify the function `rollout` to enable opponent modeling and prioritized action propagation.
     """
+
+    def helper_init(
+        self,
+        create_env_fn: Union[
+            EnvBase, Sequence[Callable[[], EnvBase]]  # noqa: F821
+        ],  # noqa: F821
+        policy: Optional[
+            Union[
+                TensorDictModule,
+                Callable[[TensorDictBase], TensorDictBase],
+            ]
+        ],
+        *,
+        frames_per_batch: int,
+        total_frames: int,
+        device: DEVICE_TYPING = None,
+        storing_device: DEVICE_TYPING = None,
+        create_env_kwargs: Union[Dict, None] = None,  # Changed from dict | None
+        max_frames_per_traj: Union[int, None] = None,  # Changed from int | None
+        init_random_frames: Union[int, None] = None,  # Changed from int | None
+        reset_at_each_iter: bool = False,
+        postproc: Optional[
+            Callable[[TensorDictBase], TensorDictBase]
+        ] = None,  # Changed from Callable[...] | None
+        split_trajs: Union[bool, None] = None,  # Changed from bool | None
+        exploration_type: ExplorationType = DEFAULT_EXPLORATION_TYPE,
+        exploration_mode=None,
+        return_same_td: bool = False,
+        reset_when_done: bool = True,
+        interruptor=None,
+    ):
+        from torchrl.envs.batched_envs import _BatchedEnv
+
+        self.closed = True
+
+        exploration_type = _convert_exploration_type(
+            exploration_mode=exploration_mode, exploration_type=exploration_type
+        )
+        if create_env_kwargs is None:
+            create_env_kwargs = {}
+        if not isinstance(create_env_fn, EnvBase):
+            env = create_env_fn(**create_env_kwargs)
+        else:
+            env = create_env_fn
+            if create_env_kwargs:
+                if not isinstance(env, _BatchedEnv):
+                    raise RuntimeError(
+                        "kwargs were passed to SyncDataCollector but they can't be set "
+                        f"on environment of type {type(create_env_fn)}."
+                    )
+                env.update_kwargs(create_env_kwargs)
+
+        if storing_device is None:
+            if device is not None:
+                storing_device = device
+            elif policy is not None:
+                try:
+                    policy_device = next(policy.parameters()).device
+                except (AttributeError, StopIteration):
+                    policy_device = torch.device("cpu")
+                storing_device = policy_device
+            else:
+                storing_device = torch.device("cpu")
+
+        self.storing_device = torch.device(storing_device)
+        self.env: EnvBase = env
+        self.closed = False
+        if not reset_when_done:
+            raise ValueError("reset_when_done is deprectated.")
+        self.reset_when_done = reset_when_done
+        self.n_env = self.env.batch_size.numel()
+
+        (self.policy, self.device, self.get_weights_fn,) = self._get_policy_and_device(
+            policy=policy,
+            device=device,
+            observation_spec=self.env.observation_spec,
+        )
+
+        if isinstance(self.policy, nn.Module):
+            self.policy_weights = TensorDict(dict(self.policy.named_parameters()), [])
+            self.policy_weights.update(
+                TensorDict(dict(self.policy.named_buffers()), [])
+            )
+        else:
+            self.policy_weights = TensorDict({}, [])
+
+        self.env: EnvBase = self.env.to(self.device)
+        self.max_frames_per_traj = (
+            int(max_frames_per_traj) if max_frames_per_traj is not None else 0
+        )
+        if self.max_frames_per_traj is not None and self.max_frames_per_traj > 0:
+            # let's check that there is no StepCounter yet
+            for key in self.env.output_spec.keys(True, True):
+                if isinstance(key, str):
+                    key = (key,)
+                if "step_count" in key:
+                    raise ValueError(
+                        "A 'step_count' key is already present in the environment "
+                        "and the 'max_frames_per_traj' argument may conflict with "
+                        "a 'StepCounter' that has already been set. "
+                        "Possible solutions: Set max_frames_per_traj to 0 or "
+                        "remove the StepCounter limit from the environment transforms."
+                    )
+            env = self.env = TransformedEnv(
+                self.env, StepCounter(max_steps=self.max_frames_per_traj)
+            )
+
+        if total_frames is None or total_frames < 0:
+            total_frames = float("inf")
+        else:
+            remainder = total_frames % frames_per_batch
+            if remainder != 0 and RL_WARNINGS:
+                warnings.warn(
+                    f"total_frames ({total_frames}) is not exactly divisible by frames_per_batch ({frames_per_batch})."
+                    f"This means {frames_per_batch - remainder} additional frames will be collected."
+                    "To silence this message, set the environment variable RL_WARNINGS to False."
+                )
+        self.total_frames = (
+            int(total_frames) if total_frames != float("inf") else total_frames
+        )
+        self.reset_at_each_iter = reset_at_each_iter
+        self.init_random_frames = (
+            int(init_random_frames) if init_random_frames is not None else 0
+        )
+        if (
+            init_random_frames is not None
+            and init_random_frames % frames_per_batch != 0
+            and RL_WARNINGS
+        ):
+            warnings.warn(
+                f"init_random_frames ({init_random_frames}) is not exactly a multiple of frames_per_batch ({frames_per_batch}), "
+                f" this results in more init_random_frames than requested"
+                f" ({-(-init_random_frames // frames_per_batch) * frames_per_batch})."
+                "To silence this message, set the environment variable RL_WARNINGS to False."
+            )
+
+        self.postproc = postproc
+        if self.postproc is not None and hasattr(self.postproc, "to"):
+            self.postproc.to(self.storing_device)
+        if frames_per_batch % self.n_env != 0 and RL_WARNINGS:
+            warnings.warn(
+                f"frames_per_batch ({frames_per_batch}) is not exactly divisible by the number of batched environments ({self.n_env}), "
+                f" this results in more frames_per_batch per iteration that requested"
+                f" ({-(-frames_per_batch // self.n_env) * self.n_env})."
+                "To silence this message, set the environment variable RL_WARNINGS to False."
+            )
+        self.requested_frames_per_batch = int(frames_per_batch)
+        self.frames_per_batch = -(-frames_per_batch // self.n_env)
+        self.exploration_type = (
+            exploration_type if exploration_type else DEFAULT_EXPLORATION_TYPE
+        )
+        self.return_same_td = return_same_td
+
+        self._tensordict = env.reset()
+        traj_ids = torch.arange(self.n_env, device=env.device).view(self.env.batch_size)
+        self._tensordict.set(
+            ("collector", "traj_ids"),
+            traj_ids,
+        )
+
+        with torch.no_grad():
+            self._tensordict_out = self.env.fake_tensordict()
+        # If the policy has a valid spec, we use it
+        if (
+            hasattr(self.policy, "spec")
+            and self.policy.spec is not None
+            and all(v is not None for v in self.policy.spec.values(True, True))
+        ):
+            if any(
+                key not in self._tensordict_out.keys(isinstance(key, tuple))
+                for key in self.policy.spec.keys(True, True)
+            ):
+                # if policy spec is non-empty, all the values are not None and the keys
+                # match the out_keys we assume the user has given all relevant information
+                # the policy could have more keys than the env:
+                policy_spec = self.policy.spec
+                if policy_spec.ndim < self._tensordict_out.ndim:
+                    policy_spec = policy_spec.expand(self._tensordict_out.shape)
+                for key, spec in policy_spec.items(True, True):
+                    if key in self._tensordict_out.keys(isinstance(key, tuple)):
+                        continue
+                    self._tensordict_out.set(key, spec.zero())
+
+        else:
+            # otherwise, we perform a small number of steps with the policy to
+            # determine the relevant keys with which to pre-populate _tensordict_out.
+            # This is the safest thing to do if the spec has None fields or if there is
+            # no spec at all.
+            # See #505 for additional context.
+            self._tensordict_out.update(self._tensordict)
+            with torch.no_grad():
+                self._tensordict_out = self.policy(self._tensordict_out.to(self.device))
+
+        # Create the TensorDict
+        priority = TensorDict(
+            {
+                "loc": torch.zeros(
+                    self.env.base_env.scenario_name.parameters.num_vmas_envs,
+                    self.env.base_env.scenario_name.parameters.n_agents,
+                    1,
+                    dtype=torch.float32,
+                    device=self.env.base_env.scenario_name.parameters.device,
+                ),
+                "sample_log_prob": torch.zeros(
+                    self.env.base_env.scenario_name.parameters.num_vmas_envs,
+                    self.env.base_env.scenario_name.parameters.n_agents,
+                    dtype=torch.float32,
+                    device=self.env.base_env.scenario_name.parameters.device,
+                ),
+                "scale": torch.zeros(
+                    self.env.base_env.scenario_name.parameters.num_vmas_envs,
+                    self.env.base_env.scenario_name.parameters.n_agents,
+                    1,
+                    dtype=torch.float32,
+                    device=self.env.base_env.scenario_name.parameters.device,
+                ),
+                "scores": torch.zeros(
+                    self.env.base_env.scenario_name.parameters.num_vmas_envs,
+                    self.env.base_env.scenario_name.parameters.n_agents,
+                    1,
+                    dtype=torch.float32,
+                    device=self.env.base_env.scenario_name.parameters.device,
+                ),
+                "ordering": torch.zeros(
+                    self.env.base_env.scenario_name.parameters.num_vmas_envs,
+                    self.env.base_env.scenario_name.parameters.n_agents,
+                    dtype=torch.int64,
+                    device=self.env.base_env.scenario_name.parameters.device,
+                ),
+                "state_value": torch.zeros(
+                    self.env.base_env.scenario_name.parameters.num_vmas_envs,
+                    self.env.base_env.scenario_name.parameters.n_agents,
+                    dtype=torch.float32,
+                    device=self.env.base_env.scenario_name.parameters.device,
+                ),
+            },
+            batch_size=[self.env.base_env.scenario_name.parameters.num_vmas_envs],
+        )
+
+        self._tensordict_out["agents", "info"].set("priority", priority)
+
+        self._tensordict_out = (
+            self._tensordict_out.unsqueeze(-1)
+            .expand(*env.batch_size, self.frames_per_batch)
+            .clone()
+            .zero_()
+        )
+        # in addition to outputs of the policy, we add traj_ids to
+        # _tensordict_out which will be collected during rollout
+        self._tensordict_out = self._tensordict_out.to(self.storing_device)
+        self._tensordict_out.set(
+            ("collector", "traj_ids"),
+            torch.zeros(
+                *self._tensordict_out.batch_size,
+                dtype=torch.int64,
+                device=self.storing_device,
+            ),
+        )
+
+        self._tensordict_out.refine_names(..., "time")
+
+        if split_trajs is None:
+            split_trajs = False
+        self.split_trajs = split_trajs
+        self._exclude_private_keys = True
+        self.interruptor = interruptor
+        self._frames = 0
+        self._iter = -1
+
+    def __init__(
+        self,
+        env,
+        policy,
+        priority_module=None,
+        **kwargs,
+    ):
+        self.priority_module = priority_module
+
+        self.helper_init(env, policy, **kwargs)
 
     @torch.no_grad()
     def rollout(self) -> TensorDictBase:
@@ -298,20 +634,32 @@ class SyncDataCollectorCustom(SyncDataCollector):
                     and self._frames < self.init_random_frames
                 ):
                     self.env.rand_action(self._tensordict)
-                else:
+
                     # <Modification starts>
                     # Possibly predict the actions of surrounding agents using opponent modeling
-                    if (
-                        self.env.base_env.scenario_name.parameters.is_using_opponent_modeling
-                    ):
-                        opponent_modeling(
-                            tensordict=self._tensordict,
-                            policy=self.policy,
-                            n_nearing_agents_observed=self.env.base_env.scenario_name.parameters.n_nearing_agents_observed,
-                            nearing_agents_indices=self.env.base_env.scenario_name.observations.nearing_agents_indices,
-                        )
-                    # <Modification ends>
+                elif (
+                    self.env.base_env.scenario_name.parameters.is_using_opponent_modeling
+                ):
+                    opponent_modeling(
+                        tensordict=self._tensordict,
+                        policy=self.policy,
+                        n_nearing_agents_observed=self.env.base_env.scenario_name.parameters.n_nearing_agents_observed,
+                        nearing_agents_indices=self.env.base_env.scenario_name.observations.nearing_agents_indices,
+                    )
                     self.policy(self._tensordict)
+                # <Modification ends>
+                elif (
+                    self.env.base_env.scenario_name.parameters.is_using_prioritized_marl
+                ):
+                    prioritized_ap_policy(
+                        tensordict=self._tensordict,
+                        policy=self.policy,
+                        priority_module=self.priority_module,
+                        nearing_agents_indices=self.env.base_env.scenario_name.observations.nearing_agents_indices,
+                    )
+                else:
+                    self.policy(self._tensordict)
+
                 tensordict, tensordict_ = self.env.step_and_maybe_reset(
                     self._tensordict
                 )
@@ -434,6 +782,7 @@ class Parameters:
         is_testing_mode: bool = False,  # In testing mode, collisions do not terminate the current simulation
         is_save_simulation_video: bool = False,  # Whether to save simulation videos
         is_using_opponent_modeling: bool = False,  # Whether to use opponent modeling to predict the actions of other agents
+        is_using_prioritized_marl: bool = False,  # Whether to use prioritized MARL and action propagation.
     ):
 
         self.n_agents = n_agents
@@ -511,6 +860,7 @@ class Parameters:
         self.cpm_scenario_probabilities = cpm_scenario_probabilities
 
         self.is_using_opponent_modeling = is_using_opponent_modeling
+        self.is_using_prioritized_marl = is_using_prioritized_marl
 
         if (model_name is None) and (scenario_name is not None):
             self.model_name = get_model_name(self)
@@ -550,6 +900,208 @@ class SaveData:
         return cls(parameters, dict_data["episode_reward_mean_list"])
 
 
+class PriorityModule:
+    def __init__(self, env: TransformedEnvCustom = None, mappo: bool = True):
+        """
+        Initializes the PriorityModule, which is responsible for computing the priority ordering of agents
+        and their scores using a neural network policy. It also sets up a PPO loss module with an actor-critic
+        architecture and GAE (Generalized Advantage Estimation) for reinforcement learning optimization.
+
+        Parameters:
+        -----------
+        env : TransformedEnvCustom
+            The environment containing the observation specifications and other scenario parameters.
+        mappo : bool, optional
+            Flag to indicate whether to use centralised learning in the critic (MAPPO). Default is True.
+        """
+
+        self.env = env
+        self.parameters = self.env.scenario.parameters
+
+        # Tuple containing the prefix keys relevant to the priority variables
+        self.prefix_key = ("agents", "info", "priority")
+
+        policy_net = torch.nn.Sequential(
+            MultiAgentMLP(
+                n_agent_inputs=env.observation_spec[
+                    get_priority_observation_key()
+                ].shape[-1],
+                n_agent_outputs=2 * 1,  # 2 * n_actions_per_agents
+                n_agents=self.parameters.n_agents,
+                centralised=False,  # the policies are decentralised (ie each agent will act from its observation)
+                share_params=True,
+                device=self.parameters.device,
+                depth=2,
+                num_cells=256,
+                activation_class=torch.nn.Tanh,
+            ),
+            NormalParamExtractor(),  # this will just separate the last dimension into two outputs: a loc and a non-negative scale
+        )
+
+        policy_module = TensorDictModule(
+            policy_net,
+            in_keys=[get_priority_observation_key()],
+            out_keys=[self.prefix_key + ("loc",), self.prefix_key + ("scale",)],
+        )
+
+        policy = ProbabilisticActor(
+            module=policy_module,
+            spec=UnboundedContinuousTensorSpec(),
+            in_keys=[self.prefix_key + ("loc",), self.prefix_key + ("scale",)],
+            out_keys=[self.prefix_key + ("scores",)],
+            distribution_class=TanhNormal,
+            distribution_kwargs={},
+            return_log_prob=True,
+            log_prob_key=self.prefix_key + ("sample_log_prob",),
+        )  # we'll need the log-prob for the PPO loss
+
+        critic_net = MultiAgentMLP(
+            n_agent_inputs=env.observation_spec[get_priority_observation_key()].shape[
+                -1
+            ],  # Number of observations
+            n_agent_outputs=1,  # 1 value per agent
+            n_agents=self.parameters.n_agents,
+            centralised=mappo,  # If `centralised` is True (which may help overcome the non-stationary problem in MARL), each agent will use the inputs of all agents to compute its output (n_agent_inputs * n_agents will be the number of inputs for one agent). Otherwise, each agent will only use its data as input.
+            share_params=True,  # If `share_params` is True, the same MLP will be used to make the forward pass for all agents (homogeneous policies). Otherwise, each agent will use a different MLP to process its input (heterogeneous policies).
+            device=self.parameters.device,
+            depth=2,
+            num_cells=256,
+            activation_class=torch.nn.Tanh,
+        )
+
+        critic = TensorDictModule(
+            module=critic_net,
+            in_keys=[
+                get_priority_observation_key()
+            ],  # Note that the critic in PPO only takes the same inputs (observations) as the actor
+            out_keys=[self.prefix_key + ("state_value",)],
+        )
+
+        loss_module = ClipPPOLoss(
+            actor=policy,
+            critic=critic,
+            clip_epsilon=self.parameters.clip_epsilon,
+            entropy_coef=self.parameters.entropy_eps,
+            normalize_advantage=False,  # Important to avoid normalizing across the agent dimension
+        )
+
+        loss_module.set_keys(  # We have to tell the loss where to find the keys
+            reward=env.reward_key,
+            action=self.prefix_key + ("scores",),
+            sample_log_prob=self.prefix_key + ("sample_log_prob",),
+            value=self.prefix_key + ("state_value",),
+            # These last 2 keys will be expanded to match the reward shape
+            done=("agents", "done"),
+            terminated=("agents", "terminated"),
+        )
+
+        loss_module.make_value_estimator(
+            ValueEstimators.GAE,
+            gamma=self.parameters.gamma,
+            lmbda=self.parameters.lmbda,
+        )  # We build GAE
+        GAE = loss_module.value_estimator  # Generalized Advantage Estimation
+
+        optim = torch.optim.Adam(loss_module.parameters(), self.parameters.lr)
+
+        self.policy = policy
+        self.critic = critic
+        self.GAE = GAE
+        self.loss_module = loss_module
+        self.optim = optim
+
+    def rank_agents(self, scores):
+        """
+        Ranks agents based on their priority scores.
+
+        The method returns the indices of agents in descending order based on their scores.
+
+        Parameters:
+        -----------
+        scores : Tensor
+            A tensor containing the priority scores for each agent.
+
+        Returns:
+        --------
+        ordered_indices : Tensor
+            A tensor containing the indices of agents ordered by their priority scores in descending order.
+        """
+        # Remove the last dimension of size 1
+        scores = scores.squeeze(-1)
+
+        # Get the indices that would sort the tensor along the last dimension in descending order
+        ordered_indices = torch.argsort(scores, dim=-1, descending=True)
+
+        return ordered_indices
+
+    def __call__(self, tensordict):
+        """
+        Computes the priority ordering of agents based on their scores and updates the tensordict.
+
+        The method calls the priority actor to generate scores for each agent, ranks the agents
+        based on those scores, and then updates the tensordict with the priority ordering.
+
+        Parameters:
+        -----------
+        tensordict : TensorDict
+            A dictionary-like object containing the data for the agents.
+
+        Returns:
+        --------
+        tensordict : TensorDict
+            The updated tensordict with the priority ordering of agents added.
+        """
+
+        # Call the priority actor and extract the scores key from the resulting tensordict
+        scores = self.policy(tensordict)[self.prefix_key + ("scores",)]
+
+        # Generate the priority ordering of agents
+        priority_ordering = self.rank_agents(scores)
+
+        tensordict[self.prefix_key + ("ordering",)] = priority_ordering
+
+        # Return the tensordict with the priority ordering included
+        return tensordict
+
+    def compute_losses_and_optimize(self, data):
+        """
+        Computes the PPO loss (actor and critic losses) and performs backpropagation with gradient clipping.
+
+        This method computes the combined loss (objective, critic, and entropy losses) from the loss module,
+        checks for invalid gradients (NaN or infinite values), performs backpropagation, applies gradient clipping,
+        and then steps the optimizer to update the model parameters.
+
+        Parameters:
+        -----------
+        data : TensorDict
+            A dictionary-like object containing the data for computing the losses.
+
+        Returns:
+        --------
+        None
+        """
+
+        loss_vals = self.loss_module(data)
+
+        loss_value = (
+            loss_vals["loss_objective"]
+            + loss_vals["loss_critic"]
+            + loss_vals["loss_entropy"]
+        )
+
+        assert not loss_value.isnan().any()
+        assert not loss_value.isinf().any()
+
+        loss_value.backward()
+
+        torch.nn.utils.clip_grad_norm_(
+            self.loss_module.parameters(), self.parameters.max_grad_norm
+        )  # Optional
+
+        self.optim.step()
+        self.optim.zero_grad()
+
+
 ##################################################
 ## Helper Functions
 ##################################################
@@ -563,7 +1115,21 @@ def get_path_to_save_model(parameters: Parameters):
     )
     PATH_JSON = parameters.where_to_save + parameters.model_name + "_data.json"
 
-    return PATH_POLICY, PATH_CRITIC, PATH_FIG, PATH_JSON
+    PATH_PRIORITY_POLICY = (
+        parameters.where_to_save + parameters.model_name + "_priority_policy.pth"
+    )
+    PATH_PRIORITY_CRITIC = (
+        parameters.where_to_save + parameters.model_name + "_priority_critic.pth"
+    )
+
+    return (
+        PATH_POLICY,
+        PATH_CRITIC,
+        PATH_PRIORITY_POLICY,
+        PATH_PRIORITY_CRITIC,
+        PATH_FIG,
+        PATH_JSON,
+    )
 
 
 def delete_files_with_lower_mean_reward(parameters: Parameters):
@@ -601,11 +1167,23 @@ def find_the_highest_reward_among_all_models(path):
     return highest_reward
 
 
-def save(parameters: Parameters, save_data: SaveData, policy=None, critic=None):
+def save(
+    parameters: Parameters,
+    save_data: SaveData,
+    policy=None,
+    critic=None,
+    priority_policy=None,
+    priority_critic=None,
+):
     # Get paths
-    PATH_POLICY, PATH_CRITIC, PATH_FIG, PATH_JSON = get_path_to_save_model(
-        parameters=parameters
-    )
+    (
+        PATH_POLICY,
+        PATH_CRITIC,
+        PATH_PRIORITY_POLICY,
+        PATH_PRIORITY_CRITIC,
+        PATH_FIG,
+        PATH_JSON,
+    ) = get_path_to_save_model(parameters=parameters)
 
     # Save parameters and mean episode reward list
     json_object = json.dumps(save_data.to_dict(), indent=4)  # Serializing json
@@ -632,6 +1210,14 @@ def save(parameters: Parameters, save_data: SaveData, policy=None, critic=None):
         torch.save(critic.state_dict(), PATH_CRITIC)
         # Delete files with lower mean episode reward
         delete_files_with_lower_mean_reward(parameters=parameters)
+
+    if parameters.is_using_prioritized_marl:
+        if (priority_policy != None) & (priority_critic != None):
+            # Save current models
+            torch.save(priority_policy.state_dict(), PATH_PRIORITY_POLICY)
+            torch.save(priority_critic.state_dict(), PATH_PRIORITY_CRITIC)
+            # Delete files with lower mean episode reward
+            delete_files_with_lower_mean_reward(parameters=parameters)
 
     print(f"Saved model: {parameters.episode_reward_mean_current:.2f}.")
 
@@ -720,3 +1306,128 @@ def opponent_modeling(
             tensordict["agents"]["observation"][
                 :, ego_agent, idx_action_start:idx_action_end
             ] = action_tentative_sur_agent
+
+
+def get_observation_key(parameters):
+    return (
+        ("agents", "observation")
+        if not parameters.is_using_prioritized_marl
+        else ("agents", "info", "base_observation")
+    )
+
+
+def get_priority_observation_key():
+    return ("agents", "info", "priority_observation")
+
+
+def prioritized_ap_policy(tensordict, policy, priority_module, nearing_agents_indices):
+    """
+    Implements prioritized action propagation (AP) for multiple agents.
+    The function first generates a priority ordering using the provided priority module.
+    Then, agents are processed in this priority order, where each agent computes its action
+    and propagates it to lower-priority agents as part of their observation.
+
+    Since the policy call generates actions for all agents in all environments at once,
+    the function uses a mask to isolate the actions of the agent whose turn it is to act.
+    These actions are progressively combined to form the full action tensor.
+
+    Parameters:
+    -----------
+    tensordict : TensorDict
+        A dictionary-like object that stores the data for all agents and environments.
+    policy : Callable
+        The policy function used to compute the actions for the agents.
+    priority_module : Callable
+        A module that computes the priority ordering for agents by wrapping the process
+        of generating priority scores and ranking agents according to these scores.
+    nearing_agents_indices : Tensor
+        A tensor indicating the neighboring agents for each agent in each environment.
+
+    Returns:
+    --------
+    tensordict : TensorDict
+        The updated tensordict with combined actions and observations after prioritized action propagation.
+    """
+
+    base_observation_key = ("agents", "info", "base_observation")
+
+    # Clone original observation
+    original_obs = tensordict[base_observation_key].clone()
+
+    # Infer parameters
+    n_envs, n_agents, obs_dim, action_dim = (
+        original_obs.shape[0],
+        original_obs.shape[1],
+        original_obs.shape[2],
+        AGENTS["n_actions"],
+    )
+
+    # Generate priority ordering using the priority module
+    priority_module(tensordict)
+
+    # Extract priority ordering (shape: (n_envs, n_agents)) from tensordict
+    priority_ordering = tensordict[priority_module.prefix_key + ("ordering",)]
+
+    # Temporary tensors to store intermediate observations and combined results
+    temp_obs = torch.zeros(n_envs, n_agents, obs_dim)
+    combined_action = torch.zeros(n_envs, n_agents, action_dim)
+    combined_loc = torch.zeros(n_envs, n_agents, action_dim)
+    combined_sample_log_prob = torch.zeros(n_envs, n_agents)
+    combined_scale = torch.zeros(n_envs, n_agents, action_dim)
+    combined_obs = torch.zeros(n_envs, n_agents, obs_dim)
+
+    # Loop through each step in the priority ordering
+    for turn in range(n_agents):
+        # Reset the observation
+        tensordict[("agents", "info")].set("base_observation", original_obs)
+
+        # Get the list of agents for the current turn based on priority
+        current_turn_agents = priority_ordering[:, turn]
+
+        # Create environment indices (from 0 to n_envs - 1)
+        envs = torch.arange(n_envs)
+
+        # Create a mask indicating which agents are acting in each environment
+        mask = torch.zeros(n_envs, n_agents, dtype=torch.bool)
+        mask[envs, current_turn_agents] = True
+
+        # Prepare input for the policy by modifying the observations
+        for env in range(n_envs):
+            agent_idx = current_turn_agents[env]
+            obs = tensordict[base_observation_key][env, agent_idx].clone()
+
+            # Get the indices of neighboring agents
+            current_turn_agent_neighbors = nearing_agents_indices[env, agent_idx].to(
+                torch.int64
+            )
+
+            # Collect actions of the current agent's neighbors
+            actions_so_far = combined_action[env, current_turn_agent_neighbors].view(-1)
+
+            # Propagate the collected actions into the current agent's observation
+            obs[-len(actions_so_far) :] = actions_so_far
+
+            # Store the updated observation for the current agent in temp_obs
+            temp_obs[env, agent_idx] = obs
+
+        # Update the base observation with temp_obs for policy execution
+        tensordict[("agents", "info")].set("base_observation", temp_obs)
+
+        # Call the policy to generate actions for the agents
+        policy(tensordict)
+
+        # Use the mask to place the data into the correct positions in the combined tensors
+        combined_action[mask] = tensordict[("agents", "action")][mask]
+        combined_loc[mask] = tensordict[("agents", "loc")][mask]
+        combined_sample_log_prob[mask] = tensordict[("agents", "sample_log_prob")][mask]
+        combined_scale[mask] = tensordict[("agents", "scale")][mask]
+        combined_obs[mask] = tensordict[base_observation_key][mask]
+
+    # Write the combined actions back to the tensordict
+    tensordict[("agents", "action")] = combined_action
+    tensordict[("agents", "loc")] = combined_loc
+    tensordict[("agents", "sample_log_prob")] = combined_sample_log_prob
+    tensordict[("agents", "scale")] = combined_scale
+    tensordict[base_observation_key] = combined_obs
+
+    return tensordict

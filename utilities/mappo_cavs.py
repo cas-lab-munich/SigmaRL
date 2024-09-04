@@ -19,7 +19,7 @@ from tensordict.nn import TensorDictModule
 from tensordict.nn.distributions import NormalParamExtractor
 
 # Data collection
-from utilities.helper_training import SyncDataCollectorCustom
+from utilities.helper_training import SyncDataCollectorCustom, PriorityModule
 from torchrl.data.replay_buffers import ReplayBuffer
 from torchrl.data import TensorDictPrioritizedReplayBuffer
 from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
@@ -104,9 +104,17 @@ def mappo_cavs(parameters: Parameters):
 
     check_env_specs(env)
 
+    observation_key = (
+        ("agents", "observation")
+        if not parameters.is_using_prioritized_marl
+        else ("agents", "info", "base_observation")
+    )
+
+    print(f"obdim = {env.observation_spec[observation_key].shape[-1]}")
+
     policy_net = torch.nn.Sequential(
         MultiAgentMLP(
-            n_agent_inputs=env.observation_spec["agents", "observation"].shape[
+            n_agent_inputs=env.observation_spec[observation_key].shape[
                 -1
             ],  # n_obs_per_agent
             n_agent_outputs=(2 * env.action_spec.shape[-1]),  # 2 * n_actions_per_agents
@@ -125,7 +133,7 @@ def mappo_cavs(parameters: Parameters):
 
     policy_module = TensorDictModule(
         policy_net,
-        in_keys=[("agents", "observation")],
+        in_keys=[observation_key],
         out_keys=[
             ("agents", "loc"),
             ("agents", "scale"),
@@ -153,7 +161,7 @@ def mappo_cavs(parameters: Parameters):
     mappo = True  # IPPO (Independent PPO) if False
 
     critic_net = MultiAgentMLP(
-        n_agent_inputs=env.observation_spec["agents", "observation"].shape[
+        n_agent_inputs=env.observation_spec[observation_key].shape[
             -1
         ],  # Number of observations
         n_agent_outputs=1,  # 1 value per agent
@@ -166,15 +174,17 @@ def mappo_cavs(parameters: Parameters):
         activation_class=torch.nn.Tanh,
     )
 
-    # print(critic_net)
-
     critic = TensorDictModule(
         module=critic_net,
         in_keys=[
-            ("agents", "observation")
+            observation_key
         ],  # Note that the critic in PPO only takes the same inputs (observations) as the actor
         out_keys=[("agents", "state_value")],
     )
+
+    # Instantiate the priority module
+    if parameters.is_using_prioritized_marl:
+        priority_module = PriorityModule(env=env, mappo=mappo)
 
     # Check if the directory defined to store the model exists and create it if not
     if not os.path.exists(parameters.where_to_save):
@@ -233,6 +243,7 @@ def mappo_cavs(parameters: Parameters):
     collector = SyncDataCollectorCustom(
         env,
         policy,
+        priority_module=priority_module,
         device=parameters.device,
         storing_device=parameters.device,
         frames_per_batch=parameters.frames_per_batch,
@@ -265,6 +276,7 @@ def mappo_cavs(parameters: Parameters):
         entropy_coef=parameters.entropy_eps,
         normalize_advantage=False,  # Important to avoid normalizing across the agent dimension
     )
+
     loss_module.set_keys(  # We have to tell the loss where to find the keys
         reward=env.reward_key,
         action=env.action_key,
@@ -288,6 +300,10 @@ def mappo_cavs(parameters: Parameters):
 
     t_start = time.time()
     for tensordict_data in collector:
+        print(f"tensordict_data = {tensordict_data}")
+        print(
+            f'tensordict_data = {tensordict_data["agents", "info", "priority", "ordering"]}'
+        )
         tensordict_data.set(
             ("next", "agents", "done"),
             tensordict_data.get(("next", "done"))
@@ -307,6 +323,13 @@ def mappo_cavs(parameters: Parameters):
                 params=loss_module.critic_params,
                 target_params=loss_module.target_critic_params,
             )  # Compute GAE and add it to the data
+
+            if parameters.is_using_prioritized_marl:
+                priority_module.GAE(
+                    tensordict_data,
+                    params=priority_module.loss_module.critic_params,
+                    target_params=priority_module.loss_module.target_critic_params,
+                )
 
         # Update sample priorities
         if parameters.is_prb:
@@ -351,6 +374,9 @@ def mappo_cavs(parameters: Parameters):
                 optim.step()
                 optim.zero_grad()
 
+                if parameters.is_using_prioritized_marl:
+                    priority_module.compute_losses_and_optimize(mini_batch_data)
+
                 if parameters.is_prb:
                     # Recalculate loss
                     with torch.no_grad():
@@ -359,6 +385,12 @@ def mappo_cavs(parameters: Parameters):
                             params=loss_module.critic_params,
                             target_params=loss_module.target_critic_params,
                         )
+                        if parameters.is_using_prioritized_marl:
+                            priority_module.GAE(
+                                tensordict_data,
+                                params=priority_module.loss_module.critic_params,
+                                target_params=priority_module.loss_module.target_critic_params,
+                            )
                     # Recalculate the TD errors of the sampled minibatch with updated model weights and update priorities in the buffer
                     new_td_errors = compute_td_error(mini_batch_data, gamma=0.9)
                     mini_batch_data.set("td_error", new_td_errors)
@@ -393,6 +425,12 @@ def mappo_cavs(parameters: Parameters):
                     save_data=save_data,
                     policy=policy,
                     critic=critic,
+                    priority_policy=priority_module.policy
+                    if parameters.is_using_prioritized_marl
+                    else None,
+                    priority_critic=priority_module.critic
+                    if parameters.is_using_prioritized_marl
+                    else None,
                 )
             else:
                 # Save only the mean episode reward list and parameters
@@ -400,7 +438,12 @@ def mappo_cavs(parameters: Parameters):
                     parameters.episode_reward_intermediate
                 )
                 save(
-                    parameters=parameters, save_data=save_data, policy=None, critic=None
+                    parameters=parameters,
+                    save_data=save_data,
+                    policy=None,
+                    critic=None,
+                    priority_policy=None,
+                    priority_critic=None,
                 )
 
         # Learning rate schedule
@@ -418,6 +461,17 @@ def mappo_cavs(parameters: Parameters):
     # Save the final model
     torch.save(policy.state_dict(), parameters.where_to_save + "final_policy.pth")
     torch.save(critic.state_dict(), parameters.where_to_save + "final_critic.pth")
+
+    if parameters.is_using_prioritized_marl:
+        torch.save(
+            priority_module.policy.state_dict(),
+            parameters.where_to_save + "final_priority_policy.pth",
+        )
+        torch.save(
+            priority_module.critic.state_dict(),
+            parameters.where_to_save + "final_priority_critic.pth",
+        )
+
     print(
         colored("[INFO] All files have been saved under:", "black"),
         colored(f"{parameters.where_to_save}", "red"),
