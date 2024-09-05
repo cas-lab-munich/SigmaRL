@@ -66,6 +66,7 @@ from utilities.helper_training import (
     find_the_highest_reward_among_all_models,
     save,
     compute_td_error,
+    get_observation_key,
 )
 
 from scenarios.road_traffic import ScenarioRoadTraffic
@@ -104,13 +105,7 @@ def mappo_cavs(parameters: Parameters):
 
     check_env_specs(env)
 
-    observation_key = (
-        ("agents", "observation")
-        if not parameters.is_using_prioritized_marl
-        else ("agents", "info", "base_observation")
-    )
-
-    print(f"obdim = {env.observation_spec[observation_key].shape[-1]}")
+    observation_key = get_observation_key(parameters)
 
     policy_net = torch.nn.Sequential(
         MultiAgentMLP(
@@ -214,11 +209,39 @@ def mappo_cavs(parameters: Parameters):
                         "red",
                     )
                 )
+
+                if parameters.is_using_prioritized_marl:
+                    priority_module.policy.load_state_dict(
+                        torch.load(
+                            parameters.where_to_save + "final_priority_policy.pth"
+                        )
+                    )
+
+                    print(
+                        colored(
+                            "[INFO] Loaded the final priority model (instead of the intermediate model with the highest episode reward)",
+                            "red",
+                        )
+                    )
+
             else:
-                PATH_POLICY, PATH_CRITIC, PATH_FIG, PATH_JSON = get_path_to_save_model(
-                    parameters=parameters
-                )
-                # Load the saved model state dictionaries
+                # Get paths based on the parameter configuration
+                paths = get_path_to_save_model(parameters=parameters)
+
+                # Destructure paths based on whether prioritized MARL is enabled
+                if parameters.is_using_prioritized_marl:
+                    (
+                        PATH_POLICY,
+                        PATH_CRITIC,
+                        PATH_PRIORITY_POLICY,
+                        PATH_PRIORITY_CRITIC,
+                        PATH_FIG,
+                        PATH_JSON,
+                    ) = paths
+                else:
+                    PATH_POLICY, PATH_CRITIC, PATH_FIG, PATH_JSON = paths
+
+                # Load the saved model state dictionaries for policy and critic
                 policy.load_state_dict(torch.load(PATH_POLICY))
                 print(
                     colored(
@@ -226,6 +249,19 @@ def mappo_cavs(parameters: Parameters):
                         "blue",
                     )
                 )
+
+                # Load priority policy and critic if prioritized MARL is enabled
+                if parameters.is_using_prioritized_marl:
+                    priority_module.policy.load_state_dict(
+                        torch.load(PATH_PRIORITY_POLICY)
+                    )
+                    print(
+                        colored(
+                            "[INFO] Loaded the intermediate priority model with the highest episode reward",
+                            "blue",
+                        )
+                    )
+
         else:
             raise ValueError(
                 "There is no model stored in '{parameters.where_to_save}', or the model names stored here are not following the right pattern."
@@ -233,22 +269,36 @@ def mappo_cavs(parameters: Parameters):
 
         if not parameters.is_continue_train:
             print(colored("[INFO] Training will not continue.", "blue"))
-            return env, policy, parameters
+            if parameters.is_using_prioritized_marl:
+                return env, policy, priority_module, parameters
+            else:
+                return env, policy, parameters
         else:
             print(
                 colored("[INFO] Training will continue with the loaded model.", "red")
             )
             critic.load_state_dict(torch.load(PATH_CRITIC))
+            priority_module.critic.load_state_dict(torch.load(PATH_PRIORITY_CRITIC))
 
-    collector = SyncDataCollectorCustom(
-        env,
-        policy,
-        priority_module=priority_module,
-        device=parameters.device,
-        storing_device=parameters.device,
-        frames_per_batch=parameters.frames_per_batch,
-        total_frames=parameters.total_frames,
-    )
+    if parameters.is_using_prioritized_marl:
+        collector = SyncDataCollectorCustom(
+            env,
+            policy,
+            priority_module=priority_module,
+            device=parameters.device,
+            storing_device=parameters.device,
+            frames_per_batch=parameters.frames_per_batch,
+            total_frames=parameters.total_frames,
+        )
+    else:
+        collector = SyncDataCollectorCustom(
+            env,
+            policy,
+            device=parameters.device,
+            storing_device=parameters.device,
+            frames_per_batch=parameters.frames_per_batch,
+            total_frames=parameters.total_frames,
+        )
 
     if parameters.is_prb:
         replay_buffer = TensorDictPrioritizedReplayBuffer(
@@ -300,10 +350,6 @@ def mappo_cavs(parameters: Parameters):
 
     t_start = time.time()
     for tensordict_data in collector:
-        print(f"tensordict_data = {tensordict_data}")
-        print(
-            f'tensordict_data = {tensordict_data["agents", "info", "priority", "ordering"]}'
-        )
         tensordict_data.set(
             ("next", "agents", "done"),
             tensordict_data.get(("next", "done"))
@@ -420,18 +466,23 @@ def mappo_cavs(parameters: Parameters):
             if episode_reward_mean > parameters.episode_reward_intermediate:
                 # Save the model if it improves the mean episode reward sufficiently enough
                 parameters.episode_reward_intermediate = episode_reward_mean
-                save(
-                    parameters=parameters,
-                    save_data=save_data,
-                    policy=policy,
-                    critic=critic,
-                    priority_policy=priority_module.policy
-                    if parameters.is_using_prioritized_marl
-                    else None,
-                    priority_critic=priority_module.critic
-                    if parameters.is_using_prioritized_marl
-                    else None,
-                )
+
+                if parameters.is_using_prioritized_marl:
+                    save(
+                        parameters=parameters,
+                        save_data=save_data,
+                        policy=policy,
+                        critic=critic,
+                        priority_policy=priority_module.policy,
+                        priority_critic=priority_module.critic,
+                    )
+                else:
+                    save(
+                        parameters=parameters,
+                        save_data=save_data,
+                        policy=policy,
+                        critic=critic,
+                    )
             else:
                 # Save only the mean episode reward list and parameters
                 parameters.episode_reward_mean_current = (
@@ -480,6 +531,9 @@ def mappo_cavs(parameters: Parameters):
 
     training_duration = (time.time() - t_start) / 3600  # seconds to hours
     print(colored(f"[INFO] Training duration: {training_duration:.2f} hours.", "blue"))
+
+    if parameters.is_using_prioritized_marl:
+        return env, policy, priority_module, parameters
 
     return env, policy, parameters
 

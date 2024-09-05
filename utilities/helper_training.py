@@ -218,12 +218,15 @@ class TransformedEnvCustom(TransformedEnv):
             if auto_cast_to_device:
                 tensordict = tensordict.to(policy_device, non_blocking=True)
 
-            if self.base_env.scenario_name.parameters.is_using_prioritized_marl:
+            if (
+                self.base_env.scenario_name.parameters.is_using_prioritized_marl
+                and priority_module is not None
+            ):
                 tensordict = prioritized_ap_policy(
                     tensordict,
                     policy,
                     priority_module,
-                    self.env.base_env.scenario_name.observations.nearing_agents_indices,
+                    self.base_env.scenario_name.observations.nearing_agents_indices,
                 )
             else:
                 tensordict = policy(tensordict)
@@ -299,7 +302,10 @@ class TransformedEnvCustom(TransformedEnv):
         for i in range(max_steps):
             if auto_cast_to_device:
                 tensordict_ = tensordict_.to(policy_device, non_blocking=True)
-            if self.base_env.scenario_name.parameters.is_using_prioritized_marl:
+            if (
+                self.base_env.scenario_name.parameters.is_using_prioritized_marl
+                and priority_module is not None
+            ):
                 tensordict_ = prioritized_ap_policy(
                     tensordict_,
                     policy,
@@ -526,53 +532,54 @@ class SyncDataCollectorCustom(SyncDataCollector):
             with torch.no_grad():
                 self._tensordict_out = self.policy(self._tensordict_out.to(self.device))
 
-        # Create the TensorDict
-        priority = TensorDict(
-            {
-                "loc": torch.zeros(
-                    self.env.base_env.scenario_name.parameters.num_vmas_envs,
-                    self.env.base_env.scenario_name.parameters.n_agents,
-                    1,
-                    dtype=torch.float32,
-                    device=self.env.base_env.scenario_name.parameters.device,
-                ),
-                "sample_log_prob": torch.zeros(
-                    self.env.base_env.scenario_name.parameters.num_vmas_envs,
-                    self.env.base_env.scenario_name.parameters.n_agents,
-                    dtype=torch.float32,
-                    device=self.env.base_env.scenario_name.parameters.device,
-                ),
-                "scale": torch.zeros(
-                    self.env.base_env.scenario_name.parameters.num_vmas_envs,
-                    self.env.base_env.scenario_name.parameters.n_agents,
-                    1,
-                    dtype=torch.float32,
-                    device=self.env.base_env.scenario_name.parameters.device,
-                ),
-                "scores": torch.zeros(
-                    self.env.base_env.scenario_name.parameters.num_vmas_envs,
-                    self.env.base_env.scenario_name.parameters.n_agents,
-                    1,
-                    dtype=torch.float32,
-                    device=self.env.base_env.scenario_name.parameters.device,
-                ),
-                "ordering": torch.zeros(
-                    self.env.base_env.scenario_name.parameters.num_vmas_envs,
-                    self.env.base_env.scenario_name.parameters.n_agents,
-                    dtype=torch.int64,
-                    device=self.env.base_env.scenario_name.parameters.device,
-                ),
-                "state_value": torch.zeros(
-                    self.env.base_env.scenario_name.parameters.num_vmas_envs,
-                    self.env.base_env.scenario_name.parameters.n_agents,
-                    dtype=torch.float32,
-                    device=self.env.base_env.scenario_name.parameters.device,
-                ),
-            },
-            batch_size=[self.env.base_env.scenario_name.parameters.num_vmas_envs],
-        )
+        if self.env.base_env.scenario_name.parameters.is_using_prioritized_marl:
+            # Create the TensorDict
+            priority = TensorDict(
+                {
+                    "loc": torch.zeros(
+                        self.env.base_env.scenario_name.parameters.num_vmas_envs,
+                        self.env.base_env.scenario_name.parameters.n_agents,
+                        1,
+                        dtype=torch.float32,
+                        device=self.env.base_env.scenario_name.parameters.device,
+                    ),
+                    "sample_log_prob": torch.zeros(
+                        self.env.base_env.scenario_name.parameters.num_vmas_envs,
+                        self.env.base_env.scenario_name.parameters.n_agents,
+                        dtype=torch.float32,
+                        device=self.env.base_env.scenario_name.parameters.device,
+                    ),
+                    "scale": torch.zeros(
+                        self.env.base_env.scenario_name.parameters.num_vmas_envs,
+                        self.env.base_env.scenario_name.parameters.n_agents,
+                        1,
+                        dtype=torch.float32,
+                        device=self.env.base_env.scenario_name.parameters.device,
+                    ),
+                    "scores": torch.zeros(
+                        self.env.base_env.scenario_name.parameters.num_vmas_envs,
+                        self.env.base_env.scenario_name.parameters.n_agents,
+                        1,
+                        dtype=torch.float32,
+                        device=self.env.base_env.scenario_name.parameters.device,
+                    ),
+                    "ordering": torch.zeros(
+                        self.env.base_env.scenario_name.parameters.num_vmas_envs,
+                        self.env.base_env.scenario_name.parameters.n_agents,
+                        dtype=torch.int64,
+                        device=self.env.base_env.scenario_name.parameters.device,
+                    ),
+                    "state_value": torch.zeros(
+                        self.env.base_env.scenario_name.parameters.num_vmas_envs,
+                        self.env.base_env.scenario_name.parameters.n_agents,
+                        dtype=torch.float32,
+                        device=self.env.base_env.scenario_name.parameters.device,
+                    ),
+                },
+                batch_size=[self.env.base_env.scenario_name.parameters.num_vmas_envs],
+            )
 
-        self._tensordict_out["agents", "info"].set("priority", priority)
+            self._tensordict_out["agents", "info"].set("priority", priority)
 
         self._tensordict_out = (
             self._tensordict_out.unsqueeze(-1)
@@ -921,11 +928,11 @@ class PriorityModule:
         # Tuple containing the prefix keys relevant to the priority variables
         self.prefix_key = ("agents", "info", "priority")
 
+        observation_key = get_priority_observation_key()
+
         policy_net = torch.nn.Sequential(
             MultiAgentMLP(
-                n_agent_inputs=env.observation_spec[
-                    get_priority_observation_key()
-                ].shape[-1],
+                n_agent_inputs=env.observation_spec[observation_key].shape[-1],
                 n_agent_outputs=2 * 1,  # 2 * n_actions_per_agents
                 n_agents=self.parameters.n_agents,
                 centralised=False,  # the policies are decentralised (ie each agent will act from its observation)
@@ -940,7 +947,7 @@ class PriorityModule:
 
         policy_module = TensorDictModule(
             policy_net,
-            in_keys=[get_priority_observation_key()],
+            in_keys=[observation_key],
             out_keys=[self.prefix_key + ("loc",), self.prefix_key + ("scale",)],
         )
 
@@ -956,7 +963,7 @@ class PriorityModule:
         )  # we'll need the log-prob for the PPO loss
 
         critic_net = MultiAgentMLP(
-            n_agent_inputs=env.observation_spec[get_priority_observation_key()].shape[
+            n_agent_inputs=env.observation_spec[observation_key].shape[
                 -1
             ],  # Number of observations
             n_agent_outputs=1,  # 1 value per agent
@@ -972,7 +979,7 @@ class PriorityModule:
         critic = TensorDictModule(
             module=critic_net,
             in_keys=[
-                get_priority_observation_key()
+                observation_key
             ],  # Note that the critic in PPO only takes the same inputs (observations) as the actor
             out_keys=[self.prefix_key + ("state_value",)],
         )
@@ -993,6 +1000,8 @@ class PriorityModule:
             # These last 2 keys will be expanded to match the reward shape
             done=("agents", "done"),
             terminated=("agents", "terminated"),
+            advantage=self.prefix_key + ("advantage",),
+            value_target=self.prefix_key + ("value_target",),
         )
 
         loss_module.make_value_estimator(
@@ -1115,18 +1124,26 @@ def get_path_to_save_model(parameters: Parameters):
     )
     PATH_JSON = parameters.where_to_save + parameters.model_name + "_data.json"
 
-    PATH_PRIORITY_POLICY = (
-        parameters.where_to_save + parameters.model_name + "_priority_policy.pth"
-    )
-    PATH_PRIORITY_CRITIC = (
-        parameters.where_to_save + parameters.model_name + "_priority_critic.pth"
-    )
+    if parameters.is_using_prioritized_marl:
+        PATH_PRIORITY_POLICY = (
+            parameters.where_to_save + parameters.model_name + "_priority_policy.pth"
+        )
+        PATH_PRIORITY_CRITIC = (
+            parameters.where_to_save + parameters.model_name + "_priority_critic.pth"
+        )
+
+        return (
+            PATH_POLICY,
+            PATH_CRITIC,
+            PATH_PRIORITY_POLICY,
+            PATH_PRIORITY_CRITIC,
+            PATH_FIG,
+            PATH_JSON,
+        )
 
     return (
         PATH_POLICY,
         PATH_CRITIC,
-        PATH_PRIORITY_POLICY,
-        PATH_PRIORITY_CRITIC,
         PATH_FIG,
         PATH_JSON,
     )
@@ -1176,14 +1193,19 @@ def save(
     priority_critic=None,
 ):
     # Get paths
-    (
-        PATH_POLICY,
-        PATH_CRITIC,
-        PATH_PRIORITY_POLICY,
-        PATH_PRIORITY_CRITIC,
-        PATH_FIG,
-        PATH_JSON,
-    ) = get_path_to_save_model(parameters=parameters)
+    paths = get_path_to_save_model(parameters=parameters)
+
+    if parameters.is_using_prioritized_marl:
+        (
+            PATH_POLICY,
+            PATH_CRITIC,
+            PATH_PRIORITY_POLICY,
+            PATH_PRIORITY_CRITIC,
+            PATH_FIG,
+            PATH_JSON,
+        ) = paths
+    else:
+        PATH_POLICY, PATH_CRITIC, PATH_FIG, PATH_JSON = paths
 
     # Save parameters and mean episode reward list
     json_object = json.dumps(save_data.to_dict(), indent=4)  # Serializing json
