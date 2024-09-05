@@ -1230,16 +1230,15 @@ def save(
         # Save current models
         torch.save(policy.state_dict(), PATH_POLICY)
         torch.save(critic.state_dict(), PATH_CRITIC)
+
+        if parameters.is_using_prioritized_marl:
+            if (priority_policy != None) & (priority_critic != None):
+                # Save current models
+                torch.save(priority_policy.state_dict(), PATH_PRIORITY_POLICY)
+                torch.save(priority_critic.state_dict(), PATH_PRIORITY_CRITIC)
+
         # Delete files with lower mean episode reward
         delete_files_with_lower_mean_reward(parameters=parameters)
-
-    if parameters.is_using_prioritized_marl:
-        if (priority_policy != None) & (priority_critic != None):
-            # Save current models
-            torch.save(priority_policy.state_dict(), PATH_PRIORITY_POLICY)
-            torch.save(priority_critic.state_dict(), PATH_PRIORITY_CRITIC)
-            # Delete files with lower mean episode reward
-            delete_files_with_lower_mean_reward(parameters=parameters)
 
     print(f"Saved model: {parameters.episode_reward_mean_current:.2f}.")
 
