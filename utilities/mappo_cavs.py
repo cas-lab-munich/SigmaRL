@@ -180,6 +180,8 @@ def mappo_cavs(parameters: Parameters):
     # Instantiate the priority module
     if parameters.is_using_prioritized_marl:
         priority_module = PriorityModule(env=env, mappo=mappo)
+    else:
+        priority_module = None
 
     # Check if the directory defined to store the model exists and create it if not
     if not os.path.exists(parameters.where_to_save):
@@ -269,10 +271,8 @@ def mappo_cavs(parameters: Parameters):
 
         if not parameters.is_continue_train:
             print(colored("[INFO] Training will not continue.", "blue"))
-            if parameters.is_using_prioritized_marl:
-                return env, policy, priority_module, parameters
-            else:
-                return env, policy, parameters
+
+            return env, policy, priority_module, parameters
         else:
             print(
                 colored("[INFO] Training will continue with the loaded model.", "red")
@@ -532,13 +532,10 @@ def mappo_cavs(parameters: Parameters):
     training_duration = (time.time() - t_start) / 3600  # seconds to hours
     print(colored(f"[INFO] Training duration: {training_duration:.2f} hours.", "blue"))
 
-    if parameters.is_using_prioritized_marl:
-        return env, policy, priority_module, parameters
-
-    return env, policy, parameters
+    return env, policy, priority_module, parameters
 
 
 if __name__ == "__main__":
     config_file = "config.json"
     parameters = Parameters.from_json(config_file)
-    env, policy, parameters = mappo_cavs(parameters=parameters)
+    env, policy, priority_module, parameters = mappo_cavs(parameters=parameters)

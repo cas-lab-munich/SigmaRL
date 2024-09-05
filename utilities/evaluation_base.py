@@ -227,7 +227,7 @@ class Evaluation:
             cprint("[INFO] Simulation outputs exist and will be loaded.", "grey")
             out_td = torch.load(path_eval_out_td)
         else:
-            env, policy, _ = mappo_cavs(parameters=self.parameters)
+            env, policy, priority_module, _ = mappo_cavs(parameters=self.parameters)
 
             cprint("[INFO] Run simulation...", "grey")
             sim_begin = time.time()
@@ -237,6 +237,7 @@ class Evaluation:
                     out_td, frame_list = env.rollout(
                         max_steps=self.parameters.max_steps - 1,
                         policy=policy,
+                        priority_module=priority_module,
                         callback=lambda env, _: env.render(
                             mode="rgb_array", visualize_when_rgb=False
                         ),  # mode \in {"human", "rgb_array"}
@@ -260,6 +261,7 @@ class Evaluation:
                     out_td = env.rollout(
                         max_steps=self.parameters.max_steps - 1,
                         policy=policy,
+                        priority_module=priority_module,
                         callback=(lambda env, _: env.render(mode="human"))
                         if self.parameters.num_vmas_envs == 1
                         else None,  # mode should be one of {"human", "rgb_array"}

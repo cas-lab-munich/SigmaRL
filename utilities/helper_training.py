@@ -310,7 +310,7 @@ class TransformedEnvCustom(TransformedEnv):
                     tensordict_,
                     policy,
                     priority_module,
-                    self.env.base_env.scenario_name.observations.nearing_agents_indices,
+                    self.base_env.scenario_name.observations.nearing_agents_indices,
                 )
             else:
                 tensordict_ = policy(tensordict_)
