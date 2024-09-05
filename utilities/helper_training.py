@@ -1395,10 +1395,10 @@ def prioritized_ap_policy(
     # Generate priority ordering using the priority module
     priority_module(tensordict)
 
-    if prioritization_method == "marl":
+    if prioritization_method.lower() == "marl":
         # Extract priority ordering (shape: (n_envs, n_agents)) from tensordict
         priority_ordering = tensordict[priority_module.prefix_key + ("ordering",)]
-    elif prioritization_method == "random":
+    elif prioritization_method.lower() == "random":
         # Generate a random priority ordering
         priority_ordering = torch.stack(
             [torch.randperm(n_agents) for _ in range(n_envs)]
