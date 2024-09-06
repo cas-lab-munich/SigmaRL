@@ -242,9 +242,13 @@ class ScenarioRoadTraffic(BaseScenario):
 
         self.max_steering_angle = kwargs.pop(
             "max_steering_angle",
-            torch.deg2rad(torch.tensor(35, device=device, dtype=torch.float32)),
+            torch.deg2rad(
+                torch.tensor(AGENTS["max_steering"], device=device, dtype=torch.float32)
+            ),
         )  # Maximum allowed steering angle in degree
-        self.max_speed = kwargs.pop("max_speed", 1.0)  # Maximum allowed speed in [m/s]
+        self.max_speed = kwargs.pop(
+            "max_speed", AGENTS["max_speed"]
+        )  # Maximum allowed speed in [m/s]
 
         n_points_nearing_boundary = kwargs.pop(
             "n_points_nearing_boundary", 5
@@ -313,6 +317,24 @@ class ScenarioRoadTraffic(BaseScenario):
             print(colored("[INFO] Enable challenging initial state buffer", "red"))
         if self.parameters.is_using_opponent_modeling:
             print(colored("[INFO] Using opponent modeling", "red"))
+        if self.parameters.is_using_prioritized_marl:
+            if self.parameters.prioritization_method == "marl":
+                print(
+                    colored(
+                        "[INFO] Using prioritized MARL with MARL-generated priorities",
+                        "red",
+                    )
+                )
+            elif self.parameters.prioritization_method == "random":
+                print(
+                    colored(
+                        "[INFO] Using prioritized MARL with random priorities", "red"
+                    )
+                )
+            else:
+                raise ValueError(
+                    f"The given prioritization method is not supported. Obtained: {self.parameters.prioritization_method}. Expected: 'marl' or 'random'."
+                )
 
         self.parameters.n_nearing_agents_observed = min(
             self.parameters.n_nearing_agents_observed, self.parameters.n_agents - 1

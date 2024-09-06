@@ -103,6 +103,10 @@ class Evaluation:
         self.idx_our = next(
             (i for i, path in enumerate(self.model_paths) if "our" in path), -1
         )  # Index of our model
+
+        if self.idx_our in {-1, None}:
+            self.idx_our = kwargs.pop("idx_our", 0)
+
         print(f"Index of our model: {self.idx_our}")
 
         self.parameters = None  # This will be set when loading model parameters
@@ -117,14 +121,15 @@ class Evaluation:
         idx_our_model = next(
             (i for i, s in enumerate(self.model_paths) if "our" in s), None
         )
-        # labels_short[idx_our_model] += " (our)"
 
         self.labels_with_numbers = [
             self.labels_short[idx] + " (" + l + ")" for idx, l in enumerate(self.labels)
         ]
-        self.labels_with_numbers[idx_our_model] = self.labels_with_numbers[
-            idx_our_model
-        ][0:8]
+
+        if idx_our_model is not None:
+            self.labels_with_numbers[idx_our_model] = self.labels_with_numbers[
+                idx_our_model
+            ][0:8]
 
     def _load_parameters(self):
         """
@@ -399,7 +404,7 @@ class Evaluation:
         # Log messages
         log_CR_AA_avg = f"[LOG] Mean agent-agent collision rate [%]: {self.format_array(CR_AA_avg.numpy() * 100)}"
         log_CR_AL_avg = f"[LOG] Mean agent-lanelet collision rate [%]: {self.format_array(CR_AL_avg.numpy() * 100)}"
-        log_CR_total_avg = f"[LOG] Mean collision rate [%]: {self.format_array(CR_total_avg.numpy() * 100)}"
+        log_CR_total_avg = f"[LOG] Mean total collision rate [%]: {self.format_array(CR_total_avg.numpy() * 100)}"
         log_CD_avg = f"[LOG] Mean center line deviation [cm]: {self.format_array(CD_avg.numpy() * 100)}"
         log_AS_avg = f"[LOG] Mean speed [m/s]: {self.format_array(AS_avg.numpy())}"
 

@@ -6,6 +6,8 @@
 import torch
 import torch.nn as nn
 
+import math
+
 # Tensordict modules
 from tensordict.tensordict import TensorDictBase, TensorDict
 from tensordict.nn import TensorDictModule
@@ -1290,7 +1292,11 @@ def compute_td_error(tensordict_data: TensorDict, gamma=0.9):
 
 
 def opponent_modeling(
-    tensordict, policy, n_nearing_agents_observed, nearing_agents_indices
+    tensordict,
+    policy,
+    n_nearing_agents_observed,
+    nearing_agents_indices,
+    noise_percentage: float = 0,
 ):
     """
     This function implements opponent modeling, inspired by [1].
@@ -1309,6 +1315,25 @@ def opponent_modeling(
     device = tensordict.device
 
     actions_tentative = tensordict["agents"]["action"]
+
+    if noise_percentage != 0:
+        # Model inaccuracy to opponent modeling
+
+        # A certain percentage of the maximum value as the noise standard diviation
+        noise_std_speed = AGENTS["max_speed"] * noise_percentage
+        noise_std_steering = math.radians(AGENTS["max_steering"]) * noise_percentage
+
+        noise_actions = torch.cat(
+            [
+                torch.randn([batch_dim, n_agents, 1], device=actions_tentative.device)
+                * noise_std_speed,
+                torch.randn([batch_dim, n_agents, 1], device=actions_tentative.device)
+                * noise_std_steering,
+            ],
+            dim=-1,
+        )
+
+        actions_tentative[:] += noise_actions
 
     for ego_agent in range(n_agents):
         for j in range(n_nearing_agents_observed):
