@@ -2325,7 +2325,10 @@ class ScenarioRoadTraffic(BaseScenario):
         ##################################################
         if self.parameters.is_partial_observation:
             # Each agent observes only a fixed number of nearest agents
-            nearing_agents_distances, nearing_agents_indices = torch.topk(
+            (
+                nearing_agents_distances,
+                self.observations.nearing_agents_indices[:, agent_index],
+            ) = torch.topk(
                 self.distances.agents[:, agent_index],
                 k=self.observations.n_nearing_agents,
                 largest=False,
@@ -2343,7 +2346,8 @@ class ScenarioRoadTraffic(BaseScenario):
                     # Mask agents by lanelets
                     masked_agents_by_lanelets = (
                         self.map.determine_masked_agents_by_lanelets(
-                            agent_index, nearing_agents_indices
+                            agent_index,
+                            self.observations.nearing_agents_indices[:, agent_index],
                         )
                     )
                 else:
@@ -2369,7 +2373,7 @@ class ScenarioRoadTraffic(BaseScenario):
             indexing_tuple_1 = (
                 (self.constants.env_idx_broadcasting,)
                 + ((agent_index,) if self.parameters.is_ego_view else ())
-                + (nearing_agents_indices,)
+                + (self.observations.nearing_agents_indices[:, agent_index],)
             )
 
             # Positions of nearing agents
@@ -2390,10 +2394,12 @@ class ScenarioRoadTraffic(BaseScenario):
 
             # Lengths and widths of nearing agents
             obs_lengths_other_agents = self.observations.past_lengths.get_latest()[
-                self.constants.env_idx_broadcasting, nearing_agents_indices
+                self.constants.env_idx_broadcasting,
+                self.observations.nearing_agents_indices[:, agent_index],
             ]
             obs_widths_other_agents = self.observations.past_widths.get_latest()[
-                self.constants.env_idx_broadcasting, nearing_agents_indices
+                self.constants.env_idx_broadcasting,
+                self.observations.nearing_agents_indices[:, agent_index],
             ]
 
             # Velocities of nearing agents
@@ -2427,7 +2433,7 @@ class ScenarioRoadTraffic(BaseScenario):
                 self.observations.past_distance_to_agents.get_latest()[
                     self.constants.env_idx_broadcasting,
                     agent_index,
-                    nearing_agents_indices,
+                    self.observations.nearing_agents_indices[:, agent_index],
                 ]
             )  # [batch_size, n_nearing_agents]
             obs_distance_other_agents[
