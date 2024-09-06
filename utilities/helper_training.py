@@ -227,6 +227,7 @@ class TransformedEnvCustom(TransformedEnv):
                     policy,
                     priority_module,
                     self.base_env.scenario_name.observations.nearing_agents_indices,
+                    self.base_env.scenario_name.parameters.prioritization_method,
                 )
             else:
                 tensordict = policy(tensordict)
@@ -311,6 +312,7 @@ class TransformedEnvCustom(TransformedEnv):
                     policy,
                     priority_module,
                     self.base_env.scenario_name.observations.nearing_agents_indices,
+                    self.base_env.scenario_name.parameters.prioritization_method,
                 )
             else:
                 tensordict_ = policy(tensordict_)
@@ -663,6 +665,7 @@ class SyncDataCollectorCustom(SyncDataCollector):
                         policy=self.policy,
                         priority_module=self.priority_module,
                         nearing_agents_indices=self.env.base_env.scenario_name.observations.nearing_agents_indices,
+                        prioritization_method=self.env.base_env.scenario_name.parameters.prioritization_method,
                     )
                 else:
                     self.policy(self._tensordict)
@@ -790,6 +793,7 @@ class Parameters:
         is_save_simulation_video: bool = False,  # Whether to save simulation videos
         is_using_opponent_modeling: bool = False,  # Whether to use opponent modeling to predict the actions of other agents
         is_using_prioritized_marl: bool = False,  # Whether to use prioritized MARL and action propagation.
+        prioritization_method: str = "marl",  # Which method to use for generating priority ranks (options: {"marl", "random"}). Applicable only for prioritized MARL scenarios.
     ):
 
         self.n_agents = n_agents
@@ -868,6 +872,8 @@ class Parameters:
 
         self.is_using_opponent_modeling = is_using_opponent_modeling
         self.is_using_prioritized_marl = is_using_prioritized_marl
+
+        self.prioritization_method = prioritization_method
 
         if (model_name is None) and (scenario_name is not None):
             self.model_name = get_model_name(self)
@@ -1341,7 +1347,9 @@ def get_priority_observation_key():
     return ("agents", "info", "priority_observation")
 
 
-def prioritized_ap_policy(tensordict, policy, priority_module, nearing_agents_indices):
+def prioritized_ap_policy(
+    tensordict, policy, priority_module, nearing_agents_indices, prioritization_method
+):
     """
     Implements prioritized action propagation (AP) for multiple agents.
     The function first generates a priority ordering using the provided priority module.
@@ -1386,8 +1394,14 @@ def prioritized_ap_policy(tensordict, policy, priority_module, nearing_agents_in
     # Generate priority ordering using the priority module
     priority_module(tensordict)
 
-    # Extract priority ordering (shape: (n_envs, n_agents)) from tensordict
-    priority_ordering = tensordict[priority_module.prefix_key + ("ordering",)]
+    if prioritization_method.lower() == "marl":
+        # Extract priority ordering (shape: (n_envs, n_agents)) from tensordict
+        priority_ordering = tensordict[priority_module.prefix_key + ("ordering",)]
+    elif prioritization_method.lower() == "random":
+        # Generate a random priority ordering
+        priority_ordering = torch.stack(
+            [torch.randperm(n_agents) for _ in range(n_envs)]
+        )
 
     # Temporary tensors to store intermediate observations and combined results
     temp_obs = torch.zeros(n_envs, n_agents, obs_dim)
