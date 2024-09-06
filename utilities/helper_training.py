@@ -203,20 +203,18 @@ class TransformedEnvCustom(TransformedEnv):
         if is_save_simulation_video:
             frame_list = []
 
-        # <Modification starts>
-        # Possibly predict the actions of surrounding agents using opponent modeling
-        if self.base_env.scenario_name.parameters.is_using_opponent_modeling:
-            opponent_modeling(
-                tensordict=tensordict,
-                policy=policy,
-                n_nearing_agents_observed=self.base_env.scenario_name.parameters.n_nearing_agents_observed,
-                nearing_agents_indices=self.base_env.scenario_name.observations.nearing_agents_indices,
-            )
-        # <Modification ends>
-
         for i in range(max_steps):
             if auto_cast_to_device:
                 tensordict = tensordict.to(policy_device, non_blocking=True)
+
+            # Possibly predict the actions of surrounding agents using opponent modeling
+            if self.base_env.scenario_name.parameters.is_using_opponent_modeling:
+                opponent_modeling(
+                    tensordict=tensordict,
+                    policy=policy,
+                    n_nearing_agents_observed=self.base_env.scenario_name.parameters.n_nearing_agents_observed,
+                    nearing_agents_indices=self.base_env.scenario_name.observations.nearing_agents_indices,
+                )
 
             if (
                 self.base_env.scenario_name.parameters.is_using_prioritized_marl
@@ -231,6 +229,7 @@ class TransformedEnvCustom(TransformedEnv):
                 )
             else:
                 tensordict = policy(tensordict)
+
             if auto_cast_to_device:
                 tensordict = tensordict.to(env_device, non_blocking=True)
             tensordict = self.step(tensordict)
@@ -289,20 +288,19 @@ class TransformedEnvCustom(TransformedEnv):
         if is_save_simulation_video:
             frame_list = []
 
-        # <Modification starts>
-        # Possibly predict the actions of surrounding agents using opponent modeling
-        if self.base_env.scenario_name.parameters.is_using_opponent_modeling:
-            opponent_modeling(
-                tensordict=tensordict,
-                policy=policy,
-                n_nearing_agents_observed=self.base_env.scenario_name.parameters.n_nearing_agents_observed,
-                nearing_agents_indices=self.base_env.scenario_name.observations.nearing_agents_indices,
-            )
-        # <Modification ends>
-
         for i in range(max_steps):
             if auto_cast_to_device:
                 tensordict_ = tensordict_.to(policy_device, non_blocking=True)
+
+            # Possibly predict the actions of surrounding agents using opponent modeling
+            if self.base_env.scenario_name.parameters.is_using_opponent_modeling:
+                opponent_modeling(
+                    tensordict=tensordict_,
+                    policy=policy,
+                    n_nearing_agents_observed=self.base_env.scenario_name.parameters.n_nearing_agents_observed,
+                    nearing_agents_indices=self.base_env.scenario_name.observations.nearing_agents_indices,
+                )
+
             if (
                 self.base_env.scenario_name.parameters.is_using_prioritized_marl
                 and priority_module is not None
@@ -1297,7 +1295,7 @@ def opponent_modeling(
     """
     This function implements opponent modeling, inspired by [1].
     Each ego agent uses its own policy to predict the tentative actions of its surrounding agents, aiming to mitigate the non-stationarity problem.
-    The ego agent appends these tentative actions to its observation.
+    The ego agent appends these tentative actions to its observation stored in the input tensordict.
 
     Reference
         [1] Raileanu, Roberta, et al. "Modeling others using oneself in multi-agent reinforcement learning." International conference on machine learning. PMLR, 2018.
