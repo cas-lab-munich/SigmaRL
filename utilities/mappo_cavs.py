@@ -245,7 +245,7 @@ def mappo_cavs(parameters: Parameters):
                 policy.load_state_dict(torch.load(PATH_POLICY))
                 print(
                     colored(
-                        "[INFO] Loaded the intermediate model with the highest episode reward",
+                        f"[INFO] Loaded the intermediate model {PATH_POLICY}  with the highest episode reward",
                         "blue",
                     )
                 )
@@ -257,7 +257,7 @@ def mappo_cavs(parameters: Parameters):
                     )
                     print(
                         colored(
-                            "[INFO] Loaded the intermediate priority model with the highest episode reward",
+                            f"[INFO] Loaded the intermediate priority model {PATH_PRIORITY_POLICY} with the highest episode reward",
                             "blue",
                         )
                     )

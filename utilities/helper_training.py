@@ -301,6 +301,7 @@ class TransformedEnvCustom(TransformedEnv):
         # <Modification ends>
 
         for i in range(max_steps):
+            print(f"Time step [t] = {i} out of {max_steps}")
             if auto_cast_to_device:
                 tensordict_ = tensordict_.to(policy_device, non_blocking=True)
             if (
@@ -1006,8 +1007,8 @@ class PriorityModule:
             # These last 2 keys will be expanded to match the reward shape
             done=("agents", "done"),
             terminated=("agents", "terminated"),
-            advantage=self.prefix_key + ("advantage",),
-            value_target=self.prefix_key + ("value_target",),
+            # advantage=self.prefix_key + ("advantage",),
+            # value_target=self.prefix_key + ("value_target",),
         )
 
         loss_module.make_value_estimator(

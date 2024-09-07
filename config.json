@@ -23,7 +23,7 @@
     "is_continue_train": false,
     "model_name": "",
     "episode_reward_intermediate": -1e3,
-    "where_to_save": "outputs/test/",
+    "where_to_save": "outputs/same_adv/",
     "is_partial_observation": true,
     "n_steps_stored": 10,
     "n_points_short_term": 3,
