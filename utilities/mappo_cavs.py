@@ -103,7 +103,7 @@ def mappo_cavs(parameters: Parameters):
         RewardSum(in_keys=[env.reward_key], out_keys=[("agents", "episode_reward")]),
     )
 
-    check_env_specs(env)
+    # check_env_specs(env)
 
     observation_key = get_observation_key(parameters)
 
@@ -178,7 +178,10 @@ def mappo_cavs(parameters: Parameters):
     )
 
     # Instantiate the priority module
-    if parameters.is_using_prioritized_marl:
+    if (
+        parameters.is_using_prioritized_marl
+        and parameters.prioritization_method.lower() == "marl"
+    ):
         priority_module = PriorityModule(env=env, mappo=mappo)
     else:
         priority_module = None
@@ -212,7 +215,7 @@ def mappo_cavs(parameters: Parameters):
                     )
                 )
 
-                if parameters.is_using_prioritized_marl:
+                if priority_module:
                     priority_module.policy.load_state_dict(
                         torch.load(
                             parameters.where_to_save + "final_priority_policy.pth"
@@ -231,7 +234,7 @@ def mappo_cavs(parameters: Parameters):
                 paths = get_path_to_save_model(parameters=parameters)
 
                 # Destructure paths based on whether prioritized MARL is enabled
-                if parameters.is_using_prioritized_marl:
+                if priority_module:
                     (
                         PATH_POLICY,
                         PATH_CRITIC,
@@ -252,8 +255,8 @@ def mappo_cavs(parameters: Parameters):
                     )
                 )
 
-                # Load priority policy and critic if prioritized MARL is enabled
-                if parameters.is_using_prioritized_marl:
+                # Load priority policy and critic if prioritized (dual) MARL is enabled
+                if priority_module:
                     priority_module.policy.load_state_dict(
                         torch.load(PATH_PRIORITY_POLICY)
                     )
@@ -278,27 +281,19 @@ def mappo_cavs(parameters: Parameters):
                 colored("[INFO] Training will continue with the loaded model.", "red")
             )
             critic.load_state_dict(torch.load(PATH_CRITIC))
-            priority_module.critic.load_state_dict(torch.load(PATH_PRIORITY_CRITIC))
 
-    if parameters.is_using_prioritized_marl:
-        collector = SyncDataCollectorCustom(
-            env,
-            policy,
-            priority_module=priority_module,
-            device=parameters.device,
-            storing_device=parameters.device,
-            frames_per_batch=parameters.frames_per_batch,
-            total_frames=parameters.total_frames,
-        )
-    else:
-        collector = SyncDataCollectorCustom(
-            env,
-            policy,
-            device=parameters.device,
-            storing_device=parameters.device,
-            frames_per_batch=parameters.frames_per_batch,
-            total_frames=parameters.total_frames,
-        )
+            if priority_module:
+                priority_module.critic.load_state_dict(torch.load(PATH_PRIORITY_CRITIC))
+
+    collector = SyncDataCollectorCustom(
+        env,
+        policy,
+        priority_module=priority_module,
+        device=parameters.device,
+        storing_device=parameters.device,
+        frames_per_batch=parameters.frames_per_batch,
+        total_frames=parameters.total_frames,
+    )
 
     if parameters.is_prb:
         replay_buffer = TensorDictPrioritizedReplayBuffer(
@@ -370,7 +365,7 @@ def mappo_cavs(parameters: Parameters):
                 target_params=loss_module.target_critic_params,
             )  # Compute GAE and add it to the data
 
-            if parameters.is_using_prioritized_marl:
+            if priority_module:
                 priority_module.GAE(
                     tensordict_data,
                     params=priority_module.loss_module.critic_params,
@@ -420,7 +415,7 @@ def mappo_cavs(parameters: Parameters):
                 optim.step()
                 optim.zero_grad()
 
-                if parameters.is_using_prioritized_marl:
+                if priority_module:
                     priority_module.compute_losses_and_optimize(mini_batch_data)
 
                 if parameters.is_prb:
@@ -467,7 +462,10 @@ def mappo_cavs(parameters: Parameters):
                 # Save the model if it improves the mean episode reward sufficiently enough
                 parameters.episode_reward_intermediate = episode_reward_mean
 
-                if parameters.is_using_prioritized_marl:
+                if (
+                    parameters.is_using_prioritized_marl
+                    and parameters.prioritization_method.lower() == "marl"
+                ):
                     save(
                         parameters=parameters,
                         save_data=save_data,
@@ -513,7 +511,10 @@ def mappo_cavs(parameters: Parameters):
     torch.save(policy.state_dict(), parameters.where_to_save + "final_policy.pth")
     torch.save(critic.state_dict(), parameters.where_to_save + "final_critic.pth")
 
-    if parameters.is_using_prioritized_marl:
+    if (
+        parameters.is_using_prioritized_marl
+        and parameters.prioritization_method.lower() == "marl"
+    ):
         torch.save(
             priority_module.policy.state_dict(),
             parameters.where_to_save + "final_priority_policy.pth",

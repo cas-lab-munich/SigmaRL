@@ -2744,14 +2744,13 @@ class ScenarioRoadTraffic(BaseScenario):
         )  # [batch_dim]
         is_collision_with_lanelets = self.collisions.with_lanelets.any(dim=-1)
 
-        if self.parameters.is_using_prioritized_marl:
-            # Zero-padding as a placeholder for actions of surrounding agents
-            base_obs = F.pad(
-                self.stored_observations[agent_index].clone(),
-                (0, self.parameters.n_nearing_agents_observed * AGENTS["n_actions"]),
-            )
+        # Zero-padding as a placeholder for actions of surrounding agents
+        base_obs = F.pad(
+            self.stored_observations[agent_index].clone(),
+            (0, self.parameters.n_nearing_agents_observed * AGENTS["n_actions"]),
+        )
 
-            prio_obs = self.stored_observations[agent_index].clone()
+        prio_obs = self.stored_observations[agent_index].clone()
 
         info = {
             "pos": agent.state.pos / self.normalizers.pos_world,
@@ -2784,8 +2783,14 @@ class ScenarioRoadTraffic(BaseScenario):
             "is_collision_with_agents": is_collision_with_agents,
             "is_collision_with_lanelets": is_collision_with_lanelets,
             **(
-                {"base_observation": base_obs, "priority_observation": prio_obs}
+                {"base_observation": base_obs}
                 if self.parameters.is_using_prioritized_marl
+                else {}
+            ),
+            **(
+                {"priority_observation": prio_obs}
+                if self.parameters.is_using_prioritized_marl
+                and self.parameters.prioritization_method.lower() == "marl"
                 else {}
             ),
         }

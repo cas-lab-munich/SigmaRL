@@ -218,10 +218,7 @@ class TransformedEnvCustom(TransformedEnv):
                     nearing_agents_indices=self.base_env.scenario_name.observations.nearing_agents_indices,
                 )
 
-            if (
-                self.base_env.scenario_name.parameters.is_using_prioritized_marl
-                and priority_module is not None
-            ):
+            if self.base_env.scenario_name.parameters.is_using_prioritized_marl:
                 tensordict = prioritized_ap_policy(
                     tensordict,
                     policy,
@@ -304,10 +301,7 @@ class TransformedEnvCustom(TransformedEnv):
                     nearing_agents_indices=self.base_env.scenario_name.observations.nearing_agents_indices,
                 )
 
-            if (
-                self.base_env.scenario_name.parameters.is_using_prioritized_marl
-                and priority_module is not None
-            ):
+            if self.base_env.scenario_name.parameters.is_using_prioritized_marl:
                 tensordict_ = prioritized_ap_policy(
                     tensordict_,
                     policy,
@@ -535,7 +529,11 @@ class SyncDataCollectorCustom(SyncDataCollector):
             with torch.no_grad():
                 self._tensordict_out = self.policy(self._tensordict_out.to(self.device))
 
-        if self.env.base_env.scenario_name.parameters.is_using_prioritized_marl:
+        if (
+            self.env.base_env.scenario_name.parameters.is_using_prioritized_marl
+            and self.env.base_env.scenario_name.parameters.prioritization_method.lower()
+            == "marl"
+        ):
             # Create the TensorDict
             priority = TensorDict(
                 {
@@ -991,41 +989,43 @@ class PriorityModule:
             out_keys=[self.prefix_key + ("state_value",)],
         )
 
-        loss_module = ClipPPOLoss(
-            actor=policy,
-            critic=critic,
-            clip_epsilon=self.parameters.clip_epsilon,
-            entropy_coef=self.parameters.entropy_eps,
-            normalize_advantage=False,  # Important to avoid normalizing across the agent dimension
-        )
-
-        # Comment out advantage and value_target keys to use the same advantage for both base and priority loss modules
-        loss_module.set_keys(  # We have to tell the loss where to find the keys
-            reward=env.reward_key,
-            action=self.prefix_key + ("scores",),
-            sample_log_prob=self.prefix_key + ("sample_log_prob",),
-            value=self.prefix_key + ("state_value",),
-            # These last 2 keys will be expanded to match the reward shape
-            done=("agents", "done"),
-            terminated=("agents", "terminated"),
-            # advantage=self.prefix_key + ("advantage",),
-            # value_target=self.prefix_key + ("value_target",),
-        )
-
-        loss_module.make_value_estimator(
-            ValueEstimators.GAE,
-            gamma=self.parameters.gamma,
-            lmbda=self.parameters.lmbda,
-        )  # We build GAE
-        GAE = loss_module.value_estimator  # Generalized Advantage Estimation
-
-        optim = torch.optim.Adam(loss_module.parameters(), self.parameters.lr)
-
         self.policy = policy
         self.critic = critic
-        self.GAE = GAE
-        self.loss_module = loss_module
-        self.optim = optim
+
+        if self.parameters.prioritization_method.lower() == "marl":
+            loss_module = ClipPPOLoss(
+                actor=policy,
+                critic=critic,
+                clip_epsilon=self.parameters.clip_epsilon,
+                entropy_coef=self.parameters.entropy_eps,
+                normalize_advantage=False,  # Important to avoid normalizing across the agent dimension
+            )
+
+            # Comment out advantage and value_target keys to use the same advantage for both base and priority loss modules
+            loss_module.set_keys(  # We have to tell the loss where to find the keys
+                reward=env.reward_key,
+                action=self.prefix_key + ("scores",),
+                sample_log_prob=self.prefix_key + ("sample_log_prob",),
+                value=self.prefix_key + ("state_value",),
+                # These last 2 keys will be expanded to match the reward shape
+                done=("agents", "done"),
+                terminated=("agents", "terminated"),
+                # advantage=self.prefix_key + ("advantage",),
+                # value_target=self.prefix_key + ("value_target",),
+            )
+
+            loss_module.make_value_estimator(
+                ValueEstimators.GAE,
+                gamma=self.parameters.gamma,
+                lmbda=self.parameters.lmbda,
+            )  # We build GAE
+            GAE = loss_module.value_estimator  # Generalized Advantage Estimation
+
+            optim = torch.optim.Adam(loss_module.parameters(), self.parameters.lr)
+
+            self.GAE = GAE
+            self.loss_module = loss_module
+            self.optim = optim
 
     def rank_agents(self, scores):
         """
@@ -1132,7 +1132,10 @@ def get_path_to_save_model(parameters: Parameters):
     )
     PATH_JSON = parameters.where_to_save + parameters.model_name + "_data.json"
 
-    if parameters.is_using_prioritized_marl:
+    if (
+        parameters.is_using_prioritized_marl
+        and parameters.prioritization_method.lower() == "marl"
+    ):
         PATH_PRIORITY_POLICY = (
             parameters.where_to_save + parameters.model_name + "_priority_policy.pth"
         )
@@ -1203,7 +1206,10 @@ def save(
     # Get paths
     paths = get_path_to_save_model(parameters=parameters)
 
-    if parameters.is_using_prioritized_marl:
+    if (
+        parameters.is_using_prioritized_marl
+        and parameters.prioritization_method.lower() == "marl"
+    ):
         (
             PATH_POLICY,
             PATH_CRITIC,
@@ -1239,7 +1245,10 @@ def save(
         torch.save(policy.state_dict(), PATH_POLICY)
         torch.save(critic.state_dict(), PATH_CRITIC)
 
-        if parameters.is_using_prioritized_marl:
+        if (
+            parameters.is_using_prioritized_marl
+            and parameters.prioritization_method.lower() == "marl"
+        ):
             if (priority_policy != None) & (priority_critic != None):
                 # Save current models
                 torch.save(priority_policy.state_dict(), PATH_PRIORITY_POLICY)
@@ -1402,7 +1411,6 @@ def prioritized_ap_policy(
     tensordict : TensorDict
         The updated tensordict with combined actions and observations after prioritized action propagation.
     """
-
     base_observation_key = ("agents", "info", "base_observation")
 
     # Clone original observation
@@ -1416,10 +1424,9 @@ def prioritized_ap_policy(
         AGENTS["n_actions"],
     )
 
-    # Generate priority ordering using the priority module
-    priority_module(tensordict)
-
     if prioritization_method.lower() == "marl":
+        # Generate priority ordering using the priority module
+        priority_module(tensordict)
         # Extract priority ordering (shape: (n_envs, n_agents)) from tensordict
         priority_ordering = tensordict[priority_module.prefix_key + ("ordering",)]
     elif prioritization_method.lower() == "random":
