@@ -6,6 +6,8 @@
 import torch
 import torch.nn as nn
 
+import math
+
 # Tensordict modules
 from tensordict.tensordict import TensorDictBase, TensorDict
 from tensordict.nn import TensorDictModule
@@ -203,20 +205,18 @@ class TransformedEnvCustom(TransformedEnv):
         if is_save_simulation_video:
             frame_list = []
 
-        # <Modification starts>
-        # Possibly predict the actions of surrounding agents using opponent modeling
-        if self.base_env.scenario_name.parameters.is_using_opponent_modeling:
-            opponent_modeling(
-                tensordict=tensordict,
-                policy=policy,
-                n_nearing_agents_observed=self.base_env.scenario_name.parameters.n_nearing_agents_observed,
-                nearing_agents_indices=self.base_env.scenario_name.observations.nearing_agents_indices,
-            )
-        # <Modification ends>
-
         for i in range(max_steps):
             if auto_cast_to_device:
                 tensordict = tensordict.to(policy_device, non_blocking=True)
+
+            # Possibly predict the actions of surrounding agents using opponent modeling
+            if self.base_env.scenario_name.parameters.is_using_opponent_modeling:
+                opponent_modeling(
+                    tensordict=tensordict,
+                    policy=policy,
+                    n_nearing_agents_observed=self.base_env.scenario_name.parameters.n_nearing_agents_observed,
+                    nearing_agents_indices=self.base_env.scenario_name.observations.nearing_agents_indices,
+                )
 
             if (
                 self.base_env.scenario_name.parameters.is_using_prioritized_marl
@@ -231,6 +231,7 @@ class TransformedEnvCustom(TransformedEnv):
                 )
             else:
                 tensordict = policy(tensordict)
+
             if auto_cast_to_device:
                 tensordict = tensordict.to(env_device, non_blocking=True)
             tensordict = self.step(tensordict)
@@ -289,21 +290,20 @@ class TransformedEnvCustom(TransformedEnv):
         if is_save_simulation_video:
             frame_list = []
 
-        # <Modification starts>
-        # Possibly predict the actions of surrounding agents using opponent modeling
-        if self.base_env.scenario_name.parameters.is_using_opponent_modeling:
-            opponent_modeling(
-                tensordict=tensordict,
-                policy=policy,
-                n_nearing_agents_observed=self.base_env.scenario_name.parameters.n_nearing_agents_observed,
-                nearing_agents_indices=self.base_env.scenario_name.observations.nearing_agents_indices,
-            )
-        # <Modification ends>
-
         for i in range(max_steps):
             print(f"Time step [t] = {i} out of {max_steps}")
             if auto_cast_to_device:
                 tensordict_ = tensordict_.to(policy_device, non_blocking=True)
+
+            # Possibly predict the actions of surrounding agents using opponent modeling
+            if self.base_env.scenario_name.parameters.is_using_opponent_modeling:
+                opponent_modeling(
+                    tensordict=tensordict_,
+                    policy=policy,
+                    n_nearing_agents_observed=self.base_env.scenario_name.parameters.n_nearing_agents_observed,
+                    nearing_agents_indices=self.base_env.scenario_name.observations.nearing_agents_indices,
+                )
+
             if (
                 self.base_env.scenario_name.parameters.is_using_prioritized_marl
                 and priority_module is not None
@@ -312,7 +312,7 @@ class TransformedEnvCustom(TransformedEnv):
                     tensordict_,
                     policy,
                     priority_module,
-                    self.env.base_env.scenario_name.observations.nearing_agents_indices,
+                    self.base_env.scenario_name.observations.nearing_agents_indices,
                     self.base_env.scenario_name.parameters.prioritization_method,
                 )
             else:
@@ -1237,16 +1237,15 @@ def save(
         # Save current models
         torch.save(policy.state_dict(), PATH_POLICY)
         torch.save(critic.state_dict(), PATH_CRITIC)
+
+        if parameters.is_using_prioritized_marl:
+            if (priority_policy != None) & (priority_critic != None):
+                # Save current models
+                torch.save(priority_policy.state_dict(), PATH_PRIORITY_POLICY)
+                torch.save(priority_critic.state_dict(), PATH_PRIORITY_CRITIC)
+
         # Delete files with lower mean episode reward
         delete_files_with_lower_mean_reward(parameters=parameters)
-
-    if parameters.is_using_prioritized_marl:
-        if (priority_policy != None) & (priority_critic != None):
-            # Save current models
-            torch.save(priority_policy.state_dict(), PATH_PRIORITY_POLICY)
-            torch.save(priority_critic.state_dict(), PATH_PRIORITY_CRITIC)
-            # Delete files with lower mean episode reward
-            delete_files_with_lower_mean_reward(parameters=parameters)
 
     print(f"Saved model: {parameters.episode_reward_mean_current:.2f}.")
 
@@ -1294,12 +1293,16 @@ def compute_td_error(tensordict_data: TensorDict, gamma=0.9):
 
 
 def opponent_modeling(
-    tensordict, policy, n_nearing_agents_observed, nearing_agents_indices
+    tensordict,
+    policy,
+    n_nearing_agents_observed,
+    nearing_agents_indices,
+    noise_percentage: float = 0,
 ):
     """
     This function implements opponent modeling, inspired by [1].
     Each ego agent uses its own policy to predict the tentative actions of its surrounding agents, aiming to mitigate the non-stationarity problem.
-    The ego agent appends these tentative actions to its observation.
+    The ego agent appends these tentative actions to its observation stored in the input tensordict.
 
     Reference
         [1] Raileanu, Roberta, et al. "Modeling others using oneself in multi-agent reinforcement learning." International conference on machine learning. PMLR, 2018.
@@ -1313,6 +1316,25 @@ def opponent_modeling(
     device = tensordict.device
 
     actions_tentative = tensordict["agents"]["action"]
+
+    if noise_percentage != 0:
+        # Model inaccuracy to opponent modeling
+
+        # A certain percentage of the maximum value as the noise standard diviation
+        noise_std_speed = AGENTS["max_speed"] * noise_percentage
+        noise_std_steering = math.radians(AGENTS["max_steering"]) * noise_percentage
+
+        noise_actions = torch.cat(
+            [
+                torch.randn([batch_dim, n_agents, 1], device=actions_tentative.device)
+                * noise_std_speed,
+                torch.randn([batch_dim, n_agents, 1], device=actions_tentative.device)
+                * noise_std_steering,
+            ],
+            dim=-1,
+        )
+
+        actions_tentative[:] += noise_actions
 
     for ego_agent in range(n_agents):
         for j in range(n_nearing_agents_observed):

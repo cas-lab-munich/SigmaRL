@@ -48,11 +48,12 @@ try:
         parameters.is_visualize_lane_boundary = False
         parameters.is_visualize_extra_info = True
 
-        env, policy, parameters = mappo_cavs(parameters=parameters)
+        env, policy, priority_module, parameters = mappo_cavs(parameters=parameters)
 
         out_td, frame_list = env.rollout(
             max_steps=parameters.max_steps - 1,
             policy=policy,
+            priority_module=priority_module,
             callback=lambda env, _: env.render(
                 mode="rgb_array", visualize_when_rgb=True
             ),  # mode \in {"human", "rgb_array"}
