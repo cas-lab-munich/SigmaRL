@@ -999,6 +999,7 @@ class PriorityModule:
             normalize_advantage=False,  # Important to avoid normalizing across the agent dimension
         )
 
+        # Comment out advantage and value_target keys to use the same advantage for both base and priority loss modules
         loss_module.set_keys(  # We have to tell the loss where to find the keys
             reward=env.reward_key,
             action=self.prefix_key + ("scores",),
