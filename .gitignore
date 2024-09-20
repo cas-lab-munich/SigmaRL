@@ -4,6 +4,7 @@
 
 # User-specific stuff
 outputs
+checkpoints
 *_tmp
 note*.md
 *tmp_[0-9].*
@@ -11,6 +12,28 @@ note*.md
 examples
 *out_td*.pth
 venv/
+*.pdf
+
+# Ignore image files
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+*.svg
+*.webp
+
+# Ignore video files
+*.mp4
+*.avi
+*.mkv
+*.mov
+*.wmv
+*.flv
+*.webm
+*.mpeg
+
 # VectorizedMultiAgentSimulator
 
 ### VisualStudioCode ###
