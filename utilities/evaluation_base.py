@@ -16,8 +16,6 @@ import torch
 import numpy as np
 from termcolor import colored, cprint
 
-from operator import itemgetter
-
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 
@@ -26,9 +24,8 @@ import matplotlib
 # Use Type 1 fonts (vector fonts) for IEEE paper submission
 matplotlib.rcParams["pdf.fonttype"] = 42  # Use Type 42 (TrueType) fonts
 
-# DejaVu fonts are embedded as vector fonts by default.
 matplotlib.rcParams["font.family"] = "serif"
-matplotlib.rcParams["font.serif"] = ["DejaVu Serif"]  # Use a serif font
+matplotlib.rcParams["font.serif"] = ["Times New Roman"]
 
 from vmas.simulator.utils import save_video
 
@@ -53,7 +50,7 @@ from utilities.helper_training import (
     get_model_name,
 )
 
-from utilities.constants import SCENARIOS
+from utilities.constants import SCENARIOS, AGENTS
 
 from utilities.colors import Color, colors
 
@@ -75,18 +72,45 @@ class Evaluation:
         """
         self.scenario_type = kwargs.pop("scenario_type", None)
 
+        self.agent_width = AGENTS["width"]
+
+        self.max_speed = AGENTS["max_speed_achievable"]  # Maximum achievable speed
+
         self.model_paths = kwargs.pop("model_paths", None)
 
         self.where_to_save_eva_results = kwargs.pop(
             "where_to_save_eva_results", "outputs"
         )
 
+        self.is_show_different_collisions = kwargs.pop(
+            "is_show_different_collisions", True
+        )
+
+        self.x_tick_label_rotation = kwargs.pop("x_tick_label_rotation", 0)
+
+        self.fig_sizes = kwargs.pop(
+            "fig_sizes",
+            {
+                "episode_reward": (3.8, 4.3),
+                "collision_rate": (3.5, 2.0),
+                "centerline_deviation": (3.5, 2.0),
+                "average_speed": (3.5, 2.0),
+            },
+        )
+
+        self.y_limits = kwargs.pop(
+            "y_limits",
+            {
+                "episode_reward": [-2, 10],
+                "collision_rate": [0, 100],
+                "centerline_deviation": [0, 100],
+                "average_speed": [0, 100],
+            },
+        )
+
         self.where_to_save_logging = kwargs.pop("where_to_save_logging", "log.txt")
 
-        self.models_selected = kwargs.pop("models_selected", None)
-        if (self.models_selected is None) or (self.models_selected == []):
-            # If not specified, select all
-            self.models_selected = list(range(len(self.model_paths)))
+        self.fitst_model_index = kwargs.pop("fitst_model_index", 1)
 
         self.legends = kwargs.pop("legends", None)
         self.render_titles = kwargs.pop("render_titles", None)
@@ -97,8 +121,6 @@ class Evaluation:
         self.is_render = kwargs.pop("is_render", True)
         self.is_save_simulation_video = kwargs.pop("is_save_simulation_video", False)
         self.video_names = kwargs.pop("video_names", None)
-
-        self.num_models_selected = len(self.models_selected)
 
         self.idx_our = next(
             (i for i, path in enumerate(self.model_paths) if "our" in path), -1
@@ -113,23 +135,13 @@ class Evaluation:
 
         self.saved_data = None
 
-        num_models = len(self.model_paths)
+        self.num_models = len(self.model_paths)
 
-        self.labels = [m.split("/")[-2] for m in self.model_paths]
-        self.labels_short = [f"M{idx}" for idx in range(num_models)]
-
-        idx_our_model = next(
-            (i for i, s in enumerate(self.model_paths) if "our" in s), None
+        self.x_ticks = kwargs.pop(
+            "x_ticks", [f"$M_{{{idx}}}$" for idx in range(0, self.num_models)]
         )
 
-        self.labels_with_numbers = [
-            self.labels_short[idx] + " (" + l + ")" for idx, l in enumerate(self.labels)
-        ]
-
-        if idx_our_model is not None:
-            self.labels_with_numbers[idx_our_model] = self.labels_with_numbers[
-                idx_our_model
-            ][0:8]
+        self.labels = [m.split("/")[-2] for m in self.model_paths]
 
     def _load_parameters(self):
         """
@@ -203,7 +215,7 @@ class Evaluation:
 
         num_steps = positions.shape[1]
 
-        self.velocity_average[self.model_idx, :] = velocities.norm(dim=-1).mean(
+        self.average_speed[self.model_idx, :] = velocities.norm(dim=-1).mean(
             dim=(-2, -1)
         )
         self.collision_rate_with_agents[self.model_idx, :] = (
@@ -280,23 +292,489 @@ class Evaluation:
             torch.save(out_td, path_eval_out_td)
             print(colored("[INFO] Simulation outputs saved.", "grey"))
 
-            print(
-                colored(
-                    f"[INFO] Total execution time for {self.parameters.num_vmas_envs} simulations (each has {self.parameters.max_steps} steps): {sim_end:.3f} sec.",
-                    "blue",
-                )
-            )
-            print(
-                colored(
-                    f"[INFO] One-step execution time {(sim_end / self.parameters.num_vmas_envs / self.parameters.max_steps):.4f} sec.",
-                    "blue",
-                )
-            )
+            # print(
+            #     colored(
+            #         f"[INFO] Total execution time for {self.parameters.num_vmas_envs} simulations (each has {self.parameters.max_steps} steps): {sim_end:.3f} sec.",
+            #         "blue",
+            #     )
+            # )
+            # print(
+            #     colored(
+            #         f"[INFO] One-step execution time {(sim_end / self.parameters.num_vmas_envs / self.parameters.max_steps):.4f} sec.",
+            #         "blue",
+            #     )
+            # )
 
         return out_td
 
     @staticmethod
-    def remove_max_min_per_row(tensor):
+    def smooth_data(data, window_size=5):
+        """
+        Smooths the data using a simple moving average.
+
+        Args:
+            data: The input data to smooth.
+            window_size (int): The size of the smoothing window.
+
+        Returns:
+            numpy.ndarray: The smoothed data.
+        """
+        smoothed = np.convolve(data, np.ones(window_size) / window_size, mode="valid")
+        return np.concatenate((data[: window_size - 1], smoothed))
+
+    def plot(self):
+        self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Check if the directory exists
+        if not os.path.exists(self.where_to_save_eva_results):
+            os.makedirs(self.where_to_save_eva_results)
+            print(f"[INFO] Directory '{self.where_to_save_eva_results}' was created.")
+        else:
+            print(
+                f"[INFO] Directory '{self.where_to_save_eva_results}' already exists."
+            )
+        ###############################
+        ## Fig 1 - Episode reward
+        ###############################
+        data_np = self.episode_reward.numpy()
+        plt.clf()
+        plt.figure(figsize=self.fig_sizes["episode_reward"])
+
+        for i in range(data_np.shape[0]):
+            # Original data with transparency
+            plt.plot(
+                data_np[i, :], color=colors[i], alpha=0.2, linestyle="-", linewidth=0.2
+            )
+
+            # Smoothed data
+            smoothed_reward = self.smooth_data(data_np[i, :])
+            plt.plot(
+                smoothed_reward,
+                label=self.legends[i],
+                color=colors[i],
+                linestyle="-",
+                linewidth=0.8,
+            )
+
+        plt.xlim([0, data_np.shape[1]])
+        plt.xlabel("Episode")
+        plt.ylabel("Reward")
+
+        plt.legend(
+            bbox_to_anchor=(0.5, 1.88),
+            loc="upper center",
+            fontsize=9,
+            ncol=1,
+            handleheight=0.7,
+            handletextpad=0.5,
+            labelspacing=0.3,
+        )
+        # plt.legend(loc='lower right', fontsize="small", ncol=4)
+        # plt.legend(bbox_to_anchor=(1, 0.5), loc='center right', fontsize=fontsize)
+
+        plt.ylim(
+            self.y_limits["episode_reward"],
+        )
+        plt.tight_layout(
+            rect=[0, 0, 1, 1]
+        )  # Adjust the layout to make space for the legend on the right
+        plt.subplots_adjust(top=0.4)  # Adjust top value to make space for the legend
+
+        # Save figure
+        if self.parameters.is_save_eval_results:
+            path_save_eval_fig = f"{self.where_to_save_eva_results}/{self.timestamp}_{self.parameters.scenario_type}_episode_reward.pdf"
+            plt.savefig(
+                path_save_eval_fig,
+                format="pdf",
+                bbox_inches="tight",
+                pad_inches=0,
+                dpi=300,
+            )
+            path_save_eval_fig = f"{self.where_to_save_eva_results}/{self.timestamp}_{self.parameters.scenario_type}_episode_reward.png"
+            plt.savefig(
+                path_save_eval_fig,
+                format="png",
+                bbox_inches="tight",
+                pad_inches=0,
+                dpi=600,
+            )
+            print(
+                colored(f"[INFO] A fig has been saved under", "black"),
+                colored(f"{path_save_eval_fig}", "blue"),
+            )
+
+        plt.clf()
+
+        ###############################
+        ## Fig 2 - collision rate [%]
+        ###############################
+        if not self.is_show_different_collisions:
+            self._boxplot(
+                figsize=self.fig_sizes["collision_rate"],
+                data=self.collision_rate_sum,
+                y_limits=self.y_limits["collision_rate"],
+                y_label=r"Collision rate [$\%$]",
+                fig_name="collision_rate",
+            )
+        else:
+            plt.clf()
+            fig, ax = plt.subplots(figsize=self.fig_sizes["collision_rate"])
+            data_np = self.collision_rate_sum.numpy()
+            data_with_agents_np = self.collision_rate_with_agents.numpy()
+            data_with_lanelets_np = self.collision_rate_with_lanelets.numpy()
+
+            # Positions of the violin plots (adjust as needed to avoid overlap)
+            positions = np.arange(1, self.num_models + 1)
+            offset = 0.2  # Offset for positioning the violins side by side
+
+            # Plot a horizontal line indicating the median of our model
+            median_our = np.median(data_np[self.idx_our])
+            max_our = np.max(data_np[self.idx_our])
+            plt.axhline(y=median_our, color="black", linestyle="--", alpha=0.3)
+            ax.text(
+                self.idx_our + 1,
+                max_our,
+                f"Our: {median_our:.2f}$\%$",
+                ha="center",
+                va="bottom",
+                fontsize="small",
+                color="grey",
+            )
+
+            # Plot each dataset with different colors
+            parts1 = ax.violinplot(
+                dataset=data_np.T,
+                positions=positions - offset,
+                showmeans=False,
+                showmedians=True,
+                widths=0.2,
+            )
+            parts2 = ax.violinplot(
+                dataset=data_with_agents_np.T,
+                positions=positions,
+                showmeans=False,
+                showmedians=True,
+                widths=0.2,
+            )
+            parts3 = ax.violinplot(
+                dataset=data_with_lanelets_np.T,
+                positions=positions + offset,
+                showmeans=False,
+                showmedians=True,
+                widths=0.2,
+            )
+
+            # Set colors for each violin plot
+            self.custom_violinplot_color(parts1, Color.red100, Color.black100, 0.5)
+            self.custom_violinplot_color(parts2, Color.blue100, Color.black100, 0.15)
+            self.custom_violinplot_color(parts3, Color.green100, Color.black100, 0.15)
+
+            # Setting ticks and labels
+            ax.set_xticks(np.arange(len(self.x_ticks)))
+            ax.set_xticklabels(
+                self.x_ticks,
+                rotation=self.x_tick_label_rotation,
+                ha="right",
+                fontsize="small",
+            )
+            ax.set_ylim(self.y_limits["collision_rate"])
+            ax.set_ylabel(r"Collision rate [$\%$]")
+            # ax.set_ylim([0, 2.0]) # [%]
+            ax.yaxis.set_major_formatter(
+                ticker.FormatStrFormatter("%.2f")
+            )  # Set y-axis tick labels to have two digits after the comma
+            ax.xaxis.set_minor_locator(
+                ticker.NullLocator()
+            )  # Make minor x-ticks invisible
+            ax.grid(True, which="major", axis="x", linestyle="--", linewidth=0.1)
+            ax.grid(True, which="both", axis="y", linestyle="--", linewidth=0.1)
+
+            # # Add text to shown the median of M1
+            # median_M1 = np.median(data_np[0])
+            # ax.text(positions[0], 0.2, f'Median\n(total):\n{median_M1:.2f}$\%$', ha='center', va='bottom', fontsize='small', color='grey')
+
+            # Adding legend
+            ax.legend(
+                [parts1["bodies"][0], parts2["bodies"][0], parts3["bodies"][0]],
+                ["Total", "Agent-agent", "Agent-boundary"],
+                loc="upper right",
+                fontsize=8,
+            )
+
+            plt.tight_layout()
+            # Save figure
+            if self.parameters.is_save_eval_results:
+                path_save_eval_fig = f"{self.where_to_save_eva_results}/{self.timestamp}_{self.parameters.scenario_type}_collision_rate.pdf"
+                plt.savefig(
+                    path_save_eval_fig,
+                    format="pdf",
+                    bbox_inches="tight",
+                    pad_inches=0.01,
+                    dpi=300,
+                )
+                path_save_eval_fig = f"{self.where_to_save_eva_results}/{self.timestamp}_{self.parameters.scenario_type}_collision_rate.png"
+                plt.savefig(
+                    path_save_eval_fig,
+                    format="png",
+                    bbox_inches="tight",
+                    pad_inches=0.01,
+                    dpi=600,
+                )
+                print(
+                    colored(f"[INFO] A fig has been saved under", "black"),
+                    colored(f"{path_save_eval_fig}", "blue"),
+                )
+
+        ###############################
+        ## Fig 3 - relative centerline deviation [%]
+        ###############################
+        self._boxplot(
+            figsize=self.fig_sizes["centerline_deviation"],
+            data=self.distance_ref_average,
+            y_limits=self.y_limits["centerline_deviation"],
+            y_label=r"Relative centerline deviation [$\%$]",
+            fig_name="deviation_average",
+        )
+
+        ###############################
+        ## Fig 4 - relative average velocity [%]
+        ###############################
+        self._boxplot(
+            figsize=self.fig_sizes["average_speed"],
+            data=self.average_speed,
+            y_limits=self.y_limits["average_speed"],
+            y_label=r"Rel. avg. spd. [$\%$]",
+            fig_name="average_speed",
+        )
+
+    def _boxplot(self, figsize, data, y_label, fig_name, y_limits: None):
+        plt.clf()
+        fig, ax = plt.subplots(figsize=figsize)
+
+        data_np = data.numpy()
+
+        # Plot a horizontal line indicating the median of our model
+        median_our = np.median(data_np[self.idx_our])
+        max_our = np.max(data_np[self.idx_our])
+        plt.axhline(y=median_our, color="black", linestyle="--", alpha=0.3)
+        ax.text(
+            self.idx_our + 1,
+            max_our,
+            f"Our: {median_our:.2f}$\%$",
+            ha="center",
+            va="bottom",
+            fontsize="small",
+            color="grey",
+        )
+
+        ax.violinplot(dataset=data_np.T, showmeans=False, showmedians=True)
+        ax.set_xticks(np.arange(len(self.x_ticks)))
+        ax.set_xticklabels(
+            self.x_ticks,
+            rotation=self.x_tick_label_rotation,
+            ha="right",
+            fontsize="small",
+        )
+        ax.set_ylabel(y_label)
+
+        if y_limits:
+            ax.set_ylim(y_limits)
+
+        ax.xaxis.set_minor_locator(ticker.NullLocator())  # Make minor x-ticks invisible
+        ax.grid(True, which="major", axis="x", linestyle="--", linewidth=0.1)
+        ax.grid(True, which="both", axis="y", linestyle="--", linewidth=0.1)
+
+        # Save figure
+        plt.tight_layout()
+        if self.parameters.is_save_eval_results:
+            path_save_eval_fig = f"{self.where_to_save_eva_results}/{self.timestamp}_{self.parameters.scenario_type}_{fig_name}.pdf"
+            plt.savefig(
+                path_save_eval_fig,
+                format="pdf",
+                bbox_inches="tight",
+                pad_inches=0.01,
+                dpi=300,
+            )
+            path_save_eval_fig = f"{self.where_to_save_eva_results}/{self.timestamp}_{self.parameters.scenario_type}_{fig_name}.png"
+            plt.savefig(
+                path_save_eval_fig,
+                format="png",
+                bbox_inches="tight",
+                pad_inches=0.01,
+                dpi=600,
+            )
+            print(
+                colored(f"[INFO] A fig has been saved under", "black"),
+                colored(f"{path_save_eval_fig}", "blue"),
+            )
+
+    def _init_eva_matrices(self):
+        """
+        Initialize evaluation matrices.
+        """
+        self.average_speed = torch.zeros(
+            (self.num_models, self.parameters.num_vmas_envs),
+            device=self.parameters.device,
+            dtype=torch.float32,
+        )
+        self.collision_rate_with_agents = torch.zeros(
+            (self.num_models, self.parameters.num_vmas_envs),
+            device=self.parameters.device,
+            dtype=torch.float32,
+        )
+        self.collision_rate_with_lanelets = torch.zeros(
+            (self.num_models, self.parameters.num_vmas_envs),
+            device=self.parameters.device,
+            dtype=torch.float32,
+        )
+        self.distance_ref_average = torch.zeros(
+            (self.num_models, self.parameters.num_vmas_envs),
+            device=self.parameters.device,
+            dtype=torch.float32,
+        )
+        self.episode_reward = torch.zeros(
+            (self.num_models, self.parameters.n_iters),
+            device=self.parameters.device,
+            dtype=torch.float32,
+        )
+
+    def run_evaluation(self):
+        """
+        Main method to run evaluation over all provided model paths.
+        """
+        self.model_idx = 0
+
+        for model_i in range(self.num_models):
+            print("------------------------------------------")
+            print(
+                colored("-- [INFO] Model ", "black"),
+                colored(f"{model_i + 1}", "blue"),
+                colored(f"({self.legends[model_i]})", color="grey"),
+            )
+            print("------------------------------------------")
+
+            self.model_i = model_i
+            self.model_i_path = self.model_paths[model_i]
+
+            self._load_parameters()
+            self._adjust_parameters()
+
+            if self.model_idx == 0:
+                self._init_eva_matrices()  # Only need to be done once
+
+            self.episode_reward[self.model_idx, :] = torch.tensor(
+                [self.saved_data.episode_reward_mean_list]
+            )
+
+            self._evaluate_model_i()
+
+            self.model_idx += 1
+
+        if not self.parameters.is_save_simulation_video:
+            self.compute_performance_metrics()
+            self.plot()
+
+    def compute_performance_metrics(
+        self, is_remove_max_min: bool = True, is_relative_values: bool = True
+    ):
+        """
+        This function computes the three performance metrices related to safety, lane following, and traffic efficienty.
+        """
+        # Remove the best and the worst to eliminate the influence of the stochastic nature of the randomness
+
+        if is_remove_max_min:
+            self.collision_rate_with_agents = self.remove_max_min(
+                self.collision_rate_with_agents
+            )
+            self.collision_rate_with_lanelets = self.remove_max_min(
+                self.collision_rate_with_lanelets
+            )
+
+            self.distance_ref_average = self.remove_max_min(self.distance_ref_average)
+
+            self.average_speed = self.remove_max_min(self.average_speed)
+
+        if is_relative_values:
+            # Use relative values
+            self.distance_ref_average = (
+                self.distance_ref_average / self.agent_width * 100
+            )
+            self.average_speed = self.average_speed / self.max_speed * 100
+
+        self.collision_rate_with_agents = self.collision_rate_with_agents * 100
+        self.collision_rate_with_lanelets = self.collision_rate_with_lanelets * 100
+
+        self.collision_rate_sum = (
+            self.collision_rate_with_agents[:] + self.collision_rate_with_lanelets[:]
+        )
+
+        # Collision rate [%]
+        self.CR_AA_avg = self.collision_rate_with_agents.mean(dim=-1)
+        self.CR_AL_avg = self.collision_rate_with_lanelets.mean(dim=-1)
+        self.CR_total_avg = self.collision_rate_sum.mean(dim=-1)
+
+        # Relative centerline deviation [%]
+        self.CD_avg = self.distance_ref_average.mean(dim=-1)
+
+        # Relative average speed [%]
+        self.AS_avg = self.average_speed.mean(dim=-1)
+
+        # Compute composite score
+        w1 = 1 / self.CR_total_avg.mean()
+        w2 = 1 / self.CD_avg.mean()
+        w3 = 1 / self.AS_avg.mean()
+        # composite score = - w1 * CR_total_avg - w2 * CD_avg + w3 * AS_avg
+        self.composite_score = (
+            -w1 * self.CR_total_avg - w2 * self.CD_avg + w3 * self.AS_avg
+        )
+
+        print(f"composite_score: {self.composite_score}")
+
+        self._log()
+
+    def _log(self):
+        # Collision rate [%]
+        self.CR_AA_median = self.collision_rate_with_agents.median(dim=-1).values
+        self.CR_AL_median = self.collision_rate_with_lanelets.median(dim=-1).values
+        self.CR_total_median = self.collision_rate_sum.median(dim=-1).values
+
+        # Relative centerline deviation [%]
+        self.CD_median = self.distance_ref_average.median(dim=-1).values
+
+        # Relative average speed [%]
+        self.AS_median = self.average_speed.median(dim=-1).values
+
+        # Log messages
+        log_CR_AA_median = f"[LOG] Agent-agent collision rate [%]: {self.format_array(self.CR_AA_median.numpy())}"
+        log_CR_AL_median = f"[LOG] Agent-lanelet collision rate [%]: {self.format_array(self.CR_AL_median.numpy())}"
+        log_CR_total_median = f"[LOG] Total collision rate [%]: {self.format_array(self.CR_total_median.numpy())}"
+        log_CD_median = f"[LOG] Relative centerline deviation [%]: {self.format_array(self.CD_median.numpy())}"
+        log_AS_median = f"[LOG] Relative average speed [%]: {self.format_array(self.AS_median.numpy())}"
+
+        log_CS = (
+            f"[LOG] Composite scores: {self.format_array(self.composite_score.numpy())}"
+        )
+
+        cprint(log_CR_total_median, "black")
+        cprint(log_CR_AA_median, "black")
+        cprint(log_CR_AL_median, "black")
+        cprint(log_CD_median, "black")
+        cprint(log_AS_median, "black")
+        cprint(log_CS)
+
+        # Save the evaluation results to a txt file
+        with open(self.where_to_save_logging, "a") as file:
+            file.write(f"Scenario: {self.parameters.scenario_type}\n")
+            file.write(f"{log_CR_AA_median}\n")
+            file.write(f"{log_CR_AL_median}\n")
+            file.write(f"{log_CR_total_median}\n")
+            file.write(f"{log_CD_median}\n")
+            file.write(f"{log_AS_median}\n")
+            file.write(f"{log_CS}\n")
+            file.write("=========================================")
+            file.write("\n")
+
+    @staticmethod
+    def remove_max_min(tensor):
         """
         Remove the maximum and minimum values from each row of the tensor.
 
@@ -354,487 +832,14 @@ class Evaluation:
         parts["cbars"].set_alpha(alpha)
 
     @staticmethod
-    def smooth_data(data, window_size=5):
-        """
-        Smooths the data using a simple moving average.
-
-        Args:
-            data: The input data to smooth.
-            window_size (int): The size of the smoothing window.
-
-        Returns:
-            numpy.ndarray: The smoothed data.
-        """
-        smoothed = np.convolve(data, np.ones(window_size) / window_size, mode="valid")
-        return np.concatenate((data[: window_size - 1], smoothed))
-
-    def plot(self):
-        num_models_selected = len(self.models_selected)
-
-        self.collision_rate_with_agents = self.remove_max_min_per_row(
-            self.collision_rate_with_agents
-        )  # Remove the best and the worst to eliminate the influence of the stochastic nature of the randomness
-        self.collision_rate_with_lanelets = self.remove_max_min_per_row(
-            self.collision_rate_with_lanelets
-        )
-        collision_rate_sum = (
-            self.collision_rate_with_agents[:] + self.collision_rate_with_lanelets[:]
-        )
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        # Check if the directory exists
-        if not os.path.exists(self.where_to_save_eva_results):
-            os.makedirs(self.where_to_save_eva_results)
-            print(f"[INFO] Directory '{self.where_to_save_eva_results}' was created.")
-        else:
-            print(
-                f"[INFO] Directory '{self.where_to_save_eva_results}' already exists."
-            )
-
-        # torch.set_printoptions(precision=3)
-        # Logs
-        CR_AA_avg = self.collision_rate_with_agents.mean(dim=-1)
-        CR_AL_avg = self.collision_rate_with_lanelets.mean(dim=-1)
-        CR_total_avg = collision_rate_sum.mean(dim=-1)
-
-        CD_avg = self.distance_ref_average.mean(dim=-1)
-        AS_avg = self.velocity_average.mean(dim=-1)
-
-        # Log messages
-        log_CR_AA_avg = f"[LOG] Mean agent-agent collision rate [%]: {self.format_array(CR_AA_avg.numpy() * 100)}"
-        log_CR_AL_avg = f"[LOG] Mean agent-lanelet collision rate [%]: {self.format_array(CR_AL_avg.numpy() * 100)}"
-        log_CR_total_avg = f"[LOG] Mean total collision rate [%]: {self.format_array(CR_total_avg.numpy() * 100)}"
-        log_CD_avg = f"[LOG] Mean center line deviation [cm]: {self.format_array(CD_avg.numpy() * 100)}"
-        log_AS_avg = f"[LOG] Mean speed [m/s]: {self.format_array(AS_avg.numpy())}"
-
-        # Compute composite score
-        w1 = 1 / CR_total_avg.mean()
-        w2 = 1 / CD_avg.mean()
-        w3 = 1 / AS_avg.mean()
-        # composite score = - w1 * CR_total_avg - w2 * CD_avg + w3 * AS_avg
-        composite_score = -w1 * CR_total_avg - w2 * CD_avg + w3 * AS_avg
-
-        log_CS = f"[LOG] Composite scores: {self.format_array(composite_score.numpy())}"
-
-        cprint(log_CR_total_avg, "black")
-        cprint(log_CR_AA_avg, "black")
-        cprint(log_CR_AL_avg, "black")
-        cprint(log_CD_avg, "black")
-        cprint(log_AS_avg, "black")
-        cprint(log_CS)
-
-        # Save the evaluation results to a txt file
-        with open(self.where_to_save_logging, "a") as file:
-            file.write(f"Scenario: {self.parameters.scenario_type}\n")
-            file.write(f"{log_CR_AA_avg}\n")
-            file.write(f"{log_CR_AL_avg}\n")
-            file.write(f"{log_CR_total_avg}\n")
-            file.write(f"{log_CD_avg}\n")
-            file.write(f"{log_AS_avg}\n")
-            file.write(f"{log_CS}\n")
-            file.write("=========================================")
-            file.write("\n")
-
-        ###############################
-        ## Fig 1 - Episode reward
-        ###############################
-        data_np = self.episode_reward.numpy()
-        plt.clf()
-        plt.figure(figsize=(3.8, 4.3))
-
-        for i in range(data_np.shape[0]):
-            # Original data with transparency
-            plt.plot(
-                data_np[i, :], color=colors[i], alpha=0.2, linestyle="-", linewidth=0.2
-            )
-
-            # Smoothed data
-            smoothed_reward = self.smooth_data(data_np[i, :])
-            plt.plot(
-                smoothed_reward,
-                label=self.legends[self.models_selected[i]],
-                color=colors[i],
-                linestyle="-",
-                linewidth=0.8,
-            )
-
-        plt.xlim([0, data_np.shape[1]])
-        plt.xlabel("Episode")
-        plt.ylabel("Reward")
-
-        plt.legend(
-            bbox_to_anchor=(0.5, 1.88),
-            loc="upper center",
-            fontsize=9,
-            ncol=1,
-            handleheight=0.7,
-            handletextpad=0.5,
-            labelspacing=0.3,
-        )
-        # plt.legend(loc='lower right', fontsize="small", ncol=4)
-        # plt.legend(bbox_to_anchor=(1, 0.5), loc='center right', fontsize=fontsize)
-
-        plt.ylim([-1.0, 6.5])
-        plt.tight_layout(
-            rect=[0, 0, 1, 1]
-        )  # Adjust the layout to make space for the legend on the right
-        plt.subplots_adjust(top=0.4)  # Adjust top value to make space for the legend
-
-        # Save figure
-        if self.parameters.is_save_eval_results:
-            path_save_eval_fig = f"{self.where_to_save_eva_results}/{timestamp}_{self.parameters.scenario_type}_episode_reward.pdf"
-            plt.savefig(
-                path_save_eval_fig,
-                format="pdf",
-                bbox_inches="tight",
-                pad_inches=0,
-                dpi=300,
-            )
-            path_save_eval_fig = f"{self.where_to_save_eva_results}/{timestamp}_{self.parameters.scenario_type}_episode_reward.png"
-            plt.savefig(
-                path_save_eval_fig,
-                format="png",
-                bbox_inches="tight",
-                pad_inches=0,
-                dpi=600,
-            )
-            print(
-                colored(f"[INFO] A fig has been saved under", "black"),
-                colored(f"{path_save_eval_fig}", "blue"),
-            )
-
-        plt.clf()
-
-        ###############################
-        ## Fig 2 - collision rate
-        ###############################
-        plt.clf()
-        fig, ax = plt.subplots(figsize=(3.5, 2.0))
-        data_np = collision_rate_sum.numpy() * 100
-        data_with_agents_np = self.collision_rate_with_agents.numpy() * 100
-        data_with_lanelets_np = self.collision_rate_with_lanelets.numpy() * 100
-
-        # Positions of the violin plots (adjust as needed to avoid overlap)
-        positions = np.arange(1, num_models_selected + 1)
-        offset = 0.2  # Offset for positioning the violins side by side
-
-        # Plot a horizontal line indicating the median of our model
-        median_our = np.median(data_np[self.idx_our])
-        max_our = np.max(data_np[self.idx_our])
-        plt.axhline(y=median_our, color="black", linestyle="--", alpha=0.3)
-        ax.text(
-            self.idx_our + 1,
-            max_our,
-            f"Our: {median_our:.2f}$\%$",
-            ha="center",
-            va="bottom",
-            fontsize="small",
-            color="grey",
-        )
-
-        # Plot each dataset with different colors
-        parts1 = ax.violinplot(
-            dataset=data_np.T,
-            positions=positions - offset,
-            showmeans=False,
-            showmedians=True,
-            widths=0.2,
-        )
-        parts2 = ax.violinplot(
-            dataset=data_with_agents_np.T,
-            positions=positions,
-            showmeans=False,
-            showmedians=True,
-            widths=0.2,
-        )
-        parts3 = ax.violinplot(
-            dataset=data_with_lanelets_np.T,
-            positions=positions + offset,
-            showmeans=False,
-            showmedians=True,
-            widths=0.2,
-        )
-
-        # Set colors for each violin plot
-        self.custom_violinplot_color(parts1, Color.red100, Color.black100, 0.5)
-        self.custom_violinplot_color(parts2, Color.blue100, Color.black100, 0.15)
-        self.custom_violinplot_color(parts3, Color.green100, Color.black100, 0.15)
-
-        # Setting ticks and labels
-        ax.set_xticks(positions)
-        ax.set_xticklabels(
-            itemgetter(*self.models_selected)(self.labels_short),
-            rotation=45,
-            ha="right",
-            fontsize="small",
-        )
-        ax.set_ylabel(r"Collision rate [$\%$]")
-        # ax.set_ylim([0, 2.0]) # [%]
-        ax.yaxis.set_major_formatter(
-            ticker.FormatStrFormatter("%.2f")
-        )  # Set y-axis tick labels to have two digits after the comma
-        ax.xaxis.set_minor_locator(ticker.NullLocator())  # Make minor x-ticks invisible
-        ax.grid(True, which="major", axis="x", linestyle="--", linewidth=0.1)
-        ax.grid(True, which="both", axis="y", linestyle="--", linewidth=0.1)
-
-        # # Add text to shown the median of M1
-        # median_M1 = np.median(data_np[0])
-        # ax.text(positions[0], 0.2, f'Median\n(total):\n{median_M1:.2f}$\%$', ha='center', va='bottom', fontsize='small', color='grey')
-
-        # Adding legend
-        if (num_models_selected == 7) or (num_models_selected == 4):
-            ax.legend(
-                [parts1["bodies"][0], parts2["bodies"][0], parts3["bodies"][0]],
-                ["Total", "Agent-agent", "Agent-boundary"],
-                loc="upper center",
-                bbox_to_anchor=(0.5, 1.2),
-                fontsize=8,
-                ncol=3,
-            )
-        else:
-            ax.legend(
-                [parts1["bodies"][0], parts2["bodies"][0], parts3["bodies"][0]],
-                ["Total", "Agent-agent", "Agent-boundary"],
-                loc="upper right",
-                fontsize=8,
-            )
-
-        plt.tight_layout()
-        # Save figure
-        if self.parameters.is_save_eval_results:
-            path_save_eval_fig = f"{self.where_to_save_eva_results}/{timestamp}_{self.parameters.scenario_type}_collision_rate.pdf"
-            plt.savefig(
-                path_save_eval_fig,
-                format="pdf",
-                bbox_inches="tight",
-                pad_inches=0,
-                dpi=300,
-            )
-            path_save_eval_fig = f"{self.where_to_save_eva_results}/{timestamp}_{self.parameters.scenario_type}_collision_rate.png"
-            plt.savefig(
-                path_save_eval_fig,
-                format="png",
-                bbox_inches="tight",
-                pad_inches=0,
-                dpi=600,
-            )
-            print(
-                colored(f"[INFO] A fig has been saved under", "black"),
-                colored(f"{path_save_eval_fig}", "blue"),
-            )
-
-        ###############################
-        ## Fig 3 - center line deviation
-        ###############################
-        plt.clf()
-        fig, ax = plt.subplots(figsize=(3.5, 2.0))
-
-        data_np = self.distance_ref_average.numpy()
-
-        # Plot a horizontal line indicating the median of our model
-        median_our = np.median(data_np[self.idx_our])
-        max_our = np.max(data_np[self.idx_our])
-        plt.axhline(y=median_our, color="black", linestyle="--", alpha=0.3)
-        ax.text(
-            self.idx_our + 1,
-            max_our,
-            f"Our: {median_our:.3f} m",
-            ha="center",
-            va="bottom",
-            fontsize="small",
-            color="grey",
-        )
-
-        ax.violinplot(dataset=data_np.T, showmeans=False, showmedians=True)
-        ax.set_xticks(np.arange(1, num_models_selected + 1))
-        ax.set_xticklabels(
-            itemgetter(*self.models_selected)(self.labels_short),
-            rotation=45,
-            ha="right",
-            fontsize="small",
-        )
-        ax.set_ylabel(r"Center line deviation [m]")
-        # ax.set_ylim([0.04, 0.1]) # [m]
-        ax.xaxis.set_minor_locator(ticker.NullLocator())  # Make minor x-ticks invisible
-        ax.grid(True, which="major", axis="x", linestyle="--", linewidth=0.1)
-        ax.grid(True, which="both", axis="y", linestyle="--", linewidth=0.1)
-
-        # Add text to shown the median of M1
-        if (self.num_models_selected == 7) or (self.num_models_selected == 10):
-            median_M1 = np.median(data_np[0])
-            ax.text(
-                1,
-                0.043,
-                f"Median:\n{median_M1:.2f} m",
-                ha="center",
-                va="bottom",
-                fontsize="small",
-                color="grey",
-            )
-
-        # Save figure
-        plt.tight_layout()
-        if self.parameters.is_save_eval_results:
-            path_save_eval_fig = f"{self.where_to_save_eva_results}/{timestamp}_{self.parameters.scenario_type}_deviation_average.pdf"
-            plt.savefig(
-                path_save_eval_fig,
-                format="pdf",
-                bbox_inches="tight",
-                pad_inches=0,
-                dpi=300,
-            )
-            path_save_eval_fig = f"{self.where_to_save_eva_results}/{timestamp}_{self.parameters.scenario_type}_deviation_average.png"
-            plt.savefig(
-                path_save_eval_fig,
-                format="png",
-                bbox_inches="tight",
-                pad_inches=0,
-                dpi=600,
-            )
-            print(
-                colored(f"[INFO] A fig has been saved under", "black"),
-                colored(f"{path_save_eval_fig}", "blue"),
-            )
-
-        ###############################
-        ## Fig 4 - average velocity
-        ###############################
-        plt.clf()
-        fig, ax = plt.subplots(figsize=(3.5, 1.6))
-        data_np = self.velocity_average.numpy()
-
-        # Plot a horizontal line indicating the median of our model
-        median_our = np.median(data_np[self.idx_our])
-        max_our = np.max(data_np[self.idx_our])
-        plt.axhline(y=median_our, color="black", linestyle="--", alpha=0.3)
-        ax.text(
-            self.idx_our + 1,
-            max_our,
-            f"Our: {median_our:.2f} m/s",
-            ha="center",
-            va="bottom",
-            fontsize="small",
-            color="grey",
-        )
-
-        ax.violinplot(dataset=data_np.T, showmeans=False, showmedians=True)
-        ax.set_xticks(np.arange(1, num_models_selected + 1))
-        ax.set_xticklabels(
-            itemgetter(*self.models_selected)(self.labels_short),
-            rotation=45,
-            ha="right",
-            fontsize="small",
-        )
-        ax.set_ylabel(r"Speed [m/s]")
-        # ax.set_ylim([0.6, 0.8]) # [m/s]
-        ax.yaxis.set_major_formatter(
-            ticker.FormatStrFormatter("%.2f")
-        )  # Set y-axis tick labels to have two digits after the comma
-        ax.xaxis.set_minor_locator(ticker.NullLocator())  # Make minor x-ticks invisible
-        ax.grid(True, which="major", axis="x", linestyle="--", linewidth=0.1)
-        ax.grid(True, which="both", axis="y", linestyle="--", linewidth=0.1)
-
-        # # Add text to shown the median of M1
-        # median_M1 = np.median(data_np[0])
-        # ax.text(1, 0.71, f'Median:\n{median_M1:.2f} m/s', ha='center', va='bottom', fontsize='small', color='grey')
-
-        # Save figure
-        plt.tight_layout()
-        if self.parameters.is_save_eval_results:
-            path_save_eval_fig = f"{self.where_to_save_eva_results}/{timestamp}_{self.parameters.scenario_type}_velocity_average.pdf"
-            plt.savefig(
-                path_save_eval_fig,
-                format="pdf",
-                bbox_inches="tight",
-                pad_inches=0,
-                dpi=300,
-            )
-            path_save_eval_fig = f"{self.where_to_save_eva_results}/{timestamp}_{self.parameters.scenario_type}_velocity_average.png"
-            plt.savefig(
-                path_save_eval_fig,
-                format="png",
-                bbox_inches="tight",
-                pad_inches=0,
-                dpi=600,
-            )
-            print(
-                colored(f"[INFO] A fig has been saved under", "black"),
-                colored(f"{path_save_eval_fig}", "cyan"),
-            )
-        # plt.show()
-
-        print(
-            colored(f"Logging had been saved under ", "grey"),
-            colored(self.where_to_save_logging, "blue"),
-        )
-
-    def _init_eva_matrices(self):
-        """
-        Initialize evaluation matrices.
-        """
-        self.velocity_average = torch.zeros(
-            (self.num_models_selected, self.parameters.num_vmas_envs),
-            device=self.parameters.device,
-            dtype=torch.float32,
-        )
-        # collision_rate_sum = torch.zeros((num_models_selected, parameters.num_vmas_envs), device=parameters.device, dtype=torch.float32)
-        self.collision_rate_with_agents = torch.zeros(
-            (self.num_models_selected, self.parameters.num_vmas_envs),
-            device=self.parameters.device,
-            dtype=torch.float32,
-        )
-        self.collision_rate_with_lanelets = torch.zeros(
-            (self.num_models_selected, self.parameters.num_vmas_envs),
-            device=self.parameters.device,
-            dtype=torch.float32,
-        )
-        self.distance_ref_average = torch.zeros(
-            (self.num_models_selected, self.parameters.num_vmas_envs),
-            device=self.parameters.device,
-            dtype=torch.float32,
-        )
-        self.episode_reward = torch.zeros(
-            (self.num_models_selected, self.parameters.n_iters),
-            device=self.parameters.device,
-            dtype=torch.float32,
-        )
-
-    def run_evaluation(self):
-        """
-        Main method to run evaluation over all provided model paths.
-        """
-        self.model_idx = 0
-
-        for model_i in self.models_selected:
-            print("------------------------------------------")
-            print(
-                colored("-- [INFO] Model ", "black"),
-                colored(f"{model_i + 1}", "blue"),
-                colored(f"({self.labels[model_i]})", color="grey"),
-            )
-            print("------------------------------------------")
-
-            self.model_i = model_i
-            self.model_i_path = self.model_paths[model_i]
-
-            self._load_parameters()
-            self._adjust_parameters()
-
-            if self.model_idx == 0:
-                self._init_eva_matrices()  # Only need to be done once
-
-            self.episode_reward[self.model_idx, :] = torch.tensor(
-                [self.saved_data.episode_reward_mean_list]
-            )
-
-            self._evaluate_model_i()
-
-            self.model_idx += 1
-
-        if not self.parameters.is_save_simulation_video:
-            self.plot()
-
-    @staticmethod
     def format_array(arr):
         return ", ".join([f"{x:.2f}" for x in arr])
+
+    @staticmethod
+    def min_max_normalize(tensor: torch.Tensor, **kwargs):
+        """
+        This function min-max normalize the given tensor.
+        """
+        min_val = kwargs.pop("min", tensor.min())
+        max_val = kwargs.pop("max", tensor.max())
+        return (tensor - min_val) / (max_val - min_val)

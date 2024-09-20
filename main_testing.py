@@ -13,7 +13,7 @@ from utilities.mappo_cavs import mappo_cavs
 
 from utilities.constants import SCENARIOS
 
-path = "checkpoints/ITSC24/M0 (our)"
+path = "outputs/M2 (Baseline)/"
 
 try:
     path_to_json_file = next(

@@ -204,6 +204,7 @@ AGENTS = {
     "l_f": 0.08,  # [m] Front wheelbase
     "l_r": 0.08,  # [m] Rear wheelbase
     "max_speed": 1.0,  # [m/s]
+    "max_speed_achievable": 0.82,  # [m/s]
     "max_steering": 35,  # [°]
     "n_actions": 2,
 }

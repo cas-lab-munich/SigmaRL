@@ -218,7 +218,10 @@ class TransformedEnvCustom(TransformedEnv):
                     nearing_agents_indices=self.base_env.scenario_name.observations.nearing_agents_indices,
                 )
 
-            if self.base_env.scenario_name.parameters.is_using_prioritized_marl:
+            if (
+                self.base_env.scenario_name.parameters.is_using_prioritized_marl
+                and priority_module
+            ):
                 tensordict = prioritized_ap_policy(
                     tensordict,
                     policy,
@@ -288,7 +291,6 @@ class TransformedEnvCustom(TransformedEnv):
             frame_list = []
 
         for i in range(max_steps):
-            print(f"Time step [t] = {i} out of {max_steps}")
             if auto_cast_to_device:
                 tensordict_ = tensordict_.to(policy_device, non_blocking=True)
 
@@ -301,7 +303,10 @@ class TransformedEnvCustom(TransformedEnv):
                     nearing_agents_indices=self.base_env.scenario_name.observations.nearing_agents_indices,
                 )
 
-            if self.base_env.scenario_name.parameters.is_using_prioritized_marl:
+            if (
+                self.base_env.scenario_name.parameters.is_using_prioritized_marl
+                and priority_module
+            ):
                 tensordict_ = prioritized_ap_policy(
                     tensordict_,
                     policy,
@@ -658,6 +663,7 @@ class SyncDataCollectorCustom(SyncDataCollector):
                 # <Modification ends>
                 elif (
                     self.env.base_env.scenario_name.parameters.is_using_prioritized_marl
+                    and self.priority_module
                 ):
                     prioritized_ap_policy(
                         tensordict=self._tensordict,
@@ -1233,8 +1239,8 @@ def save(
     # Save figure
     plt.clf()  # Clear the current figure to avoid drawing on the same figure in the next iteration
     plt.plot(save_data.episode_reward_mean_list)
-    plt.xlabel("Training iterations")
-    plt.ylabel("Episode reward mean")
+    plt.xlabel("Iterations")
+    plt.ylabel("Episode mean reward")
     plt.tight_layout()  # Set the layout to be tight to minimize white space !!! deprecated
     plt.savefig(PATH_FIG, format="pdf", bbox_inches="tight")
     # plt.savefig(PATH_FIG, format="pdf")
@@ -1382,7 +1388,12 @@ def get_priority_observation_key():
 
 
 def prioritized_ap_policy(
-    tensordict, policy, priority_module, nearing_agents_indices, prioritization_method
+    tensordict,
+    policy,
+    priority_module,
+    nearing_agents_indices,
+    prioritization_method,
+    is_add_noise_to_actions: bool = False,
 ):
     """
     Implements prioritized action propagation (AP) for multiple agents.
@@ -1412,6 +1423,8 @@ def prioritized_ap_policy(
         The updated tensordict with combined actions and observations after prioritized action propagation.
     """
     base_observation_key = ("agents", "info", "base_observation")
+
+    device = tensordict.device
 
     # Clone original observation
     original_obs = tensordict[base_observation_key].clone()
@@ -1472,7 +1485,22 @@ def prioritized_ap_policy(
             actions_so_far = combined_action[env, current_turn_agent_neighbors].view(-1)
 
             # Propagate the collected actions into the current agent's observation
-            obs[-len(actions_so_far) :] = actions_so_far
+            if is_add_noise_to_actions:
+                noise_percentage = 0.05
+                std_noise_speed = AGENTS["max_speed"] * noise_percentage
+                std_noise_steering = (
+                    math.radians(AGENTS["max_steering"]) * noise_percentage
+                )
+                noise = torch.cat(
+                    [
+                        std_noise_speed * torch.randn(action_dim, device=device),
+                        std_noise_steering * torch.randn(action_dim, device=device),
+                    ],
+                    dim=-1,
+                )
+                obs[-len(actions_so_far) :] = actions_so_far + noise
+            else:
+                obs[-len(actions_so_far) :] = actions_so_far
 
             # Store the updated observation for the current agent in temp_obs
             temp_obs[env, agent_idx] = obs

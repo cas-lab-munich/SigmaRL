@@ -103,7 +103,7 @@ def mappo_cavs(parameters: Parameters):
         RewardSum(in_keys=[env.reward_key], out_keys=[("agents", "episode_reward")]),
     )
 
-    # check_env_specs(env)
+    check_env_specs(env)
 
     observation_key = get_observation_key(parameters)
 
