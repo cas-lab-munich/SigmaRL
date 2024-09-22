@@ -218,16 +218,23 @@ class TransformedEnvCustom(TransformedEnv):
                     nearing_agents_indices=self.base_env.scenario_name.observations.nearing_agents_indices,
                 )
 
-            if (
-                self.base_env.scenario_name.parameters.is_using_prioritized_marl
-                and priority_module
-            ):
-                tensordict = prioritized_ap_policy(
+            if self.base_env.scenario_name.parameters.is_using_prioritized_marl:
+                (
+                    tensordict,
+                    priority_rank,
+                    observable_higher_priority_agents,
+                ) = prioritized_ap_policy(
                     tensordict,
                     policy,
                     priority_module,
                     self.base_env.scenario_name.observations.nearing_agents_indices,
-                    self.base_env.scenario_name.parameters.prioritization_method,
+                    self.base_env.scenario_name.parameters.is_communication_noise,
+                    self.base_env.scenario_name.parameters.noise_level,
+                )
+                # Store priority_rank for later use
+                self.base_env.scenario_name.priority_rank = priority_rank
+                self.base_env.scenario_name.observable_higher_priority_agents = (
+                    observable_higher_priority_agents
                 )
             else:
                 tensordict = policy(tensordict)
@@ -303,16 +310,23 @@ class TransformedEnvCustom(TransformedEnv):
                     nearing_agents_indices=self.base_env.scenario_name.observations.nearing_agents_indices,
                 )
 
-            if (
-                self.base_env.scenario_name.parameters.is_using_prioritized_marl
-                and priority_module
-            ):
-                tensordict_ = prioritized_ap_policy(
+            if self.base_env.scenario_name.parameters.is_using_prioritized_marl:
+                (
+                    tensordict_,
+                    priority_rank,
+                    observable_higher_priority_agents,
+                ) = prioritized_ap_policy(
                     tensordict_,
                     policy,
                     priority_module,
                     self.base_env.scenario_name.observations.nearing_agents_indices,
-                    self.base_env.scenario_name.parameters.prioritization_method,
+                    self.base_env.scenario_name.parameters.is_communication_noise,
+                    self.base_env.scenario_name.parameters.noise_level,
+                )
+                # Store priority_rank for later use
+                self.base_env.scenario_name.priority_rank = priority_rank
+                self.base_env.scenario_name.observable_higher_priority_agents = (
+                    observable_higher_priority_agents
                 )
             else:
                 tensordict_ = policy(tensordict_)
@@ -534,11 +548,7 @@ class SyncDataCollectorCustom(SyncDataCollector):
             with torch.no_grad():
                 self._tensordict_out = self.policy(self._tensordict_out.to(self.device))
 
-        if (
-            self.env.base_env.scenario_name.parameters.is_using_prioritized_marl
-            and self.env.base_env.scenario_name.parameters.prioritization_method.lower()
-            == "marl"
-        ):
+        if self.env.base_env.scenario_name.parameters.is_using_prioritized_marl:
             # Create the TensorDict
             priority = TensorDict(
                 {
@@ -569,7 +579,7 @@ class SyncDataCollectorCustom(SyncDataCollector):
                         dtype=torch.float32,
                         device=self.env.base_env.scenario_name.parameters.device,
                     ),
-                    "ordering": torch.zeros(
+                    "rank": torch.zeros(
                         self.env.base_env.scenario_name.parameters.num_vmas_envs,
                         self.env.base_env.scenario_name.parameters.n_agents,
                         dtype=torch.int64,
@@ -663,14 +673,14 @@ class SyncDataCollectorCustom(SyncDataCollector):
                 # <Modification ends>
                 elif (
                     self.env.base_env.scenario_name.parameters.is_using_prioritized_marl
-                    and self.priority_module
                 ):
                     prioritized_ap_policy(
                         tensordict=self._tensordict,
                         policy=self.policy,
                         priority_module=self.priority_module,
                         nearing_agents_indices=self.env.base_env.scenario_name.observations.nearing_agents_indices,
-                        prioritization_method=self.env.base_env.scenario_name.parameters.prioritization_method,
+                        is_communication_noise=self.env.base_env.scenario_name.parameters.is_communication_noise,
+                        noise_level=self.env.base_env.scenario_name.parameters.noise_level,
                     )
                 else:
                     self.policy(self._tensordict)
@@ -799,6 +809,8 @@ class Parameters:
         is_using_opponent_modeling: bool = False,  # Whether to use opponent modeling to predict the actions of other agents
         is_using_prioritized_marl: bool = False,  # Whether to use prioritized MARL and action propagation.
         prioritization_method: str = "marl",  # Which method to use for generating priority ranks (options: {"marl", "random"}). Applicable only for prioritized MARL scenarios.
+        is_communication_noise: str = False,  # Whether to inject communication noise to propagated actions
+        noise_level: float = 0.1,  # Noise is modeled by a normal distribution. `noise_level` defines the variance of the normal distribution.
     ):
 
         self.n_agents = n_agents
@@ -879,6 +891,8 @@ class Parameters:
         self.is_using_prioritized_marl = is_using_prioritized_marl
 
         self.prioritization_method = prioritization_method
+        self.is_communication_noise = is_communication_noise
+        self.noise_level = noise_level
 
         if (model_name is None) and (scenario_name is not None):
             self.model_name = get_model_name(self)
@@ -921,7 +935,7 @@ class SaveData:
 class PriorityModule:
     def __init__(self, env: TransformedEnvCustom = None, mappo: bool = True):
         """
-        Initializes the PriorityModule, which is responsible for computing the priority ordering of agents
+        Initializes the PriorityModule, which is responsible for computing the priority rank of agents
         and their scores using a neural network policy. It also sets up a PPO loss module with an actor-critic
         architecture and GAE (Generalized Advantage Estimation) for reinforcement learning optimization.
 
@@ -1059,10 +1073,10 @@ class PriorityModule:
 
     def __call__(self, tensordict):
         """
-        Computes the priority ordering of agents based on their scores and updates the tensordict.
+        Computes the priority rank of agents based on their scores and updates the tensordict.
 
         The method calls the priority actor to generate scores for each agent, ranks the agents
-        based on those scores, and then updates the tensordict with the priority ordering.
+        based on those scores, and then updates the tensordict with the priority rank.
 
         Parameters:
         -----------
@@ -1072,18 +1086,25 @@ class PriorityModule:
         Returns:
         --------
         tensordict : TensorDict
-            The updated tensordict with the priority ordering of agents added.
+            The updated tensordict with the priority rank of agents added.
         """
 
-        # Call the priority actor and extract the scores key from the resulting tensordict
-        scores = self.policy(tensordict)[self.prefix_key + ("scores",)]
+        if self.parameters.prioritization_method.lower() == "random":
+            n_envs = self.parameters.num_vmas_envs
+            n_agents = self.parameters.n_agents
+            priority_rank = torch.stack(
+                [torch.randperm(n_agents) for _ in range(n_envs)]
+            )
+        else:
+            # Call the priority actor and extract the scores key from the resulting tensordict
+            scores = self.policy(tensordict)[self.prefix_key + ("scores",)]
 
-        # Generate the priority ordering of agents
-        priority_ordering = self.rank_agents(scores)
+            # Generate the priority rank of agents
+            priority_rank = self.rank_agents(scores)
 
-        tensordict[self.prefix_key + ("ordering",)] = priority_ordering
+        tensordict[self.prefix_key + ("rank",)] = priority_rank
 
-        # Return the tensordict with the priority ordering included
+        # Return the tensordict with the priority rank included
         return tensordict
 
     def compute_losses_and_optimize(self, data):
@@ -1392,12 +1413,12 @@ def prioritized_ap_policy(
     policy,
     priority_module,
     nearing_agents_indices,
-    prioritization_method,
-    is_add_noise_to_actions: bool = False,
+    is_communication_noise,
+    noise_level,
 ):
     """
     Implements prioritized action propagation (AP) for multiple agents.
-    The function first generates a priority ordering using the provided priority module.
+    The function first generates a priority rank using the provided priority module.
     Then, agents are processed in this priority order, where each agent computes its action
     and propagates it to lower-priority agents as part of their observation.
 
@@ -1412,7 +1433,7 @@ def prioritized_ap_policy(
     policy : Callable
         The policy function used to compute the actions for the agents.
     priority_module : Callable
-        A module that computes the priority ordering for agents by wrapping the process
+        A module that computes the priority rank for agents by wrapping the process
         of generating priority scores and ranking agents according to these scores.
     nearing_agents_indices : Tensor
         A tensor indicating the neighboring agents for each agent in each environment.
@@ -1437,16 +1458,10 @@ def prioritized_ap_policy(
         AGENTS["n_actions"],
     )
 
-    if prioritization_method.lower() == "marl":
-        # Generate priority ordering using the priority module
-        priority_module(tensordict)
-        # Extract priority ordering (shape: (n_envs, n_agents)) from tensordict
-        priority_ordering = tensordict[priority_module.prefix_key + ("ordering",)]
-    elif prioritization_method.lower() == "random":
-        # Generate a random priority ordering
-        priority_ordering = torch.stack(
-            [torch.randperm(n_agents) for _ in range(n_envs)]
-        )
+    # Generate priority rank using the priority module
+    priority_module(tensordict)
+    # Extract priority rank (shape: (n_envs, n_agents)) from tensordict
+    priority_rank = tensordict[priority_module.prefix_key + ("rank",)]
 
     # Temporary tensors to store intermediate observations and combined results
     temp_obs = torch.zeros(n_envs, n_agents, obs_dim)
@@ -1456,13 +1471,18 @@ def prioritized_ap_policy(
     combined_scale = torch.zeros(n_envs, n_agents, action_dim)
     combined_obs = torch.zeros(n_envs, n_agents, obs_dim)
 
-    # Loop through each step in the priority ordering
+    # Observable high-priority agents
+    observable_higher_priority_agents = [
+        [[] for _ in range(n_agents)] for _ in range(n_envs)
+    ]
+
+    # Loop through each step in the priority rank
     for turn in range(n_agents):
         # Reset the observation
         tensordict[("agents", "info")].set("base_observation", original_obs)
 
         # Get the list of agents for the current turn based on priority
-        current_turn_agents = priority_ordering[:, turn]
+        current_turn_agents = priority_rank[:, turn]
 
         # Create environment indices (from 0 to n_envs - 1)
         envs = torch.arange(n_envs)
@@ -1484,13 +1504,21 @@ def prioritized_ap_policy(
             # Collect actions of the current agent's neighbors
             actions_so_far = combined_action[env, current_turn_agent_neighbors].view(-1)
 
+            # Set of higher-priority agents
+            higher_priority_agents = priority_rank[env, :turn]
+
+            # Observable high-priority agents
+            are_observable_higher_priority_agents = torch.isin(
+                current_turn_agent_neighbors, higher_priority_agents
+            )
+            observable_higher_priority_agents[env][
+                agent_idx
+            ] = current_turn_agent_neighbors[are_observable_higher_priority_agents]
+
             # Propagate the collected actions into the current agent's observation
-            if is_add_noise_to_actions:
-                noise_percentage = 0.05
-                std_noise_speed = AGENTS["max_speed"] * noise_percentage
-                std_noise_steering = (
-                    math.radians(AGENTS["max_steering"]) * noise_percentage
-                )
+            if is_communication_noise:
+                std_noise_speed = AGENTS["max_speed"] * noise_level
+                std_noise_steering = math.radians(AGENTS["max_steering"]) * noise_level
                 noise = torch.cat(
                     [
                         std_noise_speed * torch.randn(action_dim, device=device),
@@ -1525,4 +1553,4 @@ def prioritized_ap_policy(
     tensordict[("agents", "scale")] = combined_scale
     tensordict[base_observation_key] = combined_obs
 
-    return tensordict
+    return tensordict, priority_rank, observable_higher_priority_agents

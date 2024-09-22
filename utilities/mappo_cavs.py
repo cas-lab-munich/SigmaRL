@@ -103,8 +103,6 @@ def mappo_cavs(parameters: Parameters):
         RewardSum(in_keys=[env.reward_key], out_keys=[("agents", "episode_reward")]),
     )
 
-    check_env_specs(env)
-
     observation_key = get_observation_key(parameters)
 
     policy_net = torch.nn.Sequential(
@@ -178,13 +176,14 @@ def mappo_cavs(parameters: Parameters):
     )
 
     # Instantiate the priority module
-    if (
-        parameters.is_using_prioritized_marl
-        and parameters.prioritization_method.lower() == "marl"
-    ):
-        priority_module = PriorityModule(env=env, mappo=mappo)
+    if parameters.is_using_prioritized_marl:
+        priority_module = PriorityModule(
+            env=env, mappo=mappo
+        )  # Either MARL-learned priorities or random priorities
     else:
         priority_module = None
+
+    # check_env_specs(env)
 
     # Check if the directory defined to store the model exists and create it if not
     if not os.path.exists(parameters.where_to_save):
@@ -215,7 +214,10 @@ def mappo_cavs(parameters: Parameters):
                     )
                 )
 
-                if priority_module:
+                if (
+                    priority_module
+                    and parameters.prioritization_method.lower() == "marl"
+                ):
                     priority_module.policy.load_state_dict(
                         torch.load(
                             parameters.where_to_save + "final_priority_policy.pth"
@@ -234,7 +236,10 @@ def mappo_cavs(parameters: Parameters):
                 paths = get_path_to_save_model(parameters=parameters)
 
                 # Destructure paths based on whether prioritized MARL is enabled
-                if priority_module:
+                if (
+                    priority_module
+                    and parameters.prioritization_method.lower() == "marl"
+                ):
                     (
                         PATH_POLICY,
                         PATH_CRITIC,
@@ -250,19 +255,22 @@ def mappo_cavs(parameters: Parameters):
                 policy.load_state_dict(torch.load(PATH_POLICY))
                 print(
                     colored(
-                        f"[INFO] Loaded the intermediate model {PATH_POLICY}  with the highest episode reward",
+                        f"[INFO] Loaded the intermediate model '{PATH_POLICY}'  with the highest episode reward",
                         "blue",
                     )
                 )
 
                 # Load priority policy and critic if prioritized (dual) MARL is enabled
-                if priority_module:
+                if (
+                    priority_module
+                    and parameters.prioritization_method.lower() == "marl"
+                ):
                     priority_module.policy.load_state_dict(
                         torch.load(PATH_PRIORITY_POLICY)
                     )
                     print(
                         colored(
-                            f"[INFO] Loaded the intermediate priority model {PATH_PRIORITY_POLICY} with the highest episode reward",
+                            f"[INFO] Loaded the intermediate priority model '{PATH_PRIORITY_POLICY}' with the highest episode reward",
                             "blue",
                         )
                     )
@@ -282,7 +290,7 @@ def mappo_cavs(parameters: Parameters):
             )
             critic.load_state_dict(torch.load(PATH_CRITIC))
 
-            if priority_module:
+            if priority_module and parameters.prioritization_method.lower() == "marl":
                 priority_module.critic.load_state_dict(torch.load(PATH_PRIORITY_CRITIC))
 
     collector = SyncDataCollectorCustom(
@@ -365,7 +373,7 @@ def mappo_cavs(parameters: Parameters):
                 target_params=loss_module.target_critic_params,
             )  # Compute GAE and add it to the data
 
-            if priority_module:
+            if priority_module and parameters.prioritization_method.lower() == "marl":
                 priority_module.GAE(
                     tensordict_data,
                     params=priority_module.loss_module.critic_params,
@@ -415,7 +423,10 @@ def mappo_cavs(parameters: Parameters):
                 optim.step()
                 optim.zero_grad()
 
-                if priority_module:
+                if (
+                    priority_module
+                    and parameters.prioritization_method.lower() == "marl"
+                ):
                     priority_module.compute_losses_and_optimize(mini_batch_data)
 
                 if parameters.is_prb:
@@ -426,7 +437,10 @@ def mappo_cavs(parameters: Parameters):
                             params=loss_module.critic_params,
                             target_params=loss_module.target_critic_params,
                         )
-                        if parameters.is_using_prioritized_marl:
+                        if (
+                            priority_module
+                            and parameters.prioritization_method.lower() == "marl"
+                        ):
                             priority_module.GAE(
                                 tensordict_data,
                                 params=priority_module.loss_module.critic_params,

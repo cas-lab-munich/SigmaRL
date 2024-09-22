@@ -19,6 +19,8 @@ from torch import Tensor
 import torch.nn.functional as F
 from typing import Dict
 
+from vmas.simulator import rendering
+
 # Enable anomaly detection
 # torch.autograd.set_detect_anomaly(True)
 
@@ -110,7 +112,6 @@ class ScenarioRoadTraffic(BaseScenario):
         scenario_type = kwargs.pop(
             "scenario_type", "CPM_mixed"
         )  # Scenario type. See all scenario types in SCENARIOS in utilities/constants
-        self.n_agents = SCENARIOS[scenario_type]["n_agents"]  # Number of agents
         self.agent_width = AGENTS["width"]  # The width of the agent in [m]
         self.agent_length = AGENTS["length"]  # The length of the agent in [m]
         lane_width = SCENARIOS[scenario_type][
@@ -260,7 +261,7 @@ class ScenarioRoadTraffic(BaseScenario):
 
         if not hasattr(self, "parameters"):
             self.parameters = Parameters(
-                n_agents=self.n_agents,
+                n_agents=kwargs.pop("n_agents", SCENARIOS[scenario_type]["n_agents"]),
                 scenario_type=scenario_type,
                 is_partial_observation=kwargs.pop("is_partial_observation", True),
                 is_testing_mode=kwargs.pop("is_testing_mode", False),
@@ -306,6 +307,9 @@ class ScenarioRoadTraffic(BaseScenario):
                     "is_using_prioritized_marl", False
                 ),
             )
+
+        self.n_agents = self.parameters.n_agents
+        self.colors = colors
 
         # Logs
         if self.parameters.is_testing_mode:
@@ -1016,7 +1020,7 @@ class ScenarioRoadTraffic(BaseScenario):
             agent = Agent(
                 name=f"agent_{i}",
                 shape=Box(length=AGENTS["length"], width=AGENTS["width"]),
-                color=tuple(colors[i]),
+                color=tuple(self.colors[i]),
                 collide=False,
                 render_action=False,
                 u_range=[
@@ -2790,7 +2794,6 @@ class ScenarioRoadTraffic(BaseScenario):
             **(
                 {"priority_observation": prio_obs}
                 if self.parameters.is_using_prioritized_marl
-                and self.parameters.prioritization_method.lower() == "marl"
                 else {}
             ),
         }
@@ -2798,8 +2801,6 @@ class ScenarioRoadTraffic(BaseScenario):
         return info
 
     def extra_render(self, env_index: int = 0):
-        from vmas.simulator import rendering
-
         if self.parameters.is_real_time_rendering:
             if self.timer.step[0] == 0:
                 pause_duration = 0  # Not sure how long should the simulation be paused at time step 0, so rather 0
@@ -2810,8 +2811,20 @@ class ScenarioRoadTraffic(BaseScenario):
             # print(f"Paused for {pause_duration} sec.")
 
             self.timer.render_begin = time.time()  # Update
+
         geoms = []
 
+        self._render_action_propagation_direction(env_index, geoms)
+
+        self._render_lanelets(geoms)
+
+        self._render_extra_info(geoms)
+
+        self._render_reference_paths_and_boundaries(env_index, geoms)
+
+        return geoms
+
+    def _render_lanelets(self, geoms):
         # Visualize all lanelets
         for i in range(len(self.map.parser.lanelets_all)):
             lanelet = self.map.parser.lanelets_all[i]
@@ -2834,6 +2847,7 @@ class ScenarioRoadTraffic(BaseScenario):
             geom.set_color(*Color.black100)
             geoms.append(geom)
 
+    def _render_extra_info(self, geoms):
         if self.parameters.is_visualize_extra_info:
             hight_a = -0.10
             hight_b = -0.20
@@ -2871,45 +2885,9 @@ class ScenarioRoadTraffic(BaseScenario):
             geom.add_attr(xform)
             geoms.append(geom)
 
-            # Mean velocity
-            # mean_vel = torch.vstack([a.state.vel for a in self.world.agents]).norm(dim=-1).mean()
-            # geom = rendering.TextLine(
-            #     text=f"Mean velocity: {mean_vel:.2f} m/s",
-            #     x=1.68 * self.resolution_factor,
-            #     y=(self.world.y_semidim + hight_b) * self.resolution_factor,
-            #     font_size=14,
-            # )
-            # xform = rendering.Transform()
-            # geom.add_attr(xform)
-            # geoms.append(geom)
-
-            # Mean deviation from lane center line
-            # mean_deviation_from_center_line = self.distances.ref_paths[0].mean()
-            # geom = rendering.TextLine(
-            #     text=f"Mean deviation: {mean_deviation_from_center_line:.2f} m",
-            #     x=3.15 * self.resolution_factor,
-            #     y=(self.world.y_semidim + hight_b) * self.resolution_factor,
-            #     font_size=14,
-            # )
-            # xform = rendering.Transform()
-            # geom.add_attr(xform)
-            # geoms.append(geom)
-
+    def _render_reference_paths_and_boundaries(self, env_index, geoms):
         for agent_i in range(self.n_agents):
-            # # Visualize goal
-            # if not self.ref_paths_agent_related.is_loop[env_index, agent_i]:
-            #     circle = rendering.make_circle(radius=self.thresholds.reach_goal, filled=True)
-            #     xform = rendering.Transform()
-            #     circle.add_attr(xform)
-            #     xform.set_translation(
-            #         self.ref_paths_agent_related.long_term[env_index, agent_i, -1, 0],
-            #         self.ref_paths_agent_related.long_term[env_index, agent_i, -1, 1]
-            #     )
-            #     circle.set_color(*colors[agent_i])
-            #     geoms.append(circle)
-
             # Visualize short-term reference paths of agents
-            # if self.parameters.is_visualize_short_term_path & (agent_i == 0):
             if self.parameters.is_visualize_short_term_path:
                 geom = rendering.PolyLine(
                     v=self.ref_paths_agent_related.short_term[env_index, agent_i],
@@ -2917,7 +2895,7 @@ class ScenarioRoadTraffic(BaseScenario):
                 )
                 xform = rendering.Transform()
                 geom.add_attr(xform)
-                geom.set_color(*colors[agent_i])
+                geom.set_color(*self.colors[agent_i])
                 geoms.append(geom)
 
                 for i_p in self.ref_paths_agent_related.short_term[env_index, agent_i]:
@@ -2925,7 +2903,7 @@ class ScenarioRoadTraffic(BaseScenario):
                     xform = rendering.Transform()
                     circle.add_attr(xform)
                     xform.set_translation(i_p[0], i_p[1])
-                    circle.set_color(*colors[agent_i])
+                    circle.set_color(*self.colors[agent_i])
                     geoms.append(circle)
 
             # Visualize nearing points on boundaries
@@ -2939,7 +2917,7 @@ class ScenarioRoadTraffic(BaseScenario):
                 )
                 xform = rendering.Transform()
                 geom.add_attr(xform)
-                geom.set_color(*colors[agent_i])
+                geom.set_color(*self.colors[agent_i])
                 geoms.append(geom)
 
                 for i_p in self.ref_paths_agent_related.nearing_points_left_boundary[
@@ -2949,7 +2927,7 @@ class ScenarioRoadTraffic(BaseScenario):
                     xform = rendering.Transform()
                     circle.add_attr(xform)
                     xform.set_translation(i_p[0], i_p[1])
-                    circle.set_color(*colors[agent_i])
+                    circle.set_color(*self.colors[agent_i])
                     geoms.append(circle)
 
                 # Right boundary
@@ -2961,7 +2939,7 @@ class ScenarioRoadTraffic(BaseScenario):
                 )
                 xform = rendering.Transform()
                 geom.add_attr(xform)
-                geom.set_color(*colors[agent_i])
+                geom.set_color(*self.colors[agent_i])
                 geoms.append(geom)
 
                 for i_p in self.ref_paths_agent_related.nearing_points_right_boundary[
@@ -2971,7 +2949,7 @@ class ScenarioRoadTraffic(BaseScenario):
                     xform = rendering.Transform()
                     circle.add_attr(xform)
                     xform.set_translation(i_p[0], i_p[1])
-                    circle.set_color(*colors[agent_i])
+                    circle.set_color(*self.colors[agent_i])
                     geoms.append(circle)
 
             # Agent IDs
@@ -2987,8 +2965,6 @@ class ScenarioRoadTraffic(BaseScenario):
                     / self.world.y_semidim
                 )
                 * self.viewer_size[1],
-                # x=(self.world.agents[agent_i].state.pos[env_index, 0] - self.render_origin[0] + self.world.x_semidim / 2) * self.resolution_factor / self.viewer_zoom,
-                # y=(self.world.agents[agent_i].state.pos[env_index, 1] - self.render_origin[1] + self.world.y_semidim / 2) * self.resolution_factor / self.viewer_zoom,
                 font_size=14,
             )
             xform = rendering.Transform()
@@ -3007,7 +2983,7 @@ class ScenarioRoadTraffic(BaseScenario):
                     )
                     xform = rendering.Transform()
                     geom.add_attr(xform)
-                    geom.set_color(*colors[agent_i])
+                    geom.set_color(*self.colors[agent_i])
                     geoms.append(geom)
                     # Right boundary
                     geom = rendering.PolyLine(
@@ -3018,7 +2994,7 @@ class ScenarioRoadTraffic(BaseScenario):
                     )
                     xform = rendering.Transform()
                     geom.add_attr(xform)
-                    geom.set_color(*colors[agent_i])
+                    geom.set_color(*self.colors[agent_i])
                     geoms.append(geom)
                     # Entry
                     geom = rendering.PolyLine(
@@ -3027,7 +3003,7 @@ class ScenarioRoadTraffic(BaseScenario):
                     )
                     xform = rendering.Transform()
                     geom.add_attr(xform)
-                    geom.set_color(*colors[agent_i])
+                    geom.set_color(*self.colors[agent_i])
                     geoms.append(geom)
                     # Exit
                     geom = rendering.PolyLine(
@@ -3036,10 +3012,73 @@ class ScenarioRoadTraffic(BaseScenario):
                     )
                     xform = rendering.Transform()
                     geom.add_attr(xform)
-                    geom.set_color(*colors[agent_i])
+                    geom.set_color(*self.colors[agent_i])
                     geoms.append(geom)
 
-        return geoms
+    def _render_action_propagation_direction(self, env_index, geoms):
+        """
+        Render the direction of action propagation between agents in a prioritized MARL setting.
+
+        This function visualizes the action propagation directions, which are from higher-priority to lower-priority agents,
+        by drawing lines between them. The lines are colored based on the higher-priority agent's color.
+
+        Args:
+            env_index (int): The index of the current environment.
+            geoms (list): A list of geometric objects to which the new visualizations will be added.
+        """
+        # Check if prioritized MARL is being used and if observable higher priority agents exist
+        if self.parameters.is_using_prioritized_marl and hasattr(
+            self, "observable_higher_priority_agents"
+        ):
+            # self._recolor_agents() # Uncomment if agent recoloring is needed
+
+            # Iterate through all agents to draw action propagation lines
+            for i in range(self.n_agents):
+                # Get the list of observable higher priority agents for the current agent
+                observable_higher_priority_agents = (
+                    self.observable_higher_priority_agents[env_index][i]
+                )
+
+                # Draw lines from each higher priority agent to the current agent
+                for j in observable_higher_priority_agents:
+                    # Create a line object representing the action propagation
+                    line = rendering.Line(
+                        # Starting point: position of the higher priority agent (j)
+                        (
+                            self.world.agents[j].state.pos[env_index, 0],
+                            self.world.agents[j].state.pos[env_index, 1],
+                        ),
+                        # Ending point: position of the current agent (i)
+                        (
+                            self.world.agents[i].state.pos[env_index, 0],
+                            self.world.agents[i].state.pos[env_index, 1],
+                        ),
+                        width=10,  # Set line width
+                    )
+
+                    # Add transform attribute to the line
+                    xform = rendering.Transform()
+                    line.add_attr(xform)
+
+                    # Set the line color to match the higher priority agent's color
+                    line.set_color(*self.colors[j])
+
+                    # Add the line to the list of geometric objects to be rendered
+                    geoms.append(line)
+
+    def _recolor_agents(self):
+        """
+        This function re-colors agents based on their priorities.
+        """
+        if (self.priority_rank.ndim == 2) and (self.priority_rank.shape[0] == 1):
+            self.priority_rank = self.priority_rank.squeeze(0)
+        # Re-order the colors to code priorities
+        colors_copy = self.colors.copy()
+        self.colors = [colors_copy[self.priority_rank[i]] for i in range(self.n_agents)]
+
+        # Adjust agent colors
+        for i in range(self.n_agents):
+            self.world.agents[i]._color = self.colors[i]
 
 
 if __name__ == "__main__":
