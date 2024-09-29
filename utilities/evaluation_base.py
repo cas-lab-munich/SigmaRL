@@ -115,11 +115,17 @@ class Evaluation:
         self.legends = kwargs.pop("legends", None)
         self.render_titles = kwargs.pop("render_titles", None)
         self.num_simulations_per_model = kwargs.pop("num_simulations_per_model", 32)
-        self.num_agents = kwargs.pop("num_agents", 15)
+        self.n_agents = kwargs.pop("n_agents", 15)
         self.simulation_steps = kwargs.pop("simulation_steps", 15)
 
-        self.is_render = kwargs.pop("is_render", True)
+        self.is_render = kwargs.pop("is_render", False)
         self.is_save_simulation_video = kwargs.pop("is_save_simulation_video", False)
+
+        self.is_real_time_rendering = kwargs.pop("is_real_time_rendering", False)
+
+        if self.is_save_simulation_video:
+            self.is_render = True
+
         self.video_names = kwargs.pop("video_names", None)
 
         self.idx_our = next(
@@ -165,12 +171,12 @@ class Evaluation:
         # Adjust parameters
         self.parameters.scenario_type = self.scenario_type
         self.parameters.is_testing_mode = True
-        self.parameters.is_real_time_rendering = False
+        self.parameters.is_real_time_rendering = self.is_real_time_rendering
         self.parameters.is_save_eval_results = True
         self.parameters.is_load_model = True
         self.parameters.is_load_final_model = False
         self.parameters.is_load_out_td = True
-        self.parameters.n_agents = self.num_agents
+        self.parameters.n_agents = self.n_agents
         self.parameters.max_steps = self.simulation_steps
 
         self.parameters.is_save_simulation_video = self.is_save_simulation_video
@@ -201,32 +207,34 @@ class Evaluation:
         """
         out_td = self._get_simulation_outputs()
 
-        positions = out_td["agents", "info", "pos"]
-        velocities = out_td["agents", "info", "vel"]
-        is_collision_with_agents = out_td[
-            "agents", "info", "is_collision_with_agents"
-        ].bool()
-        is_collision_with_lanelets = out_td[
-            "agents", "info", "is_collision_with_lanelets"
-        ].bool()
-        distance_ref = out_td["agents", "info", "distance_ref"]
+        if not self.parameters.is_save_simulation_video:
+            positions = out_td["agents", "info", "pos"]
+            velocities = out_td["agents", "info", "vel"]
+            is_collision_with_agents = out_td[
+                "agents", "info", "is_collision_with_agents"
+            ].bool()
+            is_collision_with_lanelets = out_td[
+                "agents", "info", "is_collision_with_lanelets"
+            ].bool()
+            distance_ref = out_td["agents", "info", "distance_ref"]
 
-        is_collide = is_collision_with_agents | is_collision_with_lanelets
+            is_collide = is_collision_with_agents | is_collision_with_lanelets
 
-        num_steps = positions.shape[1]
+            num_steps = positions.shape[1]
 
-        self.average_speed[self.model_idx, :] = velocities.norm(dim=-1).mean(
-            dim=(-2, -1)
-        )
-        self.collision_rate_with_agents[self.model_idx, :] = (
-            is_collision_with_agents.squeeze(-1).any(dim=-1).sum(dim=-1) / num_steps
-        )
-        self.collision_rate_with_lanelets[self.model_idx, :] = (
-            is_collision_with_lanelets.squeeze(-1).any(dim=-1).sum(dim=-1) / num_steps
-        )
-        self.distance_ref_average[self.model_idx, :] = distance_ref.squeeze(-1).mean(
-            dim=(-2, -1)
-        )
+            self.average_speed[self.model_idx, :] = velocities.norm(dim=-1).mean(
+                dim=(-2, -1)
+            )
+            self.collision_rate_with_agents[self.model_idx, :] = (
+                is_collision_with_agents.squeeze(-1).any(dim=-1).sum(dim=-1) / num_steps
+            )
+            self.collision_rate_with_lanelets[self.model_idx, :] = (
+                is_collision_with_lanelets.squeeze(-1).any(dim=-1).sum(dim=-1)
+                / num_steps
+            )
+            self.distance_ref_average[self.model_idx, :] = distance_ref.squeeze(
+                -1
+            ).mean(dim=(-2, -1))
 
     def _get_simulation_outputs(self):
         # Load the model with the highest reward

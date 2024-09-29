@@ -92,7 +92,7 @@ for i_scenario in scenario_types:
         scenario_type=i_scenario,  # Specify which scenario should be used to do the evaluation. One of {"CPM_entire", "intersection_2", "on_ramp_1", "roundabout_1"}
         model_paths=model_paths,
         fitst_model_index=0,  # The index of the first model. If 1, then models are indexed as M1, M2, ...
-        num_agents=n_agents,  # Number of agents to be used in the evaluation
+        n_agents=n_agents,  # Number of agents to be used in the evaluation
         fig_sizes=fig_sizes,
         y_limits=y_limits,
         simulation_steps=1200,  # Number of time steps of each simulation. 1200 -> 1 min if sample time is 50 ms

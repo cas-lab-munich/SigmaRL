@@ -78,7 +78,7 @@ for i_scenario in scenario_types:
         fig_sizes=fig_sizes,
         y_limits=y_limits,
         is_show_different_collisions=False,  # Two types of collisions are distinguished: agent-agent collisions, agent-lanelet collisions. Set to false if only the total collision rate is of interest.
-        num_agents=n_agents,  # Number of agents to be used in the evaluation
+        n_agents=n_agents,  # Number of agents to be used in the evaluation
         simulation_steps=1200,  # Number of time steps of each simulation. 1200 -> 1 min if sample time is 50 ms
         where_to_save_eva_results=f"checkpoints/icra25/eva_{i_scenario}",
         where_to_save_logging=f"checkpoints/icra25/log.txt",
@@ -86,7 +86,8 @@ for i_scenario in scenario_types:
         legends=legends,
         render_titles=render_titles,
         num_simulations_per_model=32,
-        is_render=False,
+        is_render=True,
+        is_real_time_rendering=True,
         is_save_simulation_video=False,
         video_names=video_names,
     )
