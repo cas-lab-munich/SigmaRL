@@ -26,36 +26,41 @@ SigmaRL is a decentralized MARL framework designed for motion planning of CAVs. 
 <table>
   <tr>
     <td>
-      <figure id="fig-scenario-cpm">
+      <a id="fig-scenario-cpm"></a>
+      <figure>
         <img src="https://github.com/cas-lab-munich/assets/blob/main/sigmarl/media/cpm_entire.gif?raw=true" width="360" height="320" />
+        <br>
         <figcaption>(a) CPM scenario.</figcaption>
       </figure>
     </td>
     <td>
-      <figure id="fig-scenario-intersection">
+      <a id="fig-scenario-intersection"></a>
+      <figure>
         <img src="https://github.com/cas-lab-munich/assets/blob/main/sigmarl/media/intersection_2.gif?raw=true" height="320"/>
+        <br>
         <figcaption>(b) Intersection scenario.</figcaption>
       </figure>
     </td>
   </tr>
   <tr>
     <td>
-      <figure id="fig-scenario-on-ramp">
+      <a id="fig-scenario-on-ramp"></a>
+      <figure>
         <img src="https://github.com/cas-lab-munich/assets/blob/main/sigmarl/media/on_ramp_1.gif?raw=true" width="360"/>
+        <br>
         <figcaption>(c) On-ramp scenario.</figcaption>
       </figure>
     </td>
     <td>
-      <figure id="fig-scenario-roundabout">
+      <a id="fig-scenario-roundabout"></a>
+      <figure>
         <img src="https://github.com/cas-lab-munich/assets/blob/main/sigmarl/media/roundabout_1.gif?raw=true" height="140"/>
+        <br>
         <figcaption>(d) "Roundabout" scenario.</figcaption>
       </figure>
     </td>
   </tr>
 </table>
-
-<p><strong>Fig. 1:</strong> Example scenarios (speed x2). All scenarios are listed in the variable <code>SCENARIOS</code> in <code>utilities/constants.py</code>.</p>
-
 
 
 ## Install
@@ -63,7 +68,7 @@ We use Python 3.9. Other versions may also work well. After git clone this repos
 ```
 pip install -r requirements.txt
 ```
-We have tested that this repository works well in Windows and macOS.
+We have tested this repository and confirmed that it works well on Windows and macOS. You may need to take additional steps to make it work on Linux.
 
 ## How to Use
 ### Training
@@ -105,11 +110,12 @@ Jianye Xu, Pan Hu, and Bassam Alrifaee, "SigmaRL: A Sample-Efficient and General
 
 - **BibTeX**
   ```bibtex
-  @article{xu2024sigmarl,
-    title={SigmaRL: A Sample-Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning},
+  @inproceedings{xu2024sigmarl,
+    title={{{SigmaRL}}: A Sample-Efficient and Generalizable Multi-Agent Reinforcement Learning Framework for Motion Planning},
     author={Xu, Jianye and Hu, Pan and Alrifaee, Bassam},
-    journal={arXiv preprint arXiv:2408.07644},
+    booktitle={2024 IEEE 27th International Conference on Intelligent Transportation Systems (ITSC), in press},
     year={2024},
+    organization={IEEE}
   }
   ```
 
@@ -127,13 +133,13 @@ Jianye Xu, Pan Hu, and Bassam Alrifaee, "SigmaRL: A Sample-Efficient and General
 <div>
 Jianye Xu, Omar Sobhy, and Bassam Alrifaee, "XP-MARL: Auxiliary Prioritization in Multi-Agent Reinforcement Learning to Address Non-Stationarity," <i>arXiv preprint arXiv:2409.11852</i>, 2024.
 
-<a href="https://doi.org/10.48550/arXiv.2409.11852" target="_blank"><img src="https://img.shields.io/badge/-Preprint-b31b1b?logo=arXiv"></a> <a href="https://youtu.be/tzaVjol4nhA" target="_blank"><img src="https://img.shields.io/badge/-Video-FF0000?logo=YouTube"></a> <a href="https://github.com/cas-lab-munich/SigmaRL/tree/1.2.0" target="_blank"><img src="https://img.shields.io/badge/-GitHub-181717?logo=GitHub"></a>
+<a href="https://doi.org/10.48550/arXiv.2409.11852" target="_blank"><img src="https://img.shields.io/badge/-Preprint-b31b1b?logo=arXiv"></a> <a href="https://youtu.be/GEhjRKY2fTU" target="_blank"><img src="https://img.shields.io/badge/-Video-FF0000?logo=YouTube"></a> <a href="https://github.com/cas-lab-munich/SigmaRL/tree/1.2.0" target="_blank"><img src="https://img.shields.io/badge/-GitHub-181717?logo=GitHub"></a>
 </div>
 
 - **BibTeX**
   ```bibtex
-  @article{xu2024xpmarl,
-    title={XP-MARL: Auxiliary Prioritization in Multi-Agent Reinforcement Learning to Address Non-Stationarity},
+  @article{xu2024xp,
+    title={{{XP-MARL}}: Auxiliary Prioritization in Multi-Agent Reinforcement Learning to Address Non-Stationarity},
     author={Xu, Jianye and Sobhy, Omar and Alrifaee, Bassam},
     journal={arXiv preprint arXiv:2409.11852},
     year={2024},
